@@ -45,11 +45,10 @@ def identify_missing_dates(db) -> list:
         logger.info("Nenhuma data faltando. Limpando arquivo de controle.")
         return
 
+    # delta_days + 1: range(1, 1) é vazio; deve haver pelo menos 1 dia de diferença
     missing_dates = [
         (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
-        for i in range(
-            1, delta_days + 1
-        )  # +1 porque o range de 1 a 1 é zero/nulo, sempre e sempre deve haver pelo menos 1 de diferença
+        for i in range(1, delta_days + 1)
     ]
 
     if missing_dates:
