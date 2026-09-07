@@ -4,13 +4,14 @@ Lê o arquivo consolidado mais recente e gera CSV + HTML.
 """
 
 import re
-from pathlib import Path
 
 import pandas as pd
 
+from my_ingestion.settings import settings
+
 INVESTMENT = 10_000.0
-SOURCE = Path("data/consolidated/fii_list_history.csv")
-OUTPUT_DIR = Path("reports")
+SOURCE = settings.lake_root / "raw" / "fii" / "consolidated" / "fii_list_history.csv"
+OUTPUT_DIR = settings.lake_root / "reports" / "fii"
 
 
 def parse_percent(value: str) -> float | None:
@@ -51,27 +52,36 @@ def build_report(month: str, df_month: pd.DataFrame) -> pd.DataFrame:
     df["dy_12m_pct_display"] = (df["dy_12m_pct"] * 100).round(2)
     df["dy_5y_pct_display"] = (df["dy_5y_pct"] * 100).round(2)
 
-    result = df[[
-        "ticker",
-        "fii_type",
-        "name_segment",
-        "dy_12m_pct_display",
-        "dy_5y_pct_display",
-        "dividendo_anual_brl",
-        "dividendo_mensal_brl",
-        "liquidity_brl",
-        "p_vp",
-    ]].rename(columns={
-        "ticker": "Ticker",
-        "fii_type": "Tipo",
-        "name_segment": "Segmento",
-        "dy_12m_pct_display": "DY 12m (%)",
-        "dy_5y_pct_display": "DY 5a (%)",
-        "dividendo_anual_brl": "Dividendo Anual (R$)",
-        "dividendo_mensal_brl": "Dividendo Mensal (R$)",
-        "liquidity_brl": "Liquidez Diária (R$)",
-        "p_vp": "P/VP",
-    }).sort_values("DY 12m (%)", ascending=False).reset_index(drop=True)
+    result = (
+        df[
+            [
+                "ticker",
+                "fii_type",
+                "name_segment",
+                "dy_12m_pct_display",
+                "dy_5y_pct_display",
+                "dividendo_anual_brl",
+                "dividendo_mensal_brl",
+                "liquidity_brl",
+                "p_vp",
+            ]
+        ]
+        .rename(
+            columns={
+                "ticker": "Ticker",
+                "fii_type": "Tipo",
+                "name_segment": "Segmento",
+                "dy_12m_pct_display": "DY 12m (%)",
+                "dy_5y_pct_display": "DY 5a (%)",
+                "dividendo_anual_brl": "Dividendo Anual (R$)",
+                "dividendo_mensal_brl": "Dividendo Mensal (R$)",
+                "liquidity_brl": "Liquidez Diária (R$)",
+                "p_vp": "P/VP",
+            }
+        )
+        .sort_values("DY 12m (%)", ascending=False)
+        .reset_index(drop=True)
+    )
 
     return result
 
@@ -81,9 +91,9 @@ def to_html(df: pd.DataFrame, month: str) -> str:
     for _, row in df.iterrows():
         liq = row["Liquidez Diária (R$)"]
         if pd.notna(liq) and liq >= 1_000_000:
-            liq_str = f"R$ {liq/1_000_000:.2f} M"
+            liq_str = f"R$ {liq / 1_000_000:.2f} M"
         elif pd.notna(liq) and liq >= 1_000:
-            liq_str = f"R$ {liq/1_000:.2f} K"
+            liq_str = f"R$ {liq / 1_000:.2f} K"
         elif pd.notna(liq):
             liq_str = f"R$ {liq:.0f}"
         else:
@@ -93,15 +103,15 @@ def to_html(df: pd.DataFrame, month: str) -> str:
 
         rows_html += f"""
         <tr>
-          <td><strong>{row['Ticker']}</strong></td>
-          <td>{row['Tipo']}</td>
-          <td>{row['Segmento']}</td>
-          <td class="num">{row['DY 12m (%)']:.2f}%</td>
+          <td><strong>{row["Ticker"]}</strong></td>
+          <td>{row["Tipo"]}</td>
+          <td>{row["Segmento"]}</td>
+          <td class="num">{row["DY 12m (%)"]:.2f}%</td>
           <td class="num">{dy5}</td>
-          <td class="num">R$ {row['Dividendo Anual (R$)']:,.2f}</td>
-          <td class="num highlight">R$ {row['Dividendo Mensal (R$)']:,.2f}</td>
+          <td class="num">R$ {row["Dividendo Anual (R$)"]:,.2f}</td>
+          <td class="num highlight">R$ {row["Dividendo Mensal (R$)"]:,.2f}</td>
           <td class="num">{liq_str}</td>
-          <td class="num">{row['P/VP']}</td>
+          <td class="num">{row["P/VP"]}</td>
         </tr>"""
 
     return f"""<!DOCTYPE html>
@@ -138,15 +148,15 @@ def to_html(df: pd.DataFrame, month: str) -> str:
     </div>
     <div class="card">
       <div class="card-label">DY médio (12m)</div>
-      <div class="card-value">{df['DY 12m (%)'].mean():.2f}%</div>
+      <div class="card-value">{df["DY 12m (%)"].mean():.2f}%</div>
     </div>
     <div class="card">
       <div class="card-label">Dividendo mensal médio</div>
-      <div class="card-value green">R$ {df['Dividendo Mensal (R$)'].mean():.2f}</div>
+      <div class="card-value green">R$ {df["Dividendo Mensal (R$)"].mean():.2f}</div>
     </div>
     <div class="card">
       <div class="card-label">Maior DY (12m)</div>
-      <div class="card-value green">{df['DY 12m (%)'].max():.2f}%</div>
+      <div class="card-value green">{df["DY 12m (%)"].max():.2f}%</div>
     </div>
   </div>
 
@@ -181,13 +191,19 @@ def main():
     html_path.write_text(to_html(report, latest_month), encoding="utf-8")
     print(f"HTML salvo: {html_path}")
 
-    print(f"\nAporte: R$ {INVESTMENT:,.0f} | Mês: {latest_month} | Fundos: {len(report)}")
-    print(f"DY médio: {report['DY 12m (%)'].mean():.2f}% | "
-          f"Dividendo mensal médio: R$ {report['Dividendo Mensal (R$)'].mean():.2f}")
-    print(f"\nTop 10 por DY 12m:")
-    print(report[[
-        "Ticker", "DY 12m (%)", "Dividendo Mensal (R$)", "Tipo", "P/VP"
-    ]].head(10).to_string(index=False))
+    print(
+        f"\nAporte: R$ {INVESTMENT:,.0f} | Mês: {latest_month} | Fundos: {len(report)}"
+    )
+    print(
+        f"DY médio: {report['DY 12m (%)'].mean():.2f}% | "
+        f"Dividendo mensal médio: R$ {report['Dividendo Mensal (R$)'].mean():.2f}"
+    )
+    print("\nTop 10 por DY 12m:")
+    print(
+        report[["Ticker", "DY 12m (%)", "Dividendo Mensal (R$)", "Tipo", "P/VP"]]
+        .head(10)
+        .to_string(index=False)
+    )
 
 
 if __name__ == "__main__":

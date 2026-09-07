@@ -51,6 +51,8 @@ select = ["E", "F", "I", "N", "W", "UP", "B"]
 # Código de negócio migrado como estava (conformação, não reescrita):
 # mensagens de log longas herdadas dos projetos originais.
 "src/my_ingestion/pipelines/legislativo/**" = ["E501"]
+# Template HTML/CSS embutido — quebrar as linhas prejudica a legibilidade.
+"src/my_ingestion/pipelines/financas/fundos_imobiliarios/dividend_report.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

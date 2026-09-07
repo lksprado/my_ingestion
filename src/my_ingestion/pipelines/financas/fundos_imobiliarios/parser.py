@@ -67,7 +67,7 @@ def parse_inv10_fund_table(html: str):
 
         row = {"indicator": indicator}
 
-        for year, value in zip(headers, values):
+        for year, value in zip(headers, values, strict=False):
             row[year] = value
 
         results.append(row)
@@ -97,7 +97,7 @@ if __name__ == "__main__":
     # with open("fund_table.html", "w", encoding="utf-8") as f:
     #     f.write(soup)
 
-    with open("fund_table.html", "r", encoding="utf-8") as f:
+    with open("fund_table.html", encoding="utf-8") as f:
         html = f.read()
 
     import pandas as pd

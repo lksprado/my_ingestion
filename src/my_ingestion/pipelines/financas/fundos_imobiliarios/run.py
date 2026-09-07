@@ -9,9 +9,16 @@ import pandas as pd
 import yfinance as yf
 from selenium import webdriver
 
-from src.extractor import Extractor
-from src.parser import parse_inv10_fund_table, parse_inv10_rankings_table
-from src.utils.log import logger
+from my_ingestion.core import setup_logger
+from my_ingestion.core.http import HttpClient
+from my_ingestion.pipelines.financas.fundos_imobiliarios.parser import (
+    parse_inv10_fund_table,
+    parse_inv10_rankings_table,
+)
+from my_ingestion.settings import settings
+
+logger = setup_logger(__name__)
+BASE_DIR = settings.lake_root / "raw" / "fii"
 
 
 def resolve_month(month_arg: str | None) -> tuple[str, str]:
@@ -23,11 +30,11 @@ def resolve_month(month_arg: str | None) -> tuple[str, str]:
 
 
 def investidor_10_data(year: str, month: str) -> Path:
-    output_path = Path(f"data/{year}/{month}/fii_list.csv")
+    output_path = Path(f"{BASE_DIR}/{year}/{month}/fii_list.csv")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     extraction_month = f"{year}-{month}"
 
-    extract = Extractor()
+    extract = HttpClient(logger, retries=3, backoff_factor=0.5, timeout=10)
     rows = []
     page = 1
     while True:
@@ -49,7 +56,7 @@ def investidor_10_data(year: str, month: str) -> Path:
 
 
 def investidor_10_details(tickers: list, year: str, month: str) -> tuple[int, int]:
-    output_path = Path(f"data/{year}/{month}/indicadores/")
+    output_path = Path(f"{BASE_DIR}/{year}/{month}/indicadores/")
     output_path.mkdir(parents=True, exist_ok=True)
     extraction_month = f"{year}-{month}"
 
@@ -91,7 +98,7 @@ def get_fii_history(
     month: str,
     start: str = "2020-01-01",
 ) -> Path:
-    output_path = Path(f"data/{year}/{month}/fii_history.csv")
+    output_path = Path(f"{BASE_DIR}/{year}/{month}/fii_history.csv")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     consolidated_rows = []
@@ -139,12 +146,12 @@ def get_fii_history(
 
 
 def consolidate_fii_list(year: str, month: str, force: bool = False) -> None:
-    source = Path(f"data/{year}/{month}/fii_list.csv")
+    source = Path(f"{BASE_DIR}/{year}/{month}/fii_list.csv")
     if not source.exists():
         logger.warning(f"consolidate_fii_list: {source} not found, skipping")
         return
 
-    target = Path("data/consolidated/fii_list_history.csv")
+    target = Path(f"{BASE_DIR}/consolidated/fii_list_history.csv")
     target.parent.mkdir(parents=True, exist_ok=True)
     extraction_month = f"{year}-{month}"
 
@@ -170,12 +177,12 @@ def consolidate_fii_list(year: str, month: str, force: bool = False) -> None:
 
 
 def consolidate_indicadores(year: str, month: str, force: bool = False) -> None:
-    source_dir = Path(f"data/{year}/{month}/indicadores/")
+    source_dir = Path(f"{BASE_DIR}/{year}/{month}/indicadores/")
     if not source_dir.exists():
         logger.warning(f"consolidate_indicadores: {source_dir} not found, skipping")
         return
 
-    target = Path("data/consolidated/indicadores_history.csv")
+    target = Path(f"{BASE_DIR}/consolidated/indicadores_history.csv")
     target.parent.mkdir(parents=True, exist_ok=True)
     extraction_month = f"{year}-{month}"
 
@@ -226,7 +233,7 @@ if __name__ == "__main__":
     year, month = resolve_month(args.month)
     extraction_month = f"{year}-{month}"
 
-    log_dir = Path("logs")
+    log_dir = BASE_DIR / "logs"
     log_dir.mkdir(exist_ok=True)
     file_handler = RotatingFileHandler(
         log_dir / f"{extraction_month}.log",
@@ -247,7 +254,7 @@ if __name__ == "__main__":
     fii_success, fii_failed = 0, 0
 
     if not args.consolidate_only:
-        fii_list_path = Path(f"data/{year}/{month}/fii_list.csv")
+        fii_list_path = Path(f"{BASE_DIR}/{year}/{month}/fii_list.csv")
 
         if fii_list_path.exists() and not args.force:
             logger.info(

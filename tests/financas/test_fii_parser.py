@@ -1,4 +1,7 @@
-from src.parser import parse_inv10_fund_table, parse_inv10_rankings_table
+from my_ingestion.pipelines.financas.fundos_imobiliarios.parser import (
+    parse_inv10_fund_table,
+    parse_inv10_rankings_table,
+)
 
 RANKINGS_HTML = """
 <html><body>
