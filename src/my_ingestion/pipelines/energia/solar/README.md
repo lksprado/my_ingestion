@@ -44,4 +44,3 @@ Dashboard: https://public.tableau.com/app/profile/lucas8230/viz/HOMESOLARPANELPR
 
 ![alt text](images/SUMMARY.png)
 ![alt text](images/DAILY.png)
-

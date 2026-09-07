@@ -1,7 +1,7 @@
 # PRD — Coleta Mensal de Dados de Fundos Imobiliários (Investidor 10)
 
-**Versão:** 1.0  
-**Data:** 2026-05-30  
+**Versão:** 1.0
+**Data:** 2026-05-30
 **Status:** Draft
 
 ---
@@ -192,7 +192,7 @@ O dia 5 garante que os dados do mês anterior estejam disponíveis e estáveis n
 
 ### 8.5 Dependências
 
-Manter o stack atual: `requests`, `beautifulsoup4`, `selenium`, `pandas`, `yfinance`.  
+Manter o stack atual: `requests`, `beautifulsoup4`, `selenium`, `pandas`, `yfinance`.
 Adicionar `lxml` como parser alternativo ao BeautifulSoup para maior performance.
 
 ---

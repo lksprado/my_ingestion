@@ -29,7 +29,7 @@ sources:
     subpath: "votacoes"
     bronze_file: "camara_votacoes.csv"
     db_table: "raw_camara_votacoes"
-    output_param_file: 
+    output_param_file:
       id_votacoes.csv: "id"
       id_proposicao.csv: "id_proposicao"
 
