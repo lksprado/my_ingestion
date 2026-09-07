@@ -4,16 +4,21 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from .utils.log import logger
+from my_ingestion.core import setup_logger
+
+logger = setup_logger(__name__)
 
 
-def get_routes():
-    """
-    Obter o "historia.html" em Devtools > Sources
+def get_routes(input_html, output_dir):
+    """Extrai os hrefs de um HTML salvo manualmente (Devtools > Sources).
+
+    Args:
+        input_html: caminho do HTML salvo (ex-data/historia.html).
+        output_dir: diretório onde gravar o CSV de rotas.
     """
     BASE_URL = "https://videeditorial.com.br/"  # noqa: N806
 
-    with open("data/historia.html", "r", encoding="utf-8") as f:
+    with open(input_html, encoding="utf-8") as f:
         soup = BeautifulSoup(f, "html.parser")
 
     routes = []
@@ -39,7 +44,11 @@ def get_routes():
     df = pd.DataFrame(routes)
     created_at = datetime.now().strftime("%Y-%m-%d")
     df.drop_duplicates(inplace=True)
-    df.to_csv(f"data/all_hrefs_{created_at}.csv", sep=";", index=False)
+    from pathlib import Path
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_dir / f"all_hrefs_{created_at}.csv", sep=";", index=False)
 
 
 def get_last_page_number(response: str) -> int:
