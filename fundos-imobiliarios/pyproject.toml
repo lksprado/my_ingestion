@@ -1,0 +1,26 @@
+[project]
+name = "seu-projeto-template"
+version = "0.1.0"
+description = "Template para projetos Python"
+requires-python = ">=3.10"
+dependencies = [
+    "python-dotenv>=1.2.1",
+    "pytest>=9.0.2",
+    "ruff>=0.14.11",
+    "beautifulsoup4>=4.14.3",
+    "requests>=2.33.1",
+    "pandas>=2.3.3",
+    "yfinance>=1.2.1",
+    "selenium>=4.41.0",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

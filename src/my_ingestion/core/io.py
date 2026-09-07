@@ -1,4 +1,4 @@
-"""Helpers de arquivo: listagem, concat e escrita de CSV (era duplicado em 5 lugares)."""
+"""Helpers de arquivo: listagem, concat e escrita de CSV (antes duplicados 5x)."""
 
 import logging
 from pathlib import Path

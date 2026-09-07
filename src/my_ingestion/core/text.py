@@ -47,7 +47,7 @@ class ColumnSanitizer:
                 )
             new_cols.append(new_col)
 
-        col_map = dict(zip(cols_to_sanitize, new_cols))
+        col_map = dict(zip(cols_to_sanitize, new_cols, strict=True))
         self.df.rename(columns=col_map, inplace=True)
 
         return self

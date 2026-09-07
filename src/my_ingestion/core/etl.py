@@ -5,8 +5,8 @@ extract via HttpClient, load via PostgresClient (bronze CSV -> raw.<db_table>).
 """
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 import pandas as pd
 
@@ -22,7 +22,7 @@ class GenericETL:
         extract_fn: Callable[[PipelineConfig], Path] | None = None,
         transform_fn: Callable[[PipelineConfig], None] | None = None,
         load_fn: Callable[[PipelineConfig], None] | None = None,
-        log: Optional[logging.Logger] = None,
+        log: logging.Logger | None = None,
     ):
         self.cfg = cfg
         self.extract_fn = extract_fn

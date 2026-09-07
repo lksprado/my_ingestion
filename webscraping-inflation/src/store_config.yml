@@ -1,0 +1,10 @@
+stores:
+  - id: atacadao
+    name: Atacadao
+    search_url: "https://www.atacadao.com.br/api/graphql"
+    operation: "ProductsQuery"
+    region_id: "U1cjYXRhY2FkYW9icjM0MA=="
+    sales_channel: "1"
+    seller: "atacadaobr340"
+    locale: "pt-BR"
+    enabled: true
