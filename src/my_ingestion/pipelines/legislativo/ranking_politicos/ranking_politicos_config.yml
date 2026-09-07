@@ -1,0 +1,19 @@
+environments:
+  local:
+    base_raw: "${LAKE_ROOT}/raw/demodados/ranking"
+    base_bronze: "${LAKE_ROOT}/bronze/demodados/ranking"
+  airflow:
+    base_raw: "/usr/local/airflow/mylake/raw/demodados/ranking"
+    base_bronze: "/usr/local/airflow/mylake/bronze/demodados/ranking"
+
+sources:
+  deputados:
+    base_url: "https://ranking.org.br/api/filter-items-ranking?page=1&per_page=1000000&current_tab=0&cargo_id=1&ordem=desc&ordenar_por=pontuacao"
+    subpath: "deputados"
+    bronze_file: "ranking_deputados.csv"
+    db_table: "raw_ranking_deputados"
+  senadores:
+    base_url: "https://ranking.org.br/api/filter-items-ranking?page=1&per_page=1000000&current_tab=0&cargo_id=2&ordem=desc&ordenar_por=pontuacao"
+    subpath: "senadores"
+    bronze_file: "ranking_senadores.csv"
+    db_table: "raw_ranking_senadores"

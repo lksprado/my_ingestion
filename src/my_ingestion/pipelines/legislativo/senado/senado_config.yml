@@ -1,0 +1,60 @@
+environments:
+  local:
+    base_raw: "${LAKE_ROOT}/raw/demodados/senado"
+    base_bronze: "${LAKE_ROOT}/bronze/demodados/senado"
+    base_error: "${LAKE_ROOT}/raw/demodados/senado/error"
+    base_parameters: "${LAKE_ROOT}/raw/demodados/senado/parameters"
+  airflow:
+    base_raw: "/usr/local/airflow/mylake/raw/demodados/senado"
+    base_bronze: "/usr/local/airflow/mylake/bronze/demodados/senado"
+    base_error: "/usr/local/airflow/mylake/raw/demodados/senado/error"
+    base_parameters: "/usr/local/airflow/mylake/raw/demodados/senado/parameters"
+
+sources:
+  legislatura:
+    base_url: "https://legis.senado.leg.br/dadosabertos/senador/lista/legislatura/"
+    subpath: "legislatura"
+    landing_file: "senadores_legislaturas.json"
+    bronze_file: "senadores_legislaturas.csv"
+    db_table: "raw_senado_legislaturas"
+
+  votacoes:
+    base_url: "https://legis.senado.leg.br/dadosabertos/votacao"
+    subpath: "votacoes"
+    bronze_file: "senado_votacoes.csv"
+    db_table: "raw_senado_votacoes"
+    output_param_file:
+      id_votacoes.csv: "codigosessaovotacao"
+      id_processo.csv: "idprocesso"
+
+  votos_senadores:
+    subpath: "votos_senadores"
+    bronze_file: "senado_votos_senadores.csv"
+    db_table: "raw_senado_votos_senadores"
+
+  votos_orientacao:
+    base_url: "https://legis.senado.leg.br/dadosabertos/plenario/votacao/orientacaoBancada/"
+    subpath: "votos_orientacao"
+    bronze_file: "senado_votos_orientacao.csv"
+    db_table: "raw_senado_votos_orientacao"
+
+  senadores:
+    base_url: "https://legis.senado.leg.br/dadosabertos/senador/lista/atual?v=4"
+    subpath: "senadores"
+    landing_file: "senado_senadores.json"
+    bronze_file: "senado_senadores.csv"
+    db_table: "raw_senado_senadores"
+
+  status:
+    base_url: "https://legis.senado.leg.br/dadosabertos/processo"
+    subpath: "status"
+    bronze_file: "senado_status_consolidado.csv"
+    db_table: "raw_senado_status"
+    parameter_file: "ecidadania_paginas_consolidado.csv"
+
+  processo:
+    base_url: "https://legis.senado.leg.br/dadosabertos/processo"
+    subpath: "processo"
+    bronze_file: "senado_processo_consolidado.csv"
+    db_table: "raw_senado_processo"
+    parameter_file: "id_processo.csv"
