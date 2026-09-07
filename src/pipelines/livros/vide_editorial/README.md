@@ -1,125 +1,81 @@
-# Webscraping Books Refactor
+# Pipeline: Vide Editorial
 
-Um coletor focado em livros e promoções do site da **Vide Editorial**. O projeto extrai listas de produtos (home e categorias), pagina automaticamente, salva em JSON e pode carregar os dados em PostgreSQL.
+Coletor de livros e promoções do site da **Vide Editorial**. Extrai listas de
+produtos (home e categorias), pagina automaticamente, salva JSON no lake e carrega
+no Postgres.
 
-## Visão geral rápida
+## Fluxo
 
-- **Coleta resiliente** com `requests` + retry/backoff para erros 4xx/5xx
-- **Parsing estruturado** com BeautifulSoup
-- **Saídas claras**: arquivos JSON por página e data
-- **Carga opcional** para banco com SQLAlchemy + pandas
+1. `HttpClient` (de `core`) faz a requisição com retry/backoff.
+2. `parsers.py` transforma o HTML numa lista de produtos.
+3. `run.py` salva os JSONs no lake e carrega em `raw.*` via `PostgresClient`.
 
-## Fluxo de dados (em 3 passos)
+## Arquivos
 
-1. **Extractor** faz a requisição HTTP com retry (`src/extractor.py`).
-2. **Parsers** transformam o HTML em uma lista de produtos (`src/parsers.py`).
-3. **Persistência** salva JSON localmente ou faz carga no Postgres (`src/loader.py`).
+| Arquivo | Papel |
+|---|---|
+| `run.py` | Entrypoint: extração da home, das categorias e carga |
+| `parsers.py` | Seletores BeautifulSoup e paginação |
+| `config.yml` | Categorias a coletar (`hrefs: [{name, link}]`) |
 
-## Estrutura do projeto
-
-```
-.
-├── src/
-│   ├── extractor.py
-│   ├── parsers.py
-│   ├── loader.py
-│   ├── main.py
-│   └── config.yml
-├── data/
-├── docs/
-├── tests/
-└── README.md
-```
-
-## Como rodar
-
-### 1) Instalação
-
-```
-uv sync --no-install-project
-```
-
-### 2) Extração de destaques (home)
+## Como executar
 
 ```bash
-uv run python -c "from src.main import extraction_featured_books; extraction_featured_books('data/out')"
+# home (livros em destaque) + carga
+uv run python -m pipelines.livros.vide_editorial.run
 ```
 
-Saída esperada (exemplo):
+Para as demais operações, chame as funções direto:
 
+```bash
+# todas as categorias do config.yml
+uv run python -c "
+from pathlib import Path
+from pipelines.livros.vide_editorial.run import extract_categories_content
+from settings import settings
+extract_categories_content(settings.lake_root / 'raw/vide/categorias')"
+
+# uma categoria específica
+uv run python -c "
+from pipelines.livros.vide_editorial.run import extract_categories_content
+from settings import settings
+extract_categories_content(settings.lake_root / 'raw/vide/categorias', only='filosofia')"
+
+# carga de um diretório de JSONs numa tabela
+uv run python -c "
+from pipelines.livros.vide_editorial.run import load
+from settings import settings
+load(settings.lake_root / 'raw/vide/categorias', 'vide_raw_categorias')"
 ```
-vide_livros_em_destaque_2026-01-26.json
-```
 
-### 3) Extração de categorias (config.yml)
+Saída dos arquivos: `vide_livros_em_destaque_{data}.json` para a home e
+`{categoria}_page_{n}_{data}.json` para as categorias.
 
-O arquivo `src/config.yml` define as categorias e URLs que serão coletadas:
+## Configuração de categorias
 
-```yml
+```yaml
 hrefs:
   - name: filosofia
     link: https://videeditorial.com.br/filosofia
 ```
 
-Para extrair **todas** as categorias:
-
-```bash
-uv run python -c "from src.main import extract_link_content; extract_link_content('data/out', 'src/config.yml')"
-```
-
-Para extrair **uma categoria específica**:
-
-```bash
-uv run python -c "from src.main import extract_one_category_content; extract_one_category_content('filosofia', 'data/out', 'src/config.yml')"
-```
-
-Saída esperada (exemplo):
-
-```
-filosofia_page_1_2026-01-26.json
-filosofia_page_2_2026-01-26.json
-...
-```
-
-## Carga no Postgres
-
-A carga usa as variáveis de ambiente abaixo:
-
-- `DB_HOST`
-- `DB_PORT`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PW`
-
-Exemplo de carga:
-
-```bash
-uv run python -c "from src.loader import load_data; load_data('data/out', 'json', 'raw', 'vide_raw_home_featured')"
-```
+A paginação é descoberta sozinha (`get_last_page_number`), então basta o link da
+primeira página. Entre requisições há um `sleep` de ~1s para não martelar o site.
 
 ## Campos extraídos
 
-- `name`, `url`
-- `author_name`, `author_id`
-- `price_old`, `price_new`
-- `discount`, `is_new`
-- `source`, `created_at`
-- `category` (quando aplicável)
+`name`, `url`, `author_name`, `author_id`, `price_old`, `price_new`, `discount`,
+`is_new`, `source`, `created_at` e `category` (só nas páginas de categoria).
 
-## Observabilidade
+## Notas
 
-Logs de execução seguem um formato padrão e podem ser configurados para arquivo em `src/utils/log.py`.
-
-## Qualidade
-
-```
-uv run pytest
-uv run ruff check .
-uv run ruff fix .
-```
-
-## Dicas de evolução
-
-- Adicione novas categorias no `src/config.yml`.
-- Ajuste os seletores em `src/parsers.py` caso o HTML do site mude.
-- Se quiser um CLI, o ponto de partida é `src/main.py`.
+- A carga usa `PostgresClient.load_files_to_table`, que concatena todos os JSONs do
+  diretório numa tabela só e acrescenta `source_filename`, `arquivo_origem` e
+  `data_carga`. É full refresh (`replace`).
+- Credenciais do banco vêm do `.env` da raiz (`DB_*`) — a variável antiga `DB_PW`
+  foi padronizada para `DB_PASSWORD`.
+- `parsers.get_routes(input_html, output_dir)` é um utilitário manual: recebe um
+  HTML salvo pelo DevTools e extrai todos os links do site, útil para descobrir
+  novas categorias para o `config.yml`.
+- Se o site mudar o HTML, os seletores a ajustar estão em
+  `parsers.parse_products_page` (`div.item-product`, `.name a.product-name`, etc.).

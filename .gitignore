@@ -5,9 +5,9 @@
 *.key
 secrets/
 
-# Projeto dbt separado (repo git próprio — fora do monorepo)
-demodados/demodadosdw/
-demodados/local_setup/
+# Projeto dbt separado: vive em ~/workspace/demodados/demodadosdw (repo git
+# próprio). A regra abaixo é defensiva, caso alguém volte a copiá-lo para cá.
+demodados/
 
 # Python
 __pycache__/

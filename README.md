@@ -35,8 +35,9 @@ Cada fonte tem sua pasta com código + `*_config.yml` (blocos `environments:
 compartilhada**: o que cada módulo oferece, assinaturas e exemplos de uso.
 Leia antes de escrever um pipeline novo.
 
-`demodados/demodadosdw/` é o projeto **dbt** (transformação) — repo git próprio,
-fora deste monorepo (ignorado pelo `.gitignore`).
+A transformação (dbt) vive **fora** deste monorepo, em repositórios próprios:
+`~/workspace/demodados/demodadosdw` (dados legislativos) e `~/workspace/the_dw`
+(finanças e inflação, alvo do `SEEDS_ROOT`).
 
 ## Setup
 

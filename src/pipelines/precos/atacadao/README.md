@@ -1,18 +1,48 @@
-# webscraping-inflation
+# Pipeline: Preços Atacadão (inflação pessoal)
 
-Projeto de scraping semanal de produtos do mercado próximo de onde eu moro, com o objetivo de calcular uma variação de preços mais personalizada.
+Coleta periódica de preços de produtos do mercado onde eu compro, para calcular uma
+variação de preços **personalizada** — uma "inflação" da minha cesta real, em vez de
+um índice geral.
 
-## Visão geral
-- Coleta semanal de preços de produtos.
-- Cálculo de variação de preços personalizada.
-- Modelagem e armazenamento dos dados no repositório [my_datawarehouse](https://github.com/lksprado/my_datawarehouse).
-- Orquestração da extração pelo repositório [my_orchestrator](https://github.com/lksprado/my_orchestrator).
+## Como funciona
 
-## Fluxo macro
-1) Extração dos preços (este repositório).
-2) Carga e modelagem no `my_datawarehouse`.
-3) Orquestração e agendamento no `my_orchestrator`.
+O site do Atacadão expõe uma API GraphQL de busca. O `scraper.py` monta a query por
+keyword e loja, e o `run.py` percorre o produto cartesiano lojas × keywords,
+gravando um CSV (`;`) por combinação:
 
-## Repositórios relacionados
-- `my_datawarehouse`: modelagem e persistência dos dados.
-- `my_orchestrator`: orquestração da extração e do pipeline.
+```
+${LAKE_ROOT}/raw/inflation/atacadao/{store_id}_{keyword}_{YYYY-MM-DD}.csv
+```
+
+Campos extraídos: `store_id`, `sku`, `category`, `sub_category`, `product_name`,
+`brand_name`, `high_price`, `low_price`, mais `keyword` e `extracted_at`.
+
+## Configuração
+
+| Arquivo | Conteúdo |
+|---|---|
+| `store_config.yml` | Lojas (`region_id`, `sales_channel`, `seller`, `locale`, `search_url`, `operation`). Lojas com `enabled: false` são puladas |
+| `products_config.yml` | Lista de keywords sob `keywords:` — aceita string simples ou `{name: ...}` |
+
+Adicionar um produto à cesta é uma linha em `products_config.yml`.
+
+## Como executar
+
+```bash
+uv run python -m pipelines.precos.atacadao.run        # coleta do dia
+uv run python -m pipelines.precos.atacadao.historic   # consolida para o seed do dbt
+```
+
+O `historic.py` concatena os CSVs mensais de
+`${LAKE_ROOT}/bronze/inflation/months/` e grava `minha_inflacao.csv` em
+`${SEEDS_ROOT}` — ou seja, entrega direto como seed do data warehouse
+[`the_dw`](https://github.com/lksprado/the_dw), onde a modelagem acontece.
+
+## Notas
+
+- Não há carga em banco aqui: a saída é CSV, e o dbt do `the_dw` assume daí.
+- O `HttpClient` é configurado com retry mais curto (3 tentativas, backoff 0.5) por
+  ser scraping de site. Keywords sem resultado são simplesmente puladas.
+- A URL da API embute JSON dentro de query params; se a busca voltar vazia para
+  tudo, o mais provável é que o `operation` ou o formato de `selectedFacets` tenha
+  mudado no site.

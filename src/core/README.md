@@ -13,9 +13,19 @@ Os nomes mais usados são reexportados no pacote:
 
 ```python
 from core import (
-    ColumnSanitizer, GenericETL, HttpClient, PipelineConfig, PostgresClient,
-    concat_files_to_df, expand_path, list_files, load_source_config, load_yaml,
-    normalize_string, setup_logger, write_csv,
+    ColumnSanitizer,
+    GenericETL,
+    HttpClient,
+    PipelineConfig,
+    PostgresClient,
+    concat_files_to_df,
+    expand_path,
+    list_files,
+    load_source_config,
+    load_yaml,
+    normalize_string,
+    setup_logger,
+    write_csv,
 )
 ```
 

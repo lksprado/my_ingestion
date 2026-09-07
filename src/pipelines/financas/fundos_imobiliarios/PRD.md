@@ -2,7 +2,19 @@
 
 **Versão:** 1.0
 **Data:** 2026-05-30
-**Status:** Draft
+**Status:** ⚠️ Documento histórico — implementado e superado
+
+---
+
+> **Leia o [README.md](README.md) para o comportamento atual.**
+>
+> Este PRD foi escrito **antes** da implementação e é mantido apenas como registro
+> da decisão original. O que ele descreve como pendente já foi feito (organização
+> por `{YYYY}/{MM}`, consolidação idempotente, CLI com `--month`/`--force`), e o
+> que ele descreve como "problemas atuais" não vale mais.
+>
+> Divergência principal: os caminhos aqui são relativos (`data/...`), de quando o
+> projeto era um repo isolado. Hoje tudo vive em `${LAKE_ROOT}/raw/fii/`.
 
 ---
 

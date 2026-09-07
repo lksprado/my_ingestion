@@ -1,46 +1,62 @@
-# Home Solar: Da Coleta aos Insights
-[English Version](https://github.com/lksprado/Solar/blob/main/README-en.md)
+# Pipeline: Energia Solar
 
-## O que é o projeto?
-É um pipeline que faz login em um sistema de geração solar, extrai e transforma dados de produção de um sistema IoT solar residencial sem API pública. Este repositório foca em extração e transformação — projetado para ser acoplado como submódulo a um repositório pessoal de Airflow.
+Extrai dados de produção de um sistema solar residencial (APsystems / portal
+`apsystemsema.com`), que **não tem API pública** — os dados ficam atrás de login e
+de uma view do app que habilita uma API interna. Daí o uso de Selenium para
+autenticar e, a partir dos cookies da sessão, chamar essa API diretamente.
 
-**Notas sobre o escopo**:
-1. Este projeto é um submódulo de uma configuração pessoal de Airflow. A etapa de carga (load) não está intencionalmente incluída aqui.
-2. Trata-se de uma configuração pessoal, não replicável, ajustada a um provedor específico.
+[Dashboard no Tableau](https://public.tableau.com/app/profile/lucas8230/viz/HOMESOLARPANELPRODUCTION2021-2024/Painel1)
 
-## Por que isso existe
-- Sem API oficial: Os dados ficam ocultos atrás de login e de uma visualização específica do app que habilita uma API interna.
-- Engenharia prática: Demonstra scraping resiliente, transformações estruturadas e Python testável sem over-engineering.
-- Analytics pessoal: Alimenta um conjunto de dados simples e consistente para visualização a jusante.
+## Fluxo
 
-## O que ele faz
-- Faz login no portal do provedor solar e busca dados históricos e atuais de produção.
-- Transforma JSON bruto em DataFrames organizados e prontos para análise (resumos horários e diários).
-- Escreve artefatos de controle (por exemplo, listas de datas faltantes) para garantir continuidade e idempotência entre execuções.
+1. **Identificar lacunas** — `missing_raw.py` consulta o maior `date`/`datetime` já
+   carregado em `raw.solar_daily_energy` e `raw.solar_hourly_energy` e gera a lista
+   de datas faltantes até ontem (ou até hoje, se já passou das 20h).
+2. **Extrair** — `extraction.py` faz login com Selenium, navega até o relatório e
+   requisita o JSON de produção por data, salvando no staging.
+3. **Transformar** — `transforming.py` converte os JSONs em DataFrames e produz os
+   agregados horário e diário.
 
-## Stack tecnológica
-- Selenium: Automação de navegador confiável para alcançar os endpoints da API interna.
-- Python + OOP: Separação clara de responsabilidades e boa manutenibilidade.
-- Pytest: Testes em nível de função para componentes críticos.
-- Logging: Logs estruturados para facilitar depuração e observabilidade.
+## Arquivos
 
-## Módulos principais
-- `src/missing_raw.py`: Identifica datas com dados ausentes no banco local e grava essas datas em um arquivo de controle.
-- `src/extraction.py`: Autentica e obtém o JSON bruto do portal (via fluxos habilitados por Selenium).
-- `src/transforming.py`: Converte JSON em DataFrames do pandas e produz agregações horárias e diárias.
-- `main.py`: Exemplo de execução que conecta as etapas para uso local/debug.
+| Arquivo | Papel |
+|---|---|
+| `run.py` | Entrypoint que costura as três etapas |
+| `missing_raw.py` | High-water mark no Postgres + arquivo de controle de datas |
+| `extraction.py` | Login Selenium, sessão autenticada e download dos JSONs |
+| `transforming.py` | JSON → DataFrame, agregações diária e horária |
 
-Os testes associados estão em `tests/` para extração, transformação e, quando aplicável, helpers relacionados a banco de dados.
+## Como executar
 
-## Fluxo típico
-1) Identificar lacunas: Gerar/atualizar a lista de datas faltantes.
-2) Extrair dados: Fazer login, navegar até a visualização correta e requisitar o JSON por data.
-3) Transformar dados: Normalizar, limpar e agregar em tabelas horárias e diárias.
+```bash
+uv run python -m pipelines.energia.solar.run
+```
 
-O carregamento/orquestração a jusante é realizado pelo Airflow no repositório privado pai.
+Sem datas faltantes, o script encerra sem fazer nada (`No missing dates to process`).
 
-## Visualizações
-Dashboard: https://public.tableau.com/app/profile/lucas8230/viz/HOMESOLARPANELPRODUCTION2021-2024/Painel1
+## Configuração
 
-![alt text](images/SUMMARY.png)
-![alt text](images/DAILY.png)
+No `.env` da raiz:
+
+```
+APSYSTEMS_USER=
+APSYSTEMS_PASSWORD=
+```
+
+Saídas em `${LAKE_ROOT}/staging/solar_project/`, incluindo o arquivo de controle
+`missing_dates.csv`.
+
+## Notas
+
+- **Não há etapa de load.** O Postgres é lido apenas para descobrir até onde os
+  dados já vão; a carga fica a cargo do orquestrador (Airflow) no repositório
+  privado que consome este pipeline. As saídas são CSVs diário e horário.
+- O Selenium roda **com janela** por padrão (`headless=False` no `run.py`), porque o
+  portal se comporta mal em headless. Para rodar sem display, mude o
+  `SeleniumConfig` e valide que o login ainda passa.
+- `missing_raw._get_first` aceita tanto uma conexão psycopg2 quanto um
+  `PostgresHook` do Airflow — é o que permite reaproveitar o módulo nos dois
+  contextos.
+- Este pipeline foi migrado do repo `Solar`; os testes originais referenciavam
+  classes que não existem mais (`EMAWebScraper`, `TransformCSV`) e foram
+  descartados na migração, então hoje ele **não tem cobertura de testes**.
