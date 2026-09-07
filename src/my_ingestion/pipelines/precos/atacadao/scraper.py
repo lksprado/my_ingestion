@@ -1,11 +1,11 @@
 import json
 from urllib.parse import urlencode
 
-from .extractor import Extractor
+from my_ingestion.core.http import HttpClient
 
 
 class AtacadaoScraper:
-    def __init__(self, store_cfg: dict, extractor: Extractor):
+    def __init__(self, store_cfg: dict, extractor: HttpClient):
         self.store_id = store_cfg["id"]
         self.cfg = store_cfg
         self.extractor = extractor
