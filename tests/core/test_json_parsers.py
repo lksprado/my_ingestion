@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from my_ingestion.core.parsers.json import make_df_from_json_list
+from core.parsers.json import make_df_from_json_list
 
 
 def test_make_df_from_json_list_success(tmp_path: Path):

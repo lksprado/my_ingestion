@@ -8,7 +8,7 @@ data lake local (CSV/JSON) e Postgres (schema `raw`). Unifica os antigos repos
 ## Estrutura
 
 ```
-src/my_ingestion/
+src/                   # raiz de código (layout plano: imports sem prefixo de pacote)
 ├── settings.py        # config central (pydantic-settings, lê o .env da raiz)
 ├── core/              # biblioteca compartilhada
 │   ├── http.py        # HttpClient: requests com retry/backoff, fetch_and_save(_many)
@@ -50,13 +50,13 @@ uv run task lint                 # ruff check + format --check
 uv run task format               # ruff format + fix
 
 # Pipelines (exemplos)
-uv run python -m my_ingestion.pipelines.legislativo.camara.camara_deputados
-uv run python -m my_ingestion.pipelines.financas.investimentos.run_all       # b3+avenue+google
-uv run python -m my_ingestion.pipelines.financas.investimentos.run_all fgc
-uv run python -m my_ingestion.pipelines.financas.fundos_imobiliarios.run --month 2026-09
-uv run python -m my_ingestion.pipelines.precos.atacadao.run
-uv run python -m my_ingestion.pipelines.energia.solar.run
-uv run python -m my_ingestion.pipelines.livros.vide_editorial.run
+uv run python -m pipelines.legislativo.camara.camara_deputados
+uv run python -m pipelines.financas.investimentos.run_all       # b3+avenue+google
+uv run python -m pipelines.financas.investimentos.run_all fgc
+uv run python -m pipelines.financas.fundos_imobiliarios.run --month 2026-09
+uv run python -m pipelines.precos.atacadao.run
+uv run python -m pipelines.energia.solar.run
+uv run python -m pipelines.livros.vide_editorial.run
 ```
 
 ## ⚠️ Segredos vazados nos repos antigos — ROTACIONAR

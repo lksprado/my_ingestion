@@ -3,8 +3,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from my_ingestion.core.config import PipelineConfig
-from my_ingestion.core.etl import GenericETL
+from core.config import PipelineConfig
+from core.etl import GenericETL
 
 
 def test_generic_extraction_calls_http_extractor(monkeypatch, tmp_path: Path):
@@ -19,7 +19,7 @@ def test_generic_extraction_calls_http_extractor(monkeypatch, tmp_path: Path):
             called["output_dir"] = Path(output_dir)
             called["filename"] = filename
 
-    import my_ingestion.core.etl as etl_module
+    import core.etl as etl_module
 
     monkeypatch.setattr(etl_module, "HttpClient", FakeExtractor)
 
@@ -86,7 +86,7 @@ def test_generic_loader_uses_default_postgres_client(monkeypatch, tmp_path: Path
             sent["how"] = how
             sent["rows"] = len(df)
 
-    import my_ingestion.core.etl as etl_module
+    import core.etl as etl_module
 
     monkeypatch.setattr(etl_module, "PostgresClient", lambda: FakePg())
 

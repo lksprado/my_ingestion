@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from my_ingestion.core.config import PipelineConfig
+from core.config import PipelineConfig
 
 
 def test_pipeline_cfg_normalizes_paths_and_derives_bronze_file(tmp_path: Path):

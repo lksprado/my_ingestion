@@ -37,7 +37,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/my_ingestion"]
+# Layout plano: src/ é a raiz de código, então core/, pipelines/ e settings
+# ficam no topo (import `from core.db import ...`, sem prefixo de pacote).
+only-include = ["src"]
+sources = ["src"]
 
 [tool.ruff]
 line-length = 88
@@ -50,9 +53,9 @@ select = ["E", "F", "I", "N", "W", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # Código de negócio migrado como estava (conformação, não reescrita):
 # mensagens de log longas herdadas dos projetos originais.
-"src/my_ingestion/pipelines/legislativo/**" = ["E501"]
+"src/pipelines/legislativo/**" = ["E501"]
 # Template HTML/CSS embutido — quebrar as linhas prejudica a legibilidade.
-"src/my_ingestion/pipelines/financas/fundos_imobiliarios/dividend_report.py" = ["E501"]
+"src/pipelines/financas/fundos_imobiliarios/dividend_report.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
