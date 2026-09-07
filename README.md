@@ -28,8 +28,12 @@ src/                   # raiz de código (layout plano: imports sem prefixo de p
 ```
 
 Cada fonte tem sua pasta com código + `*_config.yml` (blocos `environments:
-{local, airflow}` e `sources:`). Paths usam `${LAKE_ROOT}`/`${SEEDS_ROOT}` —
-nada hardcoded, nada de credencial em código.
+{local, airflow}` e `sources:`) + um `README.md` próprio. Paths usam
+`${LAKE_ROOT}`/`${SEEDS_ROOT}` — nada hardcoded, nada de credencial em código.
+
+📖 **[`src/core/README.md`](src/core/README.md) — referência da biblioteca
+compartilhada**: o que cada módulo oferece, assinaturas e exemplos de uso.
+Leia antes de escrever um pipeline novo.
 
 `demodados/demodadosdw/` é o projeto **dbt** (transformação) — repo git próprio,
 fora deste monorepo (ignorado pelo `.gitignore`).
