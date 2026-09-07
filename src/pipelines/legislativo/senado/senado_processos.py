@@ -303,4 +303,4 @@ if __name__ == "__main__":
     )
     config = load_source_config(_CONFIG_FILE, source="processo", env="local")
     run_pipeline(PipelineConfig(**config))
-    # python -m src.pipelines.legislativo.senado.senado_processos
+    # uv run python -m pipelines.legislativo.senado.senado_processos

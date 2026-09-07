@@ -132,4 +132,4 @@ if __name__ == "__main__":
     )
     config = load_source_config(_CONFIG_FILE, source="votos_orientacao", env="local")
     run_pipeline(PipelineConfig(**config))
-    # python -m src.pipelines.legislativo.camara.camara_votos_orientacao
+    # uv run python -m pipelines.legislativo.camara.camara_votos_orientacao

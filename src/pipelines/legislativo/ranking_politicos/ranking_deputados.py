@@ -55,4 +55,4 @@ if __name__ == "__main__":
     )
     config = load_source_config(_CONFIG_FILE, source="deputados", env="local")
     run_pipeline(PipelineConfig(**config))
-    # python -m src.pipelines.legislativo.ranking_politicos.ranking_deputados
+    # uv run python -m pipelines.legislativo.ranking_politicos.ranking_deputados

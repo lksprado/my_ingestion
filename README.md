@@ -31,9 +31,16 @@ Cada fonte tem sua pasta com código + `*_config.yml` (blocos `environments:
 {local, airflow}` e `sources:`) + um `README.md` próprio. Paths usam
 `${LAKE_ROOT}`/`${SEEDS_ROOT}` — nada hardcoded, nada de credencial em código.
 
-📖 **[`src/core/README.md`](src/core/README.md) — referência da biblioteca
-compartilhada**: o que cada módulo oferece, assinaturas e exemplos de uso.
-Leia antes de escrever um pipeline novo.
+📖 Documentação:
+
+- **[`src/core/README.md`](src/core/README.md)** — referência da biblioteca
+  compartilhada: o que cada módulo oferece, assinaturas e exemplos de uso.
+- **[`src/pipelines/README.md`](src/pipelines/README.md)** — guia de design para
+  **implementar um pipeline novo**: onde colocar, o YAML, o esqueleto do script,
+  os padrões a reaproveitar e quando fugir do `GenericETL`.
+
+Cada pasta de fonte tem ainda seu próprio README com tabelas, dependências e
+armadilhas específicas.
 
 A transformação (dbt) vive **fora** deste monorepo, em repositórios próprios:
 `~/workspace/demodados/demodadosdw` (dados legislativos) e `~/workspace/the_dw`

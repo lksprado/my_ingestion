@@ -38,4 +38,4 @@ if __name__ == "__main__":
     )
     config = load_source_config(_CONFIG_FILE, source="parlamentares", env="local")
     run_pipeline(PipelineConfig(**config))
-    # python -m src.pipelines.legislativo.radar_congresso.radar_parlamentares
+    # uv run python -m pipelines.legislativo.radar_congresso.radar_parlamentares

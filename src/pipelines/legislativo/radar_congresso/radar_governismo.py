@@ -85,4 +85,4 @@ if __name__ == "__main__":
     )
     run_pipeline(PipelineConfig(**config_dep))
     run_pipeline(PipelineConfig(**config_sen))
-    # python -m src.pipelines.legislativo.radar_congresso.radar_governismo
+    # uv run python -m pipelines.legislativo.radar_congresso.radar_governismo

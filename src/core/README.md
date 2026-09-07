@@ -90,8 +90,11 @@ logger = setup_logger(__name__)
 logger = setup_logger("solar", log_file=settings.lake_root / "logs" / "solar.log")
 ```
 
-Nunca use `logging.basicConfig()` num pipeline — ele configura o root logger e
-afeta todo o processo.
+Não use `logging.basicConfig()` em nível de módulo: ele configura o root logger e
+afeta todo o processo que importar o arquivo. Os pipelines migrados do
+`legislativo` ainda o chamam dentro do `__main__` (onde o efeito colateral é
+inofensivo, pois o script *é* o processo) — em código novo, prefira `setup_logger`
+nos dois lugares.
 
 ---
 
