@@ -1,0 +1,36 @@
+# Ambiente / segredos
+.env
+.venv/
+*.pem
+*.key
+secrets/
+
+# Projeto dbt separado (repo git próprio — fora do monorepo)
+demodados/demodadosdw/
+demodados/local_setup/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Ferramentas
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Dados e saídas de execução (pertencem ao lake, não ao repo)
+data/
+logs/
+*.log
+reports/*.csv
+reports/*.html
+
+# Editor
+.vscode/
+.claude/
+.idea/
