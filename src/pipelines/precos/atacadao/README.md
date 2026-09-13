@@ -43,6 +43,9 @@ O `historic.py` concatena os CSVs mensais de
 - Não há carga em banco aqui: a saída é CSV, e o dbt do `the_dw` assume daí.
 - O `HttpClient` é configurado com retry mais curto (3 tentativas, backoff 0.5) por
   ser scraping de site. Keywords sem resultado são simplesmente puladas.
+- Cada keyword busca **duas páginas** de 100 itens (`after=0` e `after=100`), com
+  deduplicação por SKU; a segunda página é pulada se a primeira vier vazia. A API
+  devolve `null` (não ausência) em campos vazios, daí os `or {}` no parser.
 - A URL da API embute JSON dentro de query params; se a busca voltar vazia para
   tudo, o mais provável é que o `operation` ou o formato de `selectedFacets` tenha
   mudado no site.

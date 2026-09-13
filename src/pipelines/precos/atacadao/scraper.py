@@ -10,15 +10,35 @@ class AtacadaoScraper:
         self.cfg = store_cfg
         self.extractor = extractor
 
-    def search(self, keyword: str) -> list[dict]:
-        url = self._build_url(keyword)
-        data = self.extractor.make_request(url=url, mode="json")
-        return self._parse_products(data)
+    # Páginas de 100 itens; a API usa cursor numérico em ``after``.
+    PAGE_SIZE = 100
+    PAGES = 2
 
-    def _build_url(self, keyword: str) -> str:
+    def search(self, keyword: str) -> list[dict]:
+        """Busca até ``PAGES`` páginas da keyword, deduplicando por SKU."""
+        all_products: list[dict] = []
+        seen_skus: set[str] = set()
+
+        for page in range(self.PAGES):
+            url = self._build_url(keyword, after=page * self.PAGE_SIZE)
+            data = self.extractor.make_request(url=url, mode="json")
+            products = self._parse_products(data)
+            if not products:
+                break
+
+            for product in products:
+                sku = product.get("sku")
+                if not sku or sku in seen_skus:
+                    continue
+                seen_skus.add(sku)
+                all_products.append(product)
+
+        return all_products
+
+    def _build_url(self, keyword: str, after: int = 0) -> str:
         variables = {
-            "first": 100,
-            "after": "0",
+            "first": self.PAGE_SIZE,
+            "after": str(after),
             "sort": "score_desc",
             "term": keyword,
             "selectedFacets": [
@@ -48,15 +68,19 @@ class AtacadaoScraper:
             return []
 
         products = []
-        edges = (
-            data.get("data", {}).get("search", {}).get("products", {}).get("edges", [])
-        )
+        # ``or {}`` em cada nível: a API devolve null (não ausência) para campos vazios.
+        search = (data.get("data") or {}).get("search") or {}
+        edges = (search.get("products") or {}).get("edges") or []
 
         for edge in edges:
-            node = edge.get("node", {})
-            breadcrumb = (node.get("breadcrumbList") or {}).get("itemListElement", [])
-            category = breadcrumb[0].get("name") if len(breadcrumb) > 0 else None
-            sub_category = breadcrumb[1].get("name") if len(breadcrumb) > 1 else None
+            node = edge.get("node") or {}
+            breadcrumb = (node.get("breadcrumbList") or {}).get("itemListElement") or []
+            category = (
+                (breadcrumb[0] or {}).get("name") if len(breadcrumb) > 0 else None
+            )
+            sub_category = (
+                (breadcrumb[1] or {}).get("name") if len(breadcrumb) > 1 else None
+            )
 
             products.append(
                 {
