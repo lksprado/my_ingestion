@@ -2,10 +2,10 @@
 db_schema: "raw_radar_congresso"
 
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/raw/demodados/radar_congresso"
     base_bronze: "${LAKE_ROOT}/bronze/demodados/radar_congresso"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/raw/demodados/radar_congresso"
     base_bronze: "/usr/local/airflow/mylake/bronze/demodados/radar_congresso"
 

@@ -3,10 +3,10 @@
 db_schema: "raw_vide_editorial"
 
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/raw/vide"
     base_bronze: "${LAKE_ROOT}/bronze/vide"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/raw/vide"
     base_bronze: "/usr/local/airflow/mylake/bronze/vide"
 

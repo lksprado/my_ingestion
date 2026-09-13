@@ -22,9 +22,9 @@ options:
   param_schema: "staging"
 
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/raw/nhl"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/raw/nhl"
 
 sources:

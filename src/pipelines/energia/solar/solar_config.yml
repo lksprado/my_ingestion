@@ -21,10 +21,10 @@ options:
   headless: false
 
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/staging/solar_project"
     base_bronze: "${LAKE_ROOT}/staging/solar_project"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/staging/solar_project"
     base_bronze: "/usr/local/airflow/mylake/staging/solar_project"
 

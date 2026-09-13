@@ -6,10 +6,11 @@ estiver incompleto, evitando que pipelines criem diretórios/conexões errados.
 
 Destino no Postgres por ambiente
 --------------------------------
-``ENV`` escolhe tanto o bloco ``environments`` dos YAMLs quanto o perfil de
-conexão ``DB__<ENV>__*`` (``DB__LOCAL__HOST``, ``DB__LOCAL__NAME``...). O perfil
-ativo sai em ``settings.db_target``; ``PostgresClient()`` sem argumentos usa ele.
-Guard-rail: em ``ENV=local`` o banco tem que ser ``analytics_dev``. Perfis
+São dois ambientes: ``dev`` (execução local) e ``prod`` (Airflow). ``ENV``
+escolhe tanto o bloco ``environments`` dos YAMLs quanto o perfil de conexão
+``DB__<ENV>__*`` (``DB__DEV__HOST``, ``DB__DEV__NAME``...). O perfil ativo sai em
+``settings.db_target``; ``PostgresClient()`` sem argumentos usa ele.
+Guard-rail: em ``ENV=dev`` o banco tem que ser ``analytics_dev``. Perfis
 inativos podem ficar em branco no .env.
 """
 
@@ -25,8 +26,8 @@ from sqlalchemy.engine import URL
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = REPO_ROOT / ".env"
 
-# Banco obrigatório da execução local: evita carga acidental em outro banco.
-LOCAL_DB_NAME = "analytics_dev"
+# Banco obrigatório em dev (execução local): evita carga acidental em outro banco.
+DEV_DB_NAME = "analytics_dev"
 
 
 class DbTarget(BaseModel):
@@ -59,10 +60,10 @@ class DbTarget(BaseModel):
 
 
 class DbProfiles(BaseModel):
-    """Um ``DbTarget`` por ambiente (``DB__LOCAL__*``, ``DB__AIRFLOW__*``)."""
+    """Um ``DbTarget`` por ambiente (``DB__DEV__*``, ``DB__PROD__*``)."""
 
-    local: DbTarget = DbTarget()
-    airflow: DbTarget = DbTarget()
+    dev: DbTarget = DbTarget()
+    prod: DbTarget = DbTarget()
 
 
 class Settings(BaseSettings):
@@ -70,13 +71,14 @@ class Settings(BaseSettings):
         env_file=ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
-        # DB__LOCAL__HOST -> db.local.host
+        # DB__DEV__HOST -> db.dev.host
         env_nested_delimiter="__",
-        # Chave em branco no .env (ex.: DB__AIRFLOW__HOST=) conta como ausente.
+        # Chave em branco no .env (ex.: DB__PROD__HOST=) conta como ausente.
         env_ignore_empty=True,
     )
 
-    env: Literal["local", "airflow"] = "local"
+    # dev = execução local; prod = Airflow
+    env: Literal["dev", "prod"] = "dev"
 
     # Data lake local e seeds do dbt (repo externo the_dw)
     lake_root: Path
@@ -113,10 +115,9 @@ class Settings(BaseSettings):
             prefix = f"DB__{self.env.upper()}__"
             faltam = ", ".join(prefix + m.upper() for m in missing)
             raise ValueError(f"ENV={self.env}: faltam {faltam} no .env")
-        if self.env == "local" and target.name != LOCAL_DB_NAME:
+        if self.env == "dev" and target.name != DEV_DB_NAME:
             raise ValueError(
-                f"ENV=local exige DB__LOCAL__NAME={LOCAL_DB_NAME}; "
-                f"recebido {target.name!r}"
+                f"ENV=dev exige DB__DEV__NAME={DEV_DB_NAME}; recebido {target.name!r}"
             )
         return self
 

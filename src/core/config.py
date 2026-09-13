@@ -7,11 +7,11 @@ Os YAMLs de fonte seguem a estrutura::
     bronze_sep: ";"             # separador do bronze (default ";")
     options: {...}              # opções comuns a todos os sources (opcional)
     environments:
-      local:
+      dev:                      # execução local
         base_raw: ${LAKE_ROOT}/raw/...
         base_bronze: ${LAKE_ROOT}/bronze/...
         base_parameters: ${LAKE_ROOT}/raw/.../parameters
-      airflow:
+      prod:                     # Airflow
         ...
     sources:
       <entidade>:
@@ -210,7 +210,7 @@ def _source_dict(config_file: Path | str, source: str, env: str | None) -> dict:
 
             env = settings.env
         except Exception:
-            env = os.getenv("ENV", "local")
+            env = os.getenv("ENV", "dev")
 
     cfg = load_yaml(config_file)
     env_cfg = cfg["environments"][env]

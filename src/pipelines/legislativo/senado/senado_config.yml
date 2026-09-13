@@ -6,11 +6,11 @@
 db_schema: "raw_senado"
 
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/raw/demodados/senado"
     base_bronze: "${LAKE_ROOT}/bronze/demodados/senado"
     base_parameters: "${LAKE_ROOT}/raw/demodados/senado/parameters"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/raw/demodados/senado"
     base_bronze: "/usr/local/airflow/mylake/bronze/demodados/senado"
     base_parameters: "/usr/local/airflow/mylake/raw/demodados/senado/parameters"

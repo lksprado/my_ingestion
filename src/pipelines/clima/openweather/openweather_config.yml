@@ -8,10 +8,10 @@ load: none
 bronze_sep: ","
 
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/staging/weather_project"
     base_bronze: "${LAKE_ROOT}/staging/weather_project"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/staging/weather_project"
     base_bronze: "/usr/local/airflow/mylake/staging/weather_project"
 

@@ -4,10 +4,10 @@
 load: files
 
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/raw/investments"
     base_bronze: "${LAKE_ROOT}/bronze/investments"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/raw/investments"
     base_bronze: "/usr/local/airflow/mylake/bronze/investments"
 

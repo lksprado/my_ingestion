@@ -195,7 +195,7 @@ def test_load_jsonb_passes_options(monkeypatch, tmp_path):
 YAML = """
 db_schema: raw_teste
 environments:
-  local:
+  dev:
     base_raw: "{root}/raw"
     base_bronze: "{root}/bronze"
 sources:

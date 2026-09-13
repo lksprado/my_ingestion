@@ -97,15 +97,15 @@ def _yml(tmp_path: Path, text: str) -> Path:
 def test_from_yaml_passes_options(tmp_path: Path):
     yml = _yml(
         tmp_path,
-        "environments:\n  local:\n    base_raw: /tmp/x\n"
+        "environments:\n  dev:\n    base_raw: /tmp/x\n"
         "sources:\n  s:\n    base_url: http://a\n    options:\n      array_key: data\n"
         "  t:\n    base_url: http://b\n",
     )
-    cfg = PipelineConfig.from_yaml(yml, "s", env="local", criar_dirs=False)
+    cfg = PipelineConfig.from_yaml(yml, "s", env="dev", criar_dirs=False)
     assert cfg.options == {"array_key": "data"}
     assert cfg.url_base == "http://a"
 
-    cfg = PipelineConfig.from_yaml(yml, "t", env="local", criar_dirs=False)
+    cfg = PipelineConfig.from_yaml(yml, "t", env="dev", criar_dirs=False)
     assert cfg.options == {}
 
 
@@ -114,12 +114,12 @@ def test_from_yaml_top_level_defaults_and_source_overrides(tmp_path: Path):
         tmp_path,
         "db_schema: raw_fonte\nload: jsonb\nbronze_sep: ','\n"
         "options:\n  control_table: ctl\n  workers: 1\n"
-        "environments:\n  local:\n    base_raw: /tmp/x\n"
+        "environments:\n  dev:\n    base_raw: /tmp/x\n"
         "sources:\n  s:\n    db_table: entidade\n"
         "  t:\n    db_table: outra\n    db_schema: raw_override\n    load: none\n"
         "    bronze_sep: ';'\n    options:\n      workers: 4\n",
     )
-    cfg = PipelineConfig.from_yaml(yml, "s", env="local", criar_dirs=False)
+    cfg = PipelineConfig.from_yaml(yml, "s", env="dev", criar_dirs=False)
     assert (cfg.db_schema, cfg.db_table, cfg.load, cfg.bronze_sep) == (
         "raw_fonte",
         "entidade",
@@ -128,7 +128,7 @@ def test_from_yaml_top_level_defaults_and_source_overrides(tmp_path: Path):
     )
     assert cfg.options == {"control_table": "ctl", "workers": 1}
 
-    cfg = PipelineConfig.from_yaml(yml, "t", env="local", criar_dirs=False)
+    cfg = PipelineConfig.from_yaml(yml, "t", env="dev", criar_dirs=False)
     assert (cfg.db_schema, cfg.load, cfg.bronze_sep) == ("raw_override", "none", ";")
     assert cfg.options == {"control_table": "ctl", "workers": 4}
 
@@ -136,9 +136,9 @@ def test_from_yaml_top_level_defaults_and_source_overrides(tmp_path: Path):
 def test_from_yaml_defaults_without_top_level_keys(tmp_path: Path):
     yml = _yml(
         tmp_path,
-        "environments:\n  local:\n    base_raw: /tmp/x\n"
+        "environments:\n  dev:\n    base_raw: /tmp/x\n"
         "sources:\n  s:\n    db_table: e\n",
     )
-    cfg = PipelineConfig.from_yaml(yml, "s", env="local", criar_dirs=False)
+    cfg = PipelineConfig.from_yaml(yml, "s", env="dev", criar_dirs=False)
     assert cfg.db_schema is None
     assert (cfg.load, cfg.bronze_sep, cfg.options) == ("table", ";", {})

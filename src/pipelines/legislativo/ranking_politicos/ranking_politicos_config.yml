@@ -3,10 +3,10 @@
 db_schema: "raw_ranking_politicos"
 
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/raw/demodados/ranking"
     base_bronze: "${LAKE_ROOT}/bronze/demodados/ranking"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/raw/demodados/ranking"
     base_bronze: "/usr/local/airflow/mylake/bronze/demodados/ranking"
 

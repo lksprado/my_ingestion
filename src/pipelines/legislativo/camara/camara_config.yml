@@ -5,11 +5,11 @@
 db_schema: "raw_camara"
 
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/raw/demodados/camara"
     base_bronze: "${LAKE_ROOT}/bronze/demodados/camara"
     base_parameters: "${LAKE_ROOT}/raw/demodados/camara/parameters"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/raw/demodados/camara"
     base_bronze: "/usr/local/airflow/mylake/bronze/demodados/camara"
     base_parameters: "/usr/local/airflow/mylake/raw/demodados/camara/parameters"
