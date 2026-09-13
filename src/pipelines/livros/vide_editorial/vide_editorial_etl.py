@@ -1,12 +1,23 @@
-"""Parsers do HTML da Vide Editorial (listas de produtos e paginação)."""
+"""ETL da Vide Editorial (scraping) -> ``raw_vide_editorial.<entidade>``.
+
+O extract parseia o HTML e grava no landing a lista de produtos em JSON.
+``livros_em_destaque`` (home) vai até o banco; ``categorias`` é extract-only
+(``load: none``, sem consumidor no momento).
+"""
 
 import logging
 from datetime import datetime
+from pathlib import Path
+from time import sleep
 from urllib.parse import parse_qs, urljoin, urlparse
 
+import pandas as pd
 from bs4 import BeautifulSoup
 
+from core import Etl, HttpClient, PipelineConfig, run_source, write_bronze
+
 logger = logging.getLogger(__name__)
+CONFIG_FILE = Path(__file__).parent / "vide_editorial_config.yml"
 BASE_URL = "https://videeditorial.com.br/"
 
 
@@ -140,3 +151,72 @@ def parse_content_pages(response) -> list:
         source="category_page",
         has_category=True,
     )
+
+
+# ------------------------------ livros_em_destaque ------------------------------
+
+
+def _http() -> HttpClient:
+    return HttpClient(logger, retries=3, backoff_factor=0.5, timeout=10)
+
+
+def extract_livros_em_destaque(cfg: PipelineConfig) -> None:
+    http = _http()
+    html = http.get_text(cfg.url_base)
+    if html is None:
+        return
+    http.save_json(parse_home_sales(html), cfg.landing_dir, cfg.landing_file)
+
+
+def transform_livros_em_destaque(cfg: PipelineConfig) -> None:
+    frames = []
+    for f in sorted(cfg.landing_dir.glob(cfg.options["file_pattern"])):
+        df = pd.read_json(f)
+        df["source_filename"] = f.name
+        frames.append(df)
+    write_bronze(cfg, pd.concat(frames, ignore_index=True) if frames else None)
+
+
+# ------------------------------ categorias ------------------------------
+
+
+def extract_categorias(cfg: PipelineConfig) -> None:
+    """Todas as páginas de cada categoria de ``options.hrefs``."""
+    http = _http()
+    delay = float(cfg.options.get("delay", 1.0))
+
+    for item in cfg.options["hrefs"]:
+        name, link = item["name"], item["link"]
+        sep = "&" if "?" in link else "?"
+        html = http.get_text(f"{link}{sep}page=1")
+        if html is None:
+            continue
+        last_page = get_last_page_number(html)
+        logger.info(f"{name}: {last_page} pagina(s)")
+        http.save_json(
+            parse_content_pages(html),
+            cfg.landing_dir,
+            cfg.landing_file.format(name=name, page=1),
+        )
+        for page in range(2, last_page + 1):
+            sleep(delay)
+            html = http.get_text(f"{link}{sep}page={page}")
+            if html is None:
+                continue
+            http.save_json(
+                parse_content_pages(html),
+                cfg.landing_dir,
+                cfg.landing_file.format(name=name, page=page),
+            )
+
+
+ETLS = {
+    "livros_em_destaque": Etl(
+        extract=extract_livros_em_destaque, transform=transform_livros_em_destaque
+    ),
+    "categorias": Etl(extract=extract_categorias),
+}
+
+if __name__ == "__main__":
+    run_source(CONFIG_FILE, ETLS)
+    # uv run python -m pipelines.livros.vide_editorial.vide_editorial_etl [entidade ...]
