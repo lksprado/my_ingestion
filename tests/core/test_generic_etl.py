@@ -97,6 +97,27 @@ def test_load_table_streams_bronze_in_chunks(monkeypatch, tmp_path):
     ]
 
 
+def test_load_table_reads_bronze_as_text(monkeypatch, tmp_path):
+    seen = []
+
+    class FakePg:
+        def __init__(self, log=None): ...
+
+        def send_df_to_db(self, df, table_name, *, schema, filename, how="replace"):
+            seen.append(df)
+
+    monkeypatch.setattr(etl_module, "PostgresClient", FakePg)
+    cfg = _cfg(tmp_path, bronze_file="f.csv", db_table="t", db_schema="raw_x")
+    cfg.bronze_filepath.write_text("id;sigla;valor\n007;NA;1.50\n;null;\n")
+    GenericETL(cfg).load()
+
+    df = seen[0]
+    assert df["id"].tolist()[0] == "007"  # zero à esquerda preservado
+    assert df["sigla"].tolist() == ["NA", "null"]  # só a célula vazia vira nulo
+    assert df["valor"].tolist()[0] == "1.50"
+    assert pd.isna(df["id"].tolist()[1]) and pd.isna(df["valor"].tolist()[1])
+
+
 def test_load_table_with_header_only_creates_empty_table(monkeypatch, tmp_path):
     sent = []
 

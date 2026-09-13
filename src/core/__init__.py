@@ -16,6 +16,7 @@ from core.incremental import (
 from core.io import (
     concat_files_to_df,
     concat_landing,
+    integral_floats_to_int,
     list_files,
     reset_bronze,
     write_bronze,
@@ -39,6 +40,7 @@ __all__ = [
     "concat_landing",
     "extract_by_ids",
     "flatten_children",
+    "integral_floats_to_int",
     "landing_ids",
     "list_files",
     "load_yaml",

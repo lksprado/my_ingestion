@@ -2,10 +2,13 @@
 
 from contextlib import contextmanager
 
+import numpy as np
 import pandas as pd
 import pytest
+from sqlalchemy import DateTime, Text
+from sqlalchemy.dialects.postgresql import JSONB
 
-from core.db import PostgresClient, validate_raw_schema
+from core.db import PostgresClient, to_raw_frame, validate_raw_schema
 from settings import DbTarget
 
 
@@ -99,3 +102,52 @@ def test_read_sql_wraps_engine_queries_in_text(monkeypatch):
     PostgresClient(engine=_Sentinel()).read_sql("select 1 where x like 'a%'")
     assert str(seen["sql"]) == "select 1 where x like 'a%'"
     assert not isinstance(seen["sql"], str)  # sqlalchemy.text
+
+
+def test_to_raw_frame_everything_text_except_json():
+    df = pd.DataFrame(
+        {
+            "s": ["007", np.nan, "x"],
+            "i": [1, 2, 3],
+            "f": [1.5, np.nan, 2.0],
+            "b": [True, False, None],
+            "d": pd.to_datetime(["2026-01-01", None, "2026-01-03"]),
+            "j": [{"a": 1}, None, [1, 2]],
+            "mix": [{"a": 1}, "x", None],
+            "vazia": [None, None, None],
+        }
+    )
+    out, dtype = to_raw_frame(df)
+
+    assert dtype == {c: Text for c in df.columns if c != "j"} | {"j": JSONB}
+    assert out["s"].tolist() == ["007", None, "x"]
+    assert out["i"].tolist() == ["1", "2", "3"]
+    assert out["f"].tolist() == ["1.5", None, "2.0"]
+    assert out["b"].tolist() == ["True", "False", None]
+    assert out["d"].tolist() == ["2026-01-01 00:00:00", None, "2026-01-03 00:00:00"]
+    assert out["j"].tolist() == [{"a": 1}, None, [1, 2]]
+    assert out["mix"].tolist() == ['{"a": 1}', "x", None]
+    assert out["vazia"].tolist() == [None, None, None]
+
+
+def test_send_df_to_db_writes_text_json_and_timestamp_metadata(monkeypatch):
+    captured = {}
+
+    def fake_to_sql(self, name, con, schema, if_exists, index, dtype):
+        captured.update(frame=self.copy(), dtype=dtype, name=name, schema=schema)
+
+    monkeypatch.setattr(pd.DataFrame, "to_sql", fake_to_sql)
+    pg = PostgresClient(engine=object())
+    monkeypatch.setattr(pg, "_ensure_schema", lambda schema: None)
+
+    df = pd.DataFrame({"n": [1], "j": [{"k": "v"}]})
+    pg.send_df_to_db(df, "t", schema="raw_x", filename="f.csv")
+
+    assert captured["dtype"] == {
+        "n": Text,
+        "j": JSONB,
+        "arquivo_origem": Text,
+        "data_carga": DateTime,
+    }
+    assert captured["frame"]["n"].tolist() == ["1"]
+    assert list(df.columns) == ["n", "j"]  # DataFrame do chamador intacto

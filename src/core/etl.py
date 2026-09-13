@@ -27,7 +27,7 @@ from typing import Literal
 import pandas as pd
 
 from core.config import PipelineConfig
-from core.db import PostgresClient, validate_raw_schema
+from core.db import READ_CSV_AS_TEXT, PostgresClient, validate_raw_schema
 from core.http import HttpClient
 from core.jsonb import JsonbLoader
 from core.logging import setup_logger
@@ -103,7 +103,7 @@ class GenericETL:
         db = PostgresClient(log=self.logger)
         how = "replace"
         chunks = pd.read_csv(
-            path, sep=cfg.bronze_sep, chunksize=_CHUNK, low_memory=False
+            path, sep=cfg.bronze_sep, chunksize=_CHUNK, **READ_CSV_AS_TEXT
         )
         for chunk in chunks:
             db.send_df_to_db(
@@ -111,7 +111,7 @@ class GenericETL:
             )
             how = "append"
         if how == "replace":  # CSV só com cabeçalho: cria a tabela vazia.
-            header = pd.read_csv(path, sep=cfg.bronze_sep, nrows=0)
+            header = pd.read_csv(path, sep=cfg.bronze_sep, nrows=0, **READ_CSV_AS_TEXT)
             db.send_df_to_db(header, cfg.db_table, schema=schema, filename=path.name)
 
     def _load_files(self) -> None:

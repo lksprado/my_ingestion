@@ -6,8 +6,14 @@ um ``DbTarget``/``connection``/``engine`` injetado — assim a ``core`` importa 
 
 Toda escrita exige ``schema`` explícito começando com ``raw_`` (``raw_<fonte>``);
 ``validate_raw_schema`` centraliza a regra.
+
+Na raw os dados são sempre texto: ``send_df_to_db`` grava toda coluna como
+``TEXT`` (a tipagem é do dbt) — exceto colunas cujos valores são objetos JSON
+(dict/list), gravadas como ``JSONB``. A coluna de rastreio ``data_carga`` é
+metadado da carga e fica ``TIMESTAMP`` (``loaded_at_field`` do dbt).
 """
 
+import json
 import logging
 import re
 from datetime import datetime
@@ -16,7 +22,8 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 import psycopg2
-from sqlalchemy import create_engine, text
+from sqlalchemy import DateTime, Text, create_engine, text
+from sqlalchemy.dialects.postgresql import JSONB
 
 if TYPE_CHECKING:
     from settings import DbTarget
@@ -40,6 +47,51 @@ def validate_raw_schema(schema: str | None) -> str:
             "Use 'raw_<fonte>' (ex.: raw_camara)."
         )
     return schema
+
+
+# Leitura de CSV/JSON para a raw: tudo como texto, e só a célula vazia vira NULL
+# (sem "NA", "null", "nan"... virando nulo nem "007" virando 7).
+READ_CSV_AS_TEXT = {"dtype": str, "keep_default_na": False, "na_values": [""]}
+
+
+def _is_json_obj(value) -> bool:
+    return isinstance(value, dict | list)
+
+
+def _cell_to_text(value) -> str | None:
+    if _is_json_obj(value):
+        return json.dumps(value, ensure_ascii=False)
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return None
+    return value if isinstance(value, str) else str(value)
+
+
+def to_raw_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """``(df, dtype)`` para ``to_sql``: toda coluna ``TEXT``, exceto JSON -> ``JSONB``.
+
+    Coluna em que todo valor não nulo é dict/list vira ``JSONB`` (nulos -> NULL).
+    Nas demais, cada valor vira ``str`` (dict/list soltos em ``json.dumps``) e
+    nulos viram NULL.
+    """
+    out = pd.DataFrame(index=df.index)
+    dtype = {}
+    for col in df.columns:
+        values = df[col].astype(object)
+        if pd.api.types.infer_dtype(values, skipna=True) in ("string", "empty"):
+            # caminho rápido: CSV lido com READ_CSV_AS_TEXT já é str ou NaN
+            out[col] = values.where(values.notna(), None)
+            dtype[col] = Text
+            continue
+        present = values[values.map(lambda v: _is_json_obj(v) or not pd.isna(v))]
+        if len(present) and present.map(_is_json_obj).all():
+            cells = [v if _is_json_obj(v) else None for v in values]
+            dtype[col] = JSONB
+        else:
+            cells = [_cell_to_text(v) for v in values]
+            dtype[col] = Text
+        # dtype=object: None fica None (Series.map devolveria NaN)
+        out[col] = pd.Series(cells, index=df.index, dtype=object)
+    return out, dtype
 
 
 def _default_target() -> "DbTarget":
@@ -111,17 +163,28 @@ class PostgresClient:
         filename: str | None = None,
     ) -> None:
         """Envia um DataFrame para ``schema.table_name`` com colunas de rastreio
-        (``arquivo_origem`` se ``filename`` for dado, e ``data_carga``)."""
+        (``arquivo_origem`` se ``filename`` for dado, e ``data_carga``).
+
+        Dados como ``TEXT`` (JSON como ``JSONB``), ver ``to_raw_frame``.
+        """
         schema = validate_raw_schema(schema)
+        df, dtype = to_raw_frame(df)
         if filename:
             df["arquivo_origem"] = filename
+            dtype["arquivo_origem"] = Text
         df["data_carga"] = datetime.now()
+        dtype["data_carga"] = DateTime
 
         engine = self.alchemy()
         try:
             self._ensure_schema(schema)
             df.to_sql(
-                name=table_name, con=engine, schema=schema, if_exists=how, index=False
+                name=table_name,
+                con=engine,
+                schema=schema,
+                if_exists=how,
+                index=False,
+                dtype=dtype,
             )
             self.logger.info(f"✅ {len(df)} linha(s) em {schema}.{table_name} ({how})")
         except Exception as e:
@@ -154,8 +217,10 @@ class PostgresClient:
 
         def _read(file: Path) -> pd.DataFrame:
             if file.suffix.lower() == ".json":
-                return pd.read_json(file, encoding="utf-8")
-            return pd.read_csv(file, sep=sep, encoding="utf-8", low_memory=False)
+                return pd.read_json(
+                    file, encoding="utf-8", dtype=False, convert_dates=False
+                )
+            return pd.read_csv(file, sep=sep, encoding="utf-8", **READ_CSV_AS_TEXT)
 
         if table_name:
             dfs = []

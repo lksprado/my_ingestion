@@ -13,7 +13,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from core import PipelineConfig, list_files, reset_bronze, write_csv
+from core import (
+    PipelineConfig,
+    integral_floats_to_int,
+    list_files,
+    reset_bronze,
+    write_csv,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -409,6 +415,9 @@ def transform(cfg: PipelineConfig) -> None:
     dividends_df = pd.DataFrame(dividends, columns=DIVIDEND_COLS).sort_values(
         ["period_end", "person", "layout"], na_position="first"
     )
+    # float inteiro vira int: a raw é texto, sem "123.0"
+    assets_df = integral_floats_to_int(assets_df)
+    dividends_df = integral_floats_to_int(dividends_df)
     write_csv(assets_df, cfg.bronze_dir, "assets.csv", sep=cfg.bronze_sep)
     write_csv(
         dividends_df, cfg.bronze_dir, "dividends_interest.csv", sep=cfg.bronze_sep

@@ -4,7 +4,13 @@ import pandas as pd
 import pytest
 
 from core.config import PipelineConfig
-from core.io import concat_landing, reset_bronze, write_bronze, write_bronze_streaming
+from core.io import (
+    concat_landing,
+    integral_floats_to_int,
+    reset_bronze,
+    write_bronze,
+    write_bronze_streaming,
+)
 
 
 @pytest.fixture
@@ -105,3 +111,24 @@ def test_reset_bronze_removes_only_csvs(tmp_path):
     (tmp_path / "manter.txt").write_text("x")
     reset_bronze(cfg)
     assert sorted(f.name for f in tmp_path.iterdir() if f.is_file()) == ["manter.txt"]
+
+
+def test_integral_floats_to_int_keeps_real_floats():
+    df = pd.DataFrame(
+        {
+            "id": [123.0, None, 7.0],
+            "preco": [1.5, 2.0, None],
+            "texto": ["a", "b", "c"],
+            "nulos": [None, None, None],
+        }
+    )
+    out = integral_floats_to_int(df)
+    assert out["id"].tolist()[0] == 123 and str(out["id"].dtype) == "Int64"
+    assert out["preco"].dtype == float
+    assert out["texto"].tolist() == ["a", "b", "c"]
+    assert df["id"].dtype == float  # não altera o original
+
+
+def test_write_bronze_writes_integers_without_decimal(cfg):
+    write_bronze(cfg, pd.DataFrame({"id": [123.0, None], "v": [1.5, 2.0]}))
+    assert cfg.bronze_filepath.read_text().splitlines() == ["id;v", "123;1.5", ";2.0"]

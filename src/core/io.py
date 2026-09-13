@@ -1,8 +1,8 @@
 """Helpers de arquivo: listagem, concat e escrita de CSV/bronze.
 
 ``write_bronze`` e ``write_bronze_streaming`` são a forma única de terminar um
-``transform``: sanitizam colunas, removem quebras de linha e gravam
-``cfg.bronze_filepath`` com ``cfg.bronze_sep``.
+``transform``: sanitizam colunas, removem quebras de linha, gravam inteiros sem
+``.0`` e escrevem ``cfg.bronze_filepath`` com ``cfg.bronze_sep``.
 """
 
 import logging
@@ -92,8 +92,31 @@ def write_csv(
     return filepath
 
 
+# Acima disso o float já não representa o inteiro exatamente.
+_MAX_SAFE_INT = 2**53
+
+
+def integral_floats_to_int(df: pd.DataFrame) -> pd.DataFrame:
+    """Colunas float cujos valores não nulos são todos inteiros viram ``Int64``.
+
+    O pandas promove para float a coluna inteira que tem nulo (``json_normalize``,
+    ``concat``), e o CSV sairia ``123.0``. Como a raw é texto, isso quebraria
+    ``'123.0'::int`` no dbt; com ``Int64`` o bronze grava ``123``.
+    """
+    df = df.copy()
+    for col in df.select_dtypes(include="float").columns:
+        present = df[col].dropna()
+        if (
+            len(present)
+            and (present % 1 == 0).all()
+            and (present.abs() < _MAX_SAFE_INT).all()
+        ):
+            df[col] = df[col].astype("Int64")
+    return df
+
+
 def _prepare(df: pd.DataFrame) -> pd.DataFrame:
-    return strip_newlines(sanitize_columns(df))
+    return integral_floats_to_int(strip_newlines(sanitize_columns(df)))
 
 
 def reset_bronze(cfg: PipelineConfig) -> None:

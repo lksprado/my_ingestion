@@ -13,6 +13,7 @@ import pandas as pd
 
 from core import (
     PipelineConfig,
+    integral_floats_to_int,
     list_files,
     normalize_string,
     reset_bronze,
@@ -50,6 +51,7 @@ def transform(cfg: PipelineConfig) -> None:
             grouped[ALIASES.get(name, name)].append(df)
 
     for name, dfs in grouped.items():
-        df = pd.concat(dfs, ignore_index=True)
+        # float inteiro (Excel/NaN) vira int: a raw é texto, sem "123.0"
+        df = integral_floats_to_int(pd.concat(dfs, ignore_index=True))
         write_csv(df, cfg.bronze_dir, f"{name}.csv", sep=cfg.bronze_sep)
         logger.info(f"{name}: {len(dfs)} aba(s) -> {len(df)} linhas")
