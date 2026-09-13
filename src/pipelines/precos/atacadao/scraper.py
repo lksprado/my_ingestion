@@ -1,7 +1,7 @@
 import json
 from urllib.parse import urlencode
 
-from core.http import HttpClient
+from core import HttpClient
 
 
 class AtacadaoScraper:
@@ -21,7 +21,7 @@ class AtacadaoScraper:
 
         for page in range(self.PAGES):
             url = self._build_url(keyword, after=page * self.PAGE_SIZE)
-            data = self.extractor.make_request(url=url, mode="json")
+            data = self.extractor.get_json(url)
             products = self._parse_products(data)
             if not products:
                 break

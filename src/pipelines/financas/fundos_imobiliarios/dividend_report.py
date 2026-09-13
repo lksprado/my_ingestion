@@ -183,6 +183,7 @@ def main():
 
     report = build_report(latest_month, df_month)
 
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     csv_path = OUTPUT_DIR / f"dividend_report_{latest_month}.csv"
     report.to_csv(csv_path, index=False)
     print(f"CSV salvo: {csv_path}")

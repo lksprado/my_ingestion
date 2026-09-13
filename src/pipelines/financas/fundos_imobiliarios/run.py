@@ -2,22 +2,20 @@ import argparse
 import logging
 import time
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
 from selenium import webdriver
 
-from core import setup_logger
-from core.http import HttpClient
+from core import HttpClient, setup_logger
 from pipelines.financas.fundos_imobiliarios.parser import (
     parse_inv10_fund_table,
     parse_inv10_rankings_table,
 )
 from settings import settings
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 BASE_DIR = settings.lake_root / "raw" / "fii"
 
 
@@ -39,7 +37,7 @@ def investidor_10_data(year: str, month: str) -> Path:
     page = 1
     while True:
         url = f"https://investidor10.com.br/fiis/?page={page}"
-        resp = extract.make_request(url=url, mode="text")
+        resp = extract.get_text(url)
         if not resp:
             break
         context = parse_inv10_rankings_table(resp)
@@ -233,20 +231,7 @@ if __name__ == "__main__":
     year, month = resolve_month(args.month)
     extraction_month = f"{year}-{month}"
 
-    log_dir = BASE_DIR / "logs"
-    log_dir.mkdir(exist_ok=True)
-    file_handler = RotatingFileHandler(
-        log_dir / f"{extraction_month}.log",
-        maxBytes=10_000_000,
-        backupCount=3,
-    )
-    file_handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s | %(levelname)s | %(funcName)s | %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
-    logger.addHandler(file_handler)
+    setup_logger(log_file=BASE_DIR / "logs" / f"{extraction_month}.log")
 
     logger.info(f"Pipeline started — month: {extraction_month}")
     start_time = datetime.now()

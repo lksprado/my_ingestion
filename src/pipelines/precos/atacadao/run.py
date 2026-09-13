@@ -4,17 +4,17 @@ Busca produtos via API GraphQL por keyword e grava CSVs diários no lake:
 ``${LAKE_ROOT}/raw/inflation/atacadao``.
 """
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
-from core import load_yaml, normalize_string, setup_logger
-from core.http import HttpClient
+from core import HttpClient, load_yaml, normalize_string, setup_logger
 from pipelines.precos.atacadao.scraper import AtacadaoScraper
 from settings import settings
 
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _STORE_CONFIG = Path(__file__).parent / "store_config.yml"
 _PRODUCTS_CONFIG = Path(__file__).parent / "products_config.yml"
@@ -74,9 +74,10 @@ def search_products(
 
 
 if __name__ == "__main__":
+    setup_logger()
     search_products(
         store_config_file=_STORE_CONFIG,
         products_config_file=_PRODUCTS_CONFIG,
         output_dir=settings.lake_root / "raw" / "inflation" / "atacadao",
     )
-    # python -m pipelines.precos.atacadao.run
+    # uv run python -m pipelines.precos.atacadao.run

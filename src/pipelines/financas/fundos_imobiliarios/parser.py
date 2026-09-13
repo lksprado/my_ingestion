@@ -73,35 +73,3 @@ def parse_inv10_fund_table(html: str):
         results.append(row)
 
     return results
-
-
-if __name__ == "__main__":
-    from .extractor import Extractor
-
-    extract = Extractor()
-    # url = "https://investidor10.com.br/fiis/?page=1"
-
-    # resp = extract.make_request(url=url, mode="text")
-
-    # context = parse_inv10_rankings_table(resp)
-
-    # print(context)
-    # url = "https://investidor10.com.br/fiis/habt11/"
-    # driver = webdriver.Chrome()
-    # driver.get("https://investidor10.com.br/fiis/habt11/")
-
-    # html = driver.page_source
-
-    # soup = BeautifulSoup(html, "html.parser").prettify()
-
-    # with open("fund_table.html", "w", encoding="utf-8") as f:
-    #     f.write(soup)
-
-    with open("fund_table.html", encoding="utf-8") as f:
-        html = f.read()
-
-    import pandas as pd
-
-    data = parse_inv10_fund_table(html)
-    df = pd.DataFrame(data)
-    print(df)
