@@ -1,13 +1,8 @@
-"""NHL — Temporadas (ids) — anual.
+"""NHL — Temporadas (ids), anual. Fonte estática: uma requisição, full refresh."""
 
-Fonte estática: uma requisição, full refresh de ``raw_nhl.nhl_raw_*``.
-"""
-
-from core import setup_logger
-from pipelines.esportes.nhl._common import run_static
-
-logger = setup_logger(__name__)
+from core import run_cli
+from pipelines.esportes.nhl._common import build
 
 if __name__ == "__main__":
-    run_static("seasons", logger)
-    # uv run python -m pipelines.esportes.nhl.nhl_seasons
+    run_cli(lambda: build("seasons"))
+    # uv run python -m pipelines.esportes.nhl.nhl_seasons [--steps load]

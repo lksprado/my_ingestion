@@ -4,18 +4,22 @@
 # as tabelas nhl_raw_* em _sources.yml. Só o schema segue o padrão raw_<fonte>
 # (raw_nhl); o prefixo redundante nos nomes das tabelas fica por compatibilidade.
 #
-# Não há bronze: os JSONs vão direto para tabelas JSONB (payload, source_filename).
-# ``options`` é lido por _common.py:
-#   array_key      - chave do JSON que contém a lista de registros (estáticos)
-#   overwrite      - true: TRUNCATE + recarga total; false: só arquivos novos
-#   file_pattern   - glob dos arquivos a carregar no landing_dir (dinâmicos)
-#   param_view     - view dbt (schema staging) com os IDs a requisitar
+# Não há bronze (load: jsonb): os JSONs do landing vão direto para tabelas JSONB
+# (payload, source_filename) via core.JsonbLoader, com a tabela de controle abaixo.
+# ``options`` lidas pela core (load jsonb): array_key, overwrite, file_pattern,
+# control_table. Lidas por _common.py:
+#   param_schema   - schema das views dbt de parâmetros
+#   param_view     - view com os IDs a requisitar
 #   param_columns  - colunas da view que preenchem os placeholders da URL
 #   param_filter   - coluna booleana: só linhas com ela FALSE (ainda não sincronizadas)
 #   season_subdir  - grava/lê em subpasta <season_id>/ (carrega só a mais recente)
 #   workers        - threads de extração (1 = sequencial)
 
 db_schema: "raw_nhl"
+load: jsonb
+options:
+  control_table: "nhl_ingestion_control"   # preservado do repo original
+  param_schema: "staging"
 
 environments:
   local:

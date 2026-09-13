@@ -1,13 +1,8 @@
-"""NHL — Resumo de todos os jogos — base dos IDs dos demais pipelines.
+"""NHL — Resumo de todos os jogos: base dos IDs dos demais. Fonte estática."""
 
-Fonte estática: uma requisição, full refresh de ``raw_nhl.nhl_raw_*``.
-"""
-
-from core import setup_logger
-from pipelines.esportes.nhl._common import run_static
-
-logger = setup_logger(__name__)
+from core import run_cli
+from pipelines.esportes.nhl._common import build
 
 if __name__ == "__main__":
-    run_static("games_summary", logger)
-    # uv run python -m pipelines.esportes.nhl.nhl_games_summary
+    run_cli(lambda: build("games_summary"))
+    # uv run python -m pipelines.esportes.nhl.nhl_games_summary [--steps load]

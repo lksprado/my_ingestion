@@ -9,10 +9,8 @@ dbt de novo. Falha de um não aborta os demais.
 
 import sys
 
-from core import setup_logger
-from pipelines.esportes.nhl._common import run_dynamic
-
-logger = setup_logger("my_ingestion")
+from core import run_many
+from pipelines.esportes.nhl._common import build
 
 DYNAMIC = (
     "games_summary_details",
@@ -23,23 +21,8 @@ DYNAMIC = (
     "players",
 )
 
-
-def main(only: str | None = None) -> None:
-    sources = (only,) if only else DYNAMIC
-    failures = []
-    for source in sources:
-        try:
-            logger.info(f"=== NHL: {source} ===")
-            run_dynamic(source, logger)
-        except Exception:
-            logger.exception(f"Pipeline '{source}' falhou")
-            failures.append(source)
-
-    if failures:
-        logger.error(f"Concluido com falhas em: {', '.join(failures)}")
-        sys.exit(1)
-    logger.info("Todos os pipelines NHL concluidos")
-
-
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else None)
+    run_many(
+        {s: (lambda s=s: build(s).run()) for s in DYNAMIC},
+        only=sys.argv[1] if len(sys.argv) > 1 else None,
+    )
