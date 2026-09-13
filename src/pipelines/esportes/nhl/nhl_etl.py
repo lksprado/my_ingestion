@@ -1,13 +1,26 @@
-"""Helpers dos scripts da NHL (um script por tabela destino).
+"""ETL da NHL (APIs públicas) -> tabelas JSONB ``raw_nhl.nhl_raw_*``.
 
-Fluxo: extract (JSON por ID no landing; IDs vêm de uma view do dbt) -> load
-``jsonb`` (core). Não há transform: a normalização acontece no dbt.
+Sem transform: os JSONs do landing vão direto para JSONB (``load: jsonb``) e a
+normalização acontece no dbt. Estáticos usam o extract padrão da core (uma
+requisição a ``base_url``); dinâmicos leem os IDs de uma view do dbt
+(``options.param_view``) e requisitam ``base_url.format(**linha)``.
+
+Ordem (dag_nhl_master): games_summary -> dbt (seletor nhl) -> os seis dinâmicos
+-> dbt de novo. Por isso rodar sem argumentos (todas) só faz sentido com as views
+já construídas.
 """
 
 import logging
 from pathlib import Path
 
-from core import GenericETL, HttpClient, JsonbLoader, PipelineConfig, PostgresClient
+from core import (
+    Etl,
+    HttpClient,
+    JsonbLoader,
+    PipelineConfig,
+    PostgresClient,
+    run_source,
+)
 
 logger = logging.getLogger(__name__)
 CONFIG_FILE = Path(__file__).parent / "nhl_config.yml"
@@ -89,12 +102,20 @@ def load_latest_season(cfg: PipelineConfig) -> None:
     )
 
 
-def build(source: str) -> GenericETL:
-    """Estáticos: extract padrão (url_base). Dinâmicos (``param_view``): por ID."""
-    cfg = PipelineConfig.from_yaml(CONFIG_FILE, source)
-    return GenericETL(
-        cfg,
-        extract_fn=extract_dynamic if cfg.options.get("param_view") else None,
-        load_fn=load_latest_season if cfg.options.get("season_subdir") else None,
-        log=logger,
-    )
+ETLS = {
+    # estáticos: 1 request, full refresh
+    "seasons": Etl(),
+    "teams": Etl(),
+    "games_summary": Etl(),
+    # dinâmicos: IDs das views staging.vw_stg_request_* (rodar após o dbt)
+    "games_summary_details": Etl(extract=extract_dynamic),
+    "games_details": Etl(extract=extract_dynamic),
+    "play_by_play": Etl(extract=extract_dynamic),
+    "club_stats": Etl(extract=extract_dynamic),
+    "player_game_log": Etl(extract=extract_dynamic, load=load_latest_season),
+    "players": Etl(extract=extract_dynamic),
+}
+
+if __name__ == "__main__":
+    run_source(CONFIG_FILE, ETLS)
+    # uv run python -m pipelines.esportes.nhl.nhl_etl [entidade ...] [--steps ...]
