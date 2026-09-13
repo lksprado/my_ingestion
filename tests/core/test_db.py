@@ -62,3 +62,27 @@ def test_ensure_schema_runs_ddl_in_transaction():
 
     PostgresClient(engine=FakeEngine())._ensure_schema("raw_x")
     assert executed == ["CREATE SCHEMA IF NOT EXISTS raw_x"]
+
+
+def test_read_sql_prefers_injected_connection(monkeypatch):
+    seen = {}
+
+    def fake_read_sql(sql, con):
+        seen.update(sql=sql, con=con)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(pd, "read_sql", fake_read_sql)
+    conn = object()
+    PostgresClient(connection=conn).read_sql("select 1")
+    assert seen == {"sql": "select 1", "con": conn}
+
+
+def test_load_files_reads_semicolon_by_default(tmp_path, monkeypatch):
+    (tmp_path / "acoes.csv").write_text("a;b\n1;2\n")
+    sent = []
+    pg = PostgresClient(engine=_Sentinel())
+    monkeypatch.setattr(
+        pg, "send_df_to_db", lambda df, t, **kw: sent.append((t, list(df.columns)))
+    )
+    pg.load_files_to_table(tmp_path, schema="raw_b3")
+    assert sent == [("acoes", ["a", "b"])]

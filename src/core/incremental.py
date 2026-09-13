@@ -1,34 +1,37 @@
-"""Extração incremental por data (high-water mark no banco -> datas faltantes).
+"""Extração incremental: por data (high-water mark no banco) e por ID.
 
-Compartilhado por energia/solar e clima/openweather, que descobrem no Postgres
-até onde os dados já vão e requisitam só o intervalo faltante.
+Por data (energia/solar, clima/openweather): descobre no Postgres até onde os
+dados vão e devolve as datas faltantes, gravando-as num CSV de controle.
+
+Por ID (legislativo): compara três conjuntos — todos os IDs, os já baixados e
+os que a API nunca respondeu (CSV "sem dados") — e devolve só os pendentes.
 """
 
 import csv
 import logging
+from collections.abc import Iterable, Sequence
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+from core.db import PostgresClient
 
 logger = logging.getLogger(__name__)
 
 
-def get_first(db, sql: str):
-    """Primeira linha de ``sql``; aceita conexão psycopg2 ou PostgresHook do Airflow."""
-    if hasattr(db, "get_first") and callable(db.get_first):
-        return db.get_first(sql)
-    if hasattr(db, "cursor") and callable(db.cursor):
-        with db.cursor() as cur:
-            cur.execute(sql)
-            return cur.fetchone()
-    raise TypeError("db deve ser PostgresHook ou conexão psycopg2.")
+# ------------------------------ por data ------------------------------
 
 
-def get_max_date(db, sql: str) -> date | None:
-    """Executa ``sql`` (que deve devolver uma data na 1ª coluna) e retorna ``date``."""
-    row = get_first(db, sql)
-    if not row or row[0] is None:
+def max_date(db: PostgresClient, sql: str) -> date | None:
+    """Executa ``sql`` (1ª coluna da 1ª linha = data) e devolve ``date`` ou None."""
+    df = db.read_sql(sql)
+    if df.empty or df.iloc[0, 0] is None:
         return None
-    return datetime.strptime(str(row[0])[:10], "%Y-%m-%d").date()
+    value = df.iloc[0, 0]
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
 
 
 def missing_dates(
@@ -47,6 +50,29 @@ def missing_dates(
     return [
         (since + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, delta + 1)
     ]
+
+
+def missing_dates_from_db(
+    db: PostgresClient,
+    sqls: Sequence[str],
+    control_path: Path | str,
+    cutoff_hour: int = 20,
+) -> list[str]:
+    """Datas faltantes a partir do menor high-water mark de ``sqls``.
+
+    Cada SQL devolve a data máxima de uma tabela; o menor deles é o ponto de
+    partida (todas as tabelas precisam alcançá-lo). Levanta ``ValueError`` se
+    alguma tabela estiver vazia. Grava o resultado em ``control_path``.
+    """
+    marks = []
+    for sql in sqls:
+        mark = max_date(db, sql)
+        if mark is None:
+            raise ValueError(f"High-water mark vazio para: {sql}")
+        marks.append(mark)
+    dates = missing_dates(min(marks), cutoff_hour=cutoff_hour)
+    write_dates_csv(dates, control_path)
+    return dates
 
 
 def write_dates_csv(dates: list[str], path: Path | str) -> Path:
@@ -68,3 +94,51 @@ def read_dates_csv(path: Path | str) -> list[str]:
         return []
     with path.open() as f:
         return [row[0].strip() for row in csv.reader(f) if row and row[0].strip()]
+
+
+# ------------------------------ por ID ------------------------------
+
+
+def read_no_data(no_data_path: Path | str | None) -> set[str]:
+    """IDs registrados no CSV "sem dados" (vazio se o arquivo não existe)."""
+    if no_data_path is None or not Path(no_data_path).exists():
+        return set()
+    with Path(no_data_path).open(encoding="utf-8") as f:
+        rows = [row[0].strip() for row in csv.reader(f) if row and row[0].strip()]
+    return {r for r in rows if r != "id"}
+
+
+def pending_ids(
+    all_ids: Iterable[str],
+    done_ids: Iterable[str],
+    no_data_path: Path | str | None = None,
+) -> list[str]:
+    """``all_ids`` menos os já baixados e os registrados como "sem dados".
+
+    Preserva a ordem de ``all_ids`` e remove duplicatas.
+    """
+    all_ids = [str(i) for i in all_ids]
+    skip = {str(i) for i in done_ids} | read_no_data(no_data_path)
+    seen: set[str] = set()
+    result = []
+    for i in all_ids:
+        if i in skip or i in seen:
+            continue
+        seen.add(i)
+        result.append(i)
+    logger.info(
+        f"{len(result)} pendente(s) de {len(set(all_ids))} "
+        f"(ja baixados ou sem dados: {len(skip)})."
+    )
+    return result
+
+
+def mark_no_data(no_data_path: Path | str, id_: str) -> None:
+    """Registra ``id_`` no CSV "sem dados" (cria com cabeçalho ``id`` na 1ª vez)."""
+    path = Path(no_data_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists()
+    with path.open("a", encoding="utf-8", newline="") as f:
+        if write_header:
+            f.write("id\n")
+        f.write(f"{id_}\n")

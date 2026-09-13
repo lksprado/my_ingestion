@@ -1,7 +1,8 @@
-"""Normalização de strings e limpeza de DataFrames (era duplicado em 5 projetos)."""
+"""Normalização de strings e limpeza de nomes/valores de DataFrames."""
 
 import re
 import unicodedata
+from collections.abc import Sequence
 
 import pandas as pd
 from unidecode import unidecode
@@ -19,68 +20,77 @@ def normalize_string(s: str) -> str:
     return s.strip("_")
 
 
-class ColumnSanitizer:
-    def __init__(self, df):
-        self.df = df.copy()
+def _sanitize_name(col, case: str, space: str, alfanum: str) -> str:
+    new_col = unidecode(str(col)).strip()
+    if case == "upper":
+        new_col = new_col.upper()
+    elif case == "lower":
+        new_col = new_col.lower()
+    if space == "replace":
+        new_col = new_col.replace(" ", "_")
+    if alfanum == "remove":
+        new_col = "".join(c for c in new_col if c.isalnum() or c in "_ ")
+    elif alfanum == "replace":
+        new_col = "".join(c if c.isalnum() or c in "_ " else "_" for c in new_col)
+    return new_col
 
-    def sanitize_columns_names(
-        self, cols=None, case="lower", space="replace", alfanum="replace"
-    ):
-        cols_to_sanitize = cols if cols else self.df.columns
-        new_cols = []
 
-        for col in cols_to_sanitize:
-            new_col = unidecode(str(col)).strip()
-            if case == "upper":
-                new_col = new_col.upper()
-            elif case == "lower":
-                new_col = new_col.lower()
-            if space == "replace":
-                new_col = new_col.replace(" ", "_")
-            if alfanum == "remove":
-                new_col = "".join(
-                    c for c in new_col if c.isalnum() or c == "_" or c == " "
-                )
-            if alfanum == "replace":
-                new_col = "".join(
-                    c if c.isalnum() or c == "_" or c == " " else "_" for c in new_col
-                )
-            new_cols.append(new_col)
+def sanitize_columns(
+    df: pd.DataFrame,
+    cols: Sequence[str] | None = None,
+    *,
+    case: str = "lower",
+    space: str = "replace",
+    alfanum: str = "replace",
+) -> pd.DataFrame:
+    """Devolve uma cópia com nomes de coluna sem acento, minúsculos e só ``[a-z0-9_]``.
 
-        col_map = dict(zip(cols_to_sanitize, new_cols, strict=True))
-        self.df.rename(columns=col_map, inplace=True)
+    É o que define os nomes das colunas em ``raw_<fonte>.*`` (o dbt depende
+    deles); ``write_bronze`` já aplica isto.
+    """
+    cols = list(cols) if cols else list(df.columns)
+    mapping = {c: _sanitize_name(c, case, space, alfanum) for c in cols}
+    return df.rename(columns=mapping)
 
-        return self
 
-    def sanitize_columns_values(
-        self, cols=None, case="upper", space="keep", alfanum="remove"
-    ):
-        cols_to_sanitize = cols if cols else self.df.columns
+def sanitize_values(
+    df: pd.DataFrame,
+    *,
+    exclude: Sequence[str] = (),
+    case: str = "upper",
+    space: str = "keep",
+    alfanum: str = "remove",
+) -> pd.DataFrame:
+    """Devolve uma cópia com os valores texto sem acento/pontuação e em maiúsculas.
 
-        for col in cols_to_sanitize:
-            if pd.api.types.is_numeric_dtype(self.df[col]):
-                continue
+    Colunas numéricas e as listadas em ``exclude`` (URLs, e-mails, datas) são
+    preservadas.
+    """
+    df = df.copy()
+    for col in df.columns:
+        if col in exclude or pd.api.types.is_numeric_dtype(df[col]):
+            continue
+        s = df[col].astype(str).map(unidecode).str.strip()
+        if case == "upper":
+            s = s.str.upper()
+        elif case == "lower":
+            s = s.str.lower()
+        if space == "replace":
+            s = s.str.replace(" ", "_", regex=False)
+        if alfanum == "remove":
+            s = s.str.replace(r"[^\w\s]", "", regex=True)
+        df[col] = s
+    return df
 
-            self.df[col] = self.df[col].astype(str)
-            self.df[col] = self.df[col].map(unidecode).str.strip()
 
-            if case == "upper":
-                self.df[col] = self.df[col].str.upper()
-            elif case == "lower":
-                self.df[col] = self.df[col].str.lower()
-
-            if space == "replace":
-                self.df[col] = self.df[col].str.replace(" ", "_", regex=False)
-
-            if alfanum == "remove":
-                self.df[col] = self.df[col].str.replace(r"[^\w\s]", "", regex=True)
-
-        return self
-
-    def not_sanitize_columns_values(
-        self, cols: list, case="upper", space="keep", alfanum="remove"
-    ):
-        other = [c for c in self.df.columns if c not in cols]
-        return self.sanitize_columns_values(
-            cols=other, case=case, space=space, alfanum=alfanum
+def strip_newlines(df: pd.DataFrame) -> pd.DataFrame:
+    """Troca CR/LF por espaço nas colunas texto (CSV ``;`` não sobrevive a eles)."""
+    df = df.copy()
+    pattern = re.compile(r"[\r\n]+")
+    for col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            continue
+        df[col] = df[col].map(
+            lambda v: pattern.sub(" ", v) if isinstance(v, str) else v
         )
+    return df

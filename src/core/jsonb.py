@@ -1,4 +1,4 @@
-"""Carga de arquivos JSON em tabelas JSONB via COPY (ex-Loader do nhl-extraction).
+"""Carga de arquivos JSON em tabelas JSONB via COPY.
 
 Cada registro vira uma linha ``(payload JSONB, source_filename TEXT)``; a
 tabela de controle registra os arquivos já ingeridos, o que torna a carga
@@ -9,13 +9,11 @@ import io
 import json
 import logging
 from collections.abc import Iterable
-from logging import NullHandler
 from pathlib import Path
 
 from core.db import PostgresClient, validate_raw_schema
 
 logger = logging.getLogger(__name__)
-logger.addHandler(NullHandler())
 
 
 def json_file_to_ndjson_buffer(
@@ -149,16 +147,6 @@ class JsonbLoader:
         )
 
     # ------------------------ API pública ------------------------
-    def load_file(
-        self,
-        path: Path | str,
-        table: str,
-        array_key: str | None = None,
-        overwrite: bool = True,
-    ) -> None:
-        """Carrega um único JSON (tipicamente full refresh de uma tabela)."""
-        self.load_files([Path(path)], table, array_key=array_key, overwrite=overwrite)
-
     def load_files(
         self,
         files: Iterable[Path],

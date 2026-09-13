@@ -1,26 +1,19 @@
+import json
 from pathlib import Path
 
-import pandas as pd
-
-from core.parsers.json import make_df_from_json_list
+from core.parsers.json import normalize_json_object
 
 
-def test_make_df_from_json_list_success(tmp_path: Path):
-    data = {"data": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]}
+def test_normalize_json_object_under_key(tmp_path: Path):
     fp = tmp_path / "sample.json"
-    fp.write_text(__import__("json").dumps(data), encoding="utf-8")
+    fp.write_text(json.dumps({"dados": {"a": 1, "b": {"c": 2}}}), encoding="utf-8")
 
-    df = make_df_from_json_list(str(fp), list_key="data")
-    assert isinstance(df, pd.DataFrame)
-    assert list(df.columns) == ["a", "b"]
-    assert len(df) == 2
+    df = normalize_json_object(fp, key="dados")
+    assert list(df.columns) == ["a", "b.c"]
+    assert df.iloc[0].tolist() == [1, 2]
 
 
-def test_make_df_from_json_list_missing_key(tmp_path: Path):
-    data = {"other": []}
+def test_normalize_json_object_missing_key_is_empty(tmp_path: Path):
     fp = tmp_path / "sample.json"
-    fp.write_text(__import__("json").dumps(data), encoding="utf-8")
-
-    df = make_df_from_json_list(str(fp), list_key="data")
-    # Returns empty DataFrame when key missing
-    assert df.empty
+    fp.write_text(json.dumps({"other": []}), encoding="utf-8")
+    assert normalize_json_object(fp, key="dados").empty

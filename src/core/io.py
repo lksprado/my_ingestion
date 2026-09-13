@@ -1,9 +1,20 @@
-"""Helpers de arquivo: listagem, concat e escrita de CSV (antes duplicados 5x)."""
+"""Helpers de arquivo: listagem, concat e escrita de CSV/bronze.
+
+``write_bronze`` e ``write_bronze_streaming`` são a forma única de terminar um
+``transform``: sanitizam colunas, removem quebras de linha e gravam
+``cfg.bronze_filepath`` com ``cfg.bronze_sep``.
+"""
 
 import logging
+import os
+import tempfile
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 import pandas as pd
+
+from core.config import PipelineConfig
+from core.text import sanitize_columns, strip_newlines
 
 logger = logging.getLogger(__name__)
 
@@ -19,25 +30,19 @@ def concat_files_to_df(
     pattern: str = "*.csv",
     sep: str = ",",
     source_column: str | None = None,
-    dedup_key: str | list[str] | None = None,
-    existing: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Concatena CSV/JSON de um diretório num único DataFrame.
 
-    Args:
-        source_column: se definido, adiciona coluna com o nome do arquivo de origem.
-        dedup_key: coluna(s) para deduplicar mantendo a última ocorrência —
-            cobre consolidações idempotentes (ex.: extraction_month).
-        existing: DataFrame já consolidado a que os novos dados são anexados
-            antes do dedup.
+    ``source_column`` adiciona uma coluna com o nome do arquivo de origem.
+    Diretório sem arquivos devolve DataFrame vazio (com warning).
     """
     input_dir = Path(input_dir)
-    dfs = [] if existing is None else [existing]
     files = sorted(input_dir.glob(pattern))
-    if not files and existing is None:
+    if not files:
         logger.warning(f"⚠️ Nenhum arquivo ({pattern}) em {input_dir}")
         return pd.DataFrame()
 
+    dfs = []
     for file in files:
         if file.suffix.lower() == ".json":
             df = pd.read_json(file, encoding="utf-8")
@@ -46,13 +51,7 @@ def concat_files_to_df(
         if source_column:
             df[source_column] = file.name
         dfs.append(df)
-
-    result = pd.concat(dfs, ignore_index=True)
-    if dedup_key is not None:
-        result = result.drop_duplicates(subset=dedup_key, keep="last").reset_index(
-            drop=True
-        )
-    return result
+    return pd.concat(dfs, ignore_index=True)
 
 
 def write_csv(
@@ -67,3 +66,87 @@ def write_csv(
     df.to_csv(filepath, sep=sep, index=False)
     logger.info(f"💾 CSV salvo em: {filepath}")
     return filepath
+
+
+def _prepare(df: pd.DataFrame) -> pd.DataFrame:
+    return strip_newlines(sanitize_columns(df))
+
+
+def write_bronze(cfg: PipelineConfig, df: pd.DataFrame | None) -> Path | None:
+    """Grava ``df`` em ``cfg.bronze_filepath`` (colunas sanitizadas, sem CR/LF).
+
+    DataFrame vazio ou ``None``: warning, não grava, devolve ``None`` — o bronze
+    anterior fica intacto.
+    """
+    if df is None or df.empty:
+        logger.warning("⚠️ Nada a gravar no bronze; arquivo anterior preservado.")
+        return None
+    path = cfg.bronze_filepath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df = _prepare(df)
+    df.to_csv(path, sep=cfg.bronze_sep, index=False)
+    logger.info(f"💾 Bronze: {len(df)} linha(s) em {path}")
+    return path
+
+
+def write_bronze_streaming(
+    cfg: PipelineConfig,
+    files: Iterable[Path],
+    parse_fn: Callable[[Path], pd.DataFrame | None],
+) -> Path | None:
+    """Reconstrói ``cfg.bronze_filepath`` um arquivo por vez (memória limitada).
+
+    ``parse_fn(file)`` devolve o DataFrame daquele arquivo (ou ``None`` para
+    pular). O cabeçalho é fixado pelo primeiro DataFrame; os demais são
+    alinhados a ele (colunas extras são descartadas com warning). Exceção num
+    arquivo é logada e o arquivo pulado. A escrita vai para um temporário e
+    substitui o bronze atomicamente; sem nenhum dado, o bronze anterior é
+    preservado e a função devolve ``None``.
+    """
+    bronze_path = cfg.bronze_filepath
+    bronze_path.parent.mkdir(parents=True, exist_ok=True)
+    header: list[str] | None = None
+    n_files = n_rows = 0
+
+    fd, tmp_name = tempfile.mkstemp(
+        dir=bronze_path.parent, prefix=f".{bronze_path.stem}_", suffix=".tmp"
+    )
+    os.close(fd)
+    try:
+        with open(tmp_name, "w", encoding="utf-8", newline="") as out:
+            for file in files:
+                try:
+                    df = parse_fn(file)
+                except Exception:
+                    logger.error(f"❌ Erro ao transformar {file}", exc_info=True)
+                    continue
+                if df is None or df.empty:
+                    continue
+                df = _prepare(df)
+                if header is None:
+                    header = list(df.columns)
+                    df.to_csv(out, sep=cfg.bronze_sep, index=False, header=True)
+                else:
+                    extras = [c for c in df.columns if c not in header]
+                    if extras:
+                        logger.warning(
+                            f"⚠️ {file.name}: colunas extras ignoradas {extras}"
+                        )
+                    df = df.reindex(columns=header)
+                    df.to_csv(out, sep=cfg.bronze_sep, index=False, header=False)
+                n_files += 1
+                n_rows += len(df)
+
+        if header is None:
+            logger.warning("⚠️ Nenhum arquivo com dados; bronze anterior preservado.")
+            return None
+
+        os.chmod(tmp_name, 0o664)
+        os.replace(tmp_name, bronze_path)
+        logger.info(
+            f"💾 Bronze: {n_files} arquivo(s), {n_rows} linha(s) em {bronze_path}"
+        )
+        return bronze_path
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)

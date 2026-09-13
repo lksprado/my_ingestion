@@ -1,14 +1,12 @@
-"""Cliente HTTP único do monorepo.
+"""Cliente HTTP único do monorepo: ``requests.Session`` com retry/backoff.
 
-Funde o ``HttpJsonExtractor`` (demodados: retry com backoff, ThreadPool) com o
-``Extractor`` dos projetos de scraping (method/headers/data/mode). Substitui as
-5 variantes que existiam nos projetos originais.
+Nenhum método levanta exceção de rede: em erro, logam e devolvem ``None``
+(um ID quebrado não pode derrubar uma extração longa). Sempre teste o retorno.
 """
 
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from logging import NullHandler
 from pathlib import Path
 from typing import Any, Literal
 
@@ -17,7 +15,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
-logger.addHandler(NullHandler())
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) "
@@ -27,8 +24,6 @@ DEFAULT_USER_AGENT = (
 
 
 class HttpClient:
-    """requests.Session com retry/backoff e helpers de persistência em JSON."""
-
     def __init__(
         self,
         log: logging.Logger | None = None,
@@ -37,7 +32,7 @@ class HttpClient:
         timeout: int = 30,
         headers: dict | None = None,
     ):
-        self.logger = log or logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self.logger = log or logger
         self.timeout = timeout
         self.default_headers = headers or {"Accept": "application/json"}
 
@@ -53,17 +48,18 @@ class HttpClient:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
-    def make_request(
+    def request(
         self,
         url: str,
+        *,
         method: Literal["GET", "POST"] = "GET",
+        mode: Literal["json", "text", "auto"] = "auto",
         headers: dict | None = None,
         data: dict | None = None,
-        mode: Literal["json", "text", "auto"] = "auto",
         timeout: int | None = None,
         **kwargs,
     ) -> Any | None:
-        """Faz a requisição e retorna json/text conforme ``mode`` (None em erro)."""
+        """Requisição genérica; devolve json/text conforme ``mode`` (None em erro)."""
         merged_headers = {**self.default_headers, **(headers or {})}
         try:
             response = self.session.request(
@@ -90,31 +86,21 @@ class HttpClient:
             self.logger.error(f"❌ Erro na requisicao: {url} --- {e}")
         return None
 
-    def make_http_request(
-        self, url: str, method: str = "GET", timeout: int | None = None, **kwargs
-    ) -> dict | list | None:
-        """Requisição que espera JSON (compatível com o HttpJsonExtractor)."""
-        headers = kwargs.pop("headers", None)
-        return self.make_request(
-            url, method=method, headers=headers, mode="json", timeout=timeout, **kwargs
-        )
+    def get_json(self, url: str, **kwargs) -> dict | list | None:
+        """GET que espera JSON."""
+        return self.request(url, mode="json", **kwargs)
 
-    def make_http_request_text(self, url: str, **kwargs) -> str | None:
-        """Requisição GET que retorna o corpo como texto (HTML etc.)."""
-        headers = kwargs.pop("headers", {"User-Agent": DEFAULT_USER_AGENT})
-        return self.make_request(url, headers=headers, mode="text", **kwargs)
+    def get_text(self, url: str, **kwargs) -> str | None:
+        """GET que devolve o corpo como texto (HTML), com User-Agent de browser."""
+        headers = {"User-Agent": DEFAULT_USER_AGENT, **kwargs.pop("headers", {})}
+        return self.request(url, mode="text", headers=headers, **kwargs)
 
-    @staticmethod
     def save_json(
-        data: Any | None,
-        output_dir: Path | str,
-        filename: str,
-        log: logging.Logger | None = None,
+        self, data: Any | None, output_dir: Path | str, filename: str
     ) -> Path | None:
         """Salva um objeto JSON em ``output_dir/filename`` (sufixo .json garantido)."""
-        _log = log or logger
         if data is None:
-            _log.warning("⚠️ Sem dados para salvar - retornando None")
+            self.logger.warning("⚠️ Sem dados para salvar - retornando None")
             return None
 
         output_dir = Path(output_dir)
@@ -125,24 +111,18 @@ class HttpClient:
         filepath = output_dir / filename
         with filepath.open("w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
-        _log.info(f"💾 JSON salvo em: {filepath}")
+        self.logger.info(f"💾 JSON salvo em: {filepath}")
         return filepath
-
-    def save_response(
-        self, json_data: Any, output_dir: Path | str, filename: str
-    ) -> Path | None:
-        """Alias de ``save_json`` usando o logger da instância."""
-        return self.save_json(json_data, output_dir, filename, log=self.logger)
 
     def fetch_and_save(
         self, url: str, output_dir: Path | str, filename: str, **kwargs
     ) -> Path | None:
         """Requisita JSON e persiste em disco."""
-        data = self.make_http_request(url, **kwargs)
+        data = self.get_json(url, **kwargs)
         if data is None:
             self.logger.warning(f"⚠️ Nenhum dado de {url}")
             return None
-        return self.save_response(data, output_dir, filename)
+        return self.save_json(data, output_dir, filename)
 
     def fetch_and_save_many(
         self,
