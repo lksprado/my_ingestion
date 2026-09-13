@@ -64,3 +64,21 @@ uv run python -c "import pipelines.<domínio>.<fonte>.<script>"   # checa que o 
 - Testes em `tests/<domínio>/`, priorizando parsers. Marque com `@pytest.mark.integration` o que precisa de Postgres/rede.
 - `ruff` com `E,F,I,N,W,UP,B`, linha 88. `E501` ignorado só em `pipelines/legislativo/**` e no `dividend_report.py`.
 - Pipeline novo só está pronto com README na pasta da fonte (checklist completo na seção 7 de `src/pipelines/README.md`).
+
+## Padrões de commit
+
+- `feat:` Commits do tipo feat indicam que seu trecho de código está incluindo um novo recurso.
+
+- `fix:` - Commits do tipo fix indicam que seu trecho de código commitado está solucionando um problema (bug fix).
+
+- `doc:` - Commits do tipo docs indicam que houveram mudanças na documentação, como por exemplo no Readme do seu repositório. (Não inclui alterações em código).
+
+- `test:` - Commits do tipo test são utilizados quando são realizadas alterações em testes, seja criando, alterando ou excluindo testes unitários. (Não inclui alterações em código)
+
+- `build:` - Commits do tipo build são utilizados quando são realizadas modificações em arquivos de build e dependências.
+
+- `refactor:` - Commits do tipo refactor referem-se a mudanças devido a refatorações que não alterem sua funcionalidade.
+
+- `chore:` - Commits do tipo chore indicam atualizações de formatações de código, semicolons, trailing spaces, lint, como por exemplo adicionar um pacote no gitignore. (Não inclui alterações em código)
+
+- `remove:` - Commits do tipo remove indicam a exclusão de arquivos, diretórios ou funcionalidades obsoletas ou não utilizadas, qualquer outra forma de limpeza do código-fonte, reduzindo o tamanho e a complexidade do projeto e mantendo-o mais organizado.
