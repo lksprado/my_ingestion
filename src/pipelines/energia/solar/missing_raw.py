@@ -1,78 +1,44 @@
-import csv
+"""High-water mark do solar: descobre as datas ainda não carregadas no Postgres.
+
+As funções públicas mantêm a assinatura usada pelo ``run.py`` e pelo DAG do
+Airflow (``identify_missing_dates(db)`` aceita conexão psycopg2 ou PostgresHook).
+"""
+
 import logging
-from datetime import datetime, timedelta
+
+from core.incremental import get_max_date, missing_dates, write_dates_csv
 
 logger = logging.getLogger(__name__)
 
-
-def _get_first(db, sql: str):
-    """Suporta PostgresHook (.get_first) ou psycopg2 (.cursor().fetchone())."""
-    # PostgresHook do Airflow
-    if hasattr(db, "get_first") and callable(db.get_first):
-        return db.get_first(sql)
-    # psycopg2 connection
-    if hasattr(db, "cursor") and callable(db.cursor):
-        with db.cursor() as cur:
-            cur.execute(sql)
-            return cur.fetchone()
-    raise TypeError("db deve ser PostgresHook ou conexão psycopg2.")
+_QUERY_DAILY = "SELECT MAX(date) :: DATE AS DT FROM raw.solar_daily_energy"
+_QUERY_HOURLY = "SELECT MAX(datetime) :: DATE AS DT FROM raw.solar_hourly_energy"
 
 
-def identify_missing_dates(db) -> list:
+def identify_missing_dates(db) -> list[str]:
+    """Datas faltantes a partir do menor high-water mark entre diário e horário."""
     logger.info("Obtendo data maxima no DW")
+    max_daily = get_max_date(db, _QUERY_DAILY)
+    max_hourly = get_max_date(db, _QUERY_HOURLY)
+    if max_daily is None or max_hourly is None:
+        raise ValueError("Tabelas raw.solar_* vazias: sem high-water mark.")
 
-    query_daily = "SELECT MAX(date) :: DATE AS DT FROM raw.solar_daily_energy"
-    query_hourly = "SELECT MAX(datetime) :: DATE AS DT FROM raw.solar_hourly_energy"
-
-    result_daily = _get_first(db, query_daily)
-    result_hourly = _get_first(db, query_hourly)
-
-    max_date_daily = datetime.strptime(str(result_daily[0]), "%Y-%m-%d").date()
-    max_date_hourly = datetime.strptime(str(result_hourly[0]), "%Y-%m-%d").date()
-
-    start_date = min(max_date_daily, max_date_hourly)
+    start_date = min(max_daily, max_hourly)
     logger.info(f"Data inicial encontrada: {start_date}")
 
-    # Step 2: Determina até onde ir
-    now = datetime.now()
-    last_date = now.date() if now.hour >= 20 else (now - timedelta(days=1)).date()
-    delta_days = (last_date - start_date).days
-
-    logger.info(f"Última data possível: {last_date} | Dias de diferença: {delta_days}")
-
-    # Step 3: Gera e escreve CSV
-    if delta_days <= 0:
-        logger.info("Nenhuma data faltando. Limpando arquivo de controle.")
-        return
-
-    # delta_days + 1: range(1, 1) é vazio; deve haver pelo menos 1 dia de diferença
-    missing_dates = [
-        (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
-        for i in range(1, delta_days + 1)
-    ]
-
-    if missing_dates:
-        return missing_dates
-
+    dates = missing_dates(start_date)
+    if not dates:
+        logger.info("Nenhuma data faltando.")
     else:
-        logger.info("Nenhuma data encontrada.")
+        logger.info(f"{len(dates)} data(s) faltando: {dates[0]} .. {dates[-1]}")
+    return dates
 
 
-def write_list_to_csv(input_ls: list, output_filepath):
-    with open(output_filepath, mode="w") as file:
-        writer = csv.writer(file)
-        for missing_date in input_ls:
-            writer.writerow([missing_date])
-    logger.info(f"Arquivo salvo em: {output_filepath}")
+def write_list_to_csv(input_ls: list, output_filepath) -> None:
+    write_dates_csv(input_ls, output_filepath)
 
 
-def identify_and_write_missing_dates(db, output_filepath):
-    missing_dates = identify_missing_dates(db=db)
-
-    if missing_dates:
-        write_list_to_csv(missing_dates, output_filepath)
-    else:
-        open(output_filepath, mode="w").close()
-        logger.info(f"Nenhuma data faltando. Arquivo limpo em: {output_filepath}")
-
-    return missing_dates or []
+def identify_and_write_missing_dates(db, output_filepath) -> list[str]:
+    """Calcula as datas faltantes e grava o arquivo de controle (vazio se ok)."""
+    dates = identify_missing_dates(db=db)
+    write_dates_csv(dates, output_filepath)
+    return dates

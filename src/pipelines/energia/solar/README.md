@@ -41,6 +41,7 @@ No `.env` da raiz:
 ```
 APSYSTEMS_USER=
 APSYSTEMS_PASSWORD=
+DW_DB_NAME=    # banco onde estão raw.solar_*; o DB_NAME é o do legislativo
 ```
 
 Saídas em `${LAKE_ROOT}/staging/solar_project/`, incluindo o arquivo de controle

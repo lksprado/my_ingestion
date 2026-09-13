@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     db_name: str
     db_user: str
     db_password: str
+    # Banco do my_datawarehouse (nhl, solar, clima) na mesma instância; o Airflow
+    # o chama de ``postgres_dw``. Default: o próprio DB_NAME.
+    dw_db_name: str | None = None
 
     # Pipeline energia/solar
     apsystems_user: str | None = None
@@ -41,6 +44,13 @@ class Settings(BaseSettings):
 
     # Pipeline financas/google_finance
     google_credentials_file: Path | None = None
+
+    # Pipeline clima/openweather — chave da API One Call 3.0
+    openweather_api_key: str | None = None
+
+    @property
+    def dw_db(self) -> str:
+        return self.dw_db_name or self.db_name
 
     @property
     def db_url(self) -> str:
