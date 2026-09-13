@@ -18,7 +18,7 @@ Placeholders ``${VAR}`` nos paths são resolvidos contra o ambiente e o
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from string import Template
@@ -75,6 +75,9 @@ class PipelineConfig:
     # str: uma única saída (coluna definida pelo pipeline)
     # dict {arquivo: coluna}: múltiplas saídas, cada uma com sua coluna
     output_param_file: str | dict[str, str] | None = None
+    # Chaves específicas da fonte que a core não interpreta (bloco ``options:``
+    # do YAML): array_key, overwrite, lat/lon, workers...
+    options: dict = field(default_factory=dict)
     criar_dirs: bool = True
 
     def __post_init__(self):
@@ -89,12 +92,14 @@ class PipelineConfig:
         if self.output_param_dir:
             self.output_param_dir = Path(expand_path(str(self.output_param_dir)))
 
-        # Resolve template {date} em landing_file e bronze_file
+        # Resolve o template {date} em landing_file e bronze_file. É o único
+        # placeholder que a core conhece; outros (ex.: {game_id}) são preservados
+        # para o pipeline resolver com str.format na hora da extração.
         today = datetime.today().strftime("%Y-%m-%d")
         if self.landing_file:
-            self.landing_file = self.landing_file.format(date=today)
+            self.landing_file = self.landing_file.replace("{date}", today)
         if self.bronze_file:
-            self.bronze_file = self.bronze_file.format(date=today)
+            self.bronze_file = self.bronze_file.replace("{date}", today)
 
         # Deriva bronze_file se não vier no config
         if self.bronze_file is None and self.landing_file:
@@ -224,6 +229,7 @@ def load_source_config(config_path: str, source: str, env: str | None = None) ->
         "parameter_file": src_cfg.get("parameter_file"),
         "output_param_dir": env_cfg.get("base_parameters"),
         "output_param_file": src_cfg.get("output_param_file"),
+        "options": src_cfg.get("options"),
     }
 
     return {k: v for k, v in result.items() if v is not None}

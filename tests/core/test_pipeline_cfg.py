@@ -78,3 +78,34 @@ def test_pipeline_cfg_missing_fields_raise():
     cfg.bronze_dir = Path("/tmp/brz")
     cfg.bronze_file = "x.csv"
     assert isinstance(cfg.bronze_filepath, Path)
+
+
+def test_pipeline_cfg_keeps_unknown_placeholders(tmp_path: Path):
+    from datetime import datetime
+
+    today = datetime.today().strftime("%Y-%m-%d")
+    cfg = PipelineConfig(
+        landing_dir=tmp_path / "landing",
+        landing_file="raw_{game_id}_{date}.json",
+        criar_dirs=False,
+    )
+    # só {date} é resolvido; {game_id} fica para o pipeline
+    assert cfg.landing_file == f"raw_{{game_id}}_{today}.json"
+    assert cfg.landing_file.format(game_id=42) == f"raw_42_{today}.json"
+
+
+def test_load_source_config_passes_options(tmp_path: Path):
+    from core.config import load_source_config
+
+    yml = tmp_path / "cfg.yml"
+    yml.write_text(
+        "environments:\n  local:\n    base_raw: /tmp/x\n"
+        "sources:\n  s:\n    base_url: http://a\n    options:\n      array_key: data\n"
+        "  t:\n    base_url: http://b\n",
+        encoding="utf-8",
+    )
+    cfg = PipelineConfig(**load_source_config(yml, "s", env="local"), criar_dirs=False)
+    assert cfg.options == {"array_key": "data"}
+
+    cfg = PipelineConfig(**load_source_config(yml, "t", env="local"), criar_dirs=False)
+    assert cfg.options == {}

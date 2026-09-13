@@ -81,6 +81,17 @@ class PostgresClient:
             self.logger.error(f"❌ Erro ao conectar: {e}", exc_info=True)
             return None
 
+    def connect(self):
+        """Conexão psycopg2 crua (injetada ou nova). Levanta se não conectar.
+
+        Para quem precisa de ``cursor.copy_expert`` ou de transação explícita;
+        o chamador fecha a conexão (exceto se ela foi injetada).
+        """
+        connection = self._connect()
+        if connection is None:
+            raise ConnectionError("Falha ao conectar no Postgres (ver log acima).")
+        return connection
+
     def alchemy(self):
         if self.external_engine:
             self.logger.debug("Usando engine externa (injetada)")

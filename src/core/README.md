@@ -16,6 +16,7 @@ from core import (
     ColumnSanitizer,
     GenericETL,
     HttpClient,
+    JsonbLoader,
     PipelineConfig,
     PostgresClient,
     concat_files_to_df,
@@ -23,6 +24,7 @@ from core import (
     list_files,
     load_source_config,
     load_yaml,
+    missing_dates,
     normalize_string,
     setup_logger,
     write_csv,
@@ -39,6 +41,8 @@ Os demais vêm do submódulo (`from core.parsers.html import make_bs_object`).
 | `http.py` | `HttpClient` |
 | `db.py` | `PostgresClient` |
 | `io.py` | `list_files`, `concat_files_to_df`, `write_csv` |
+| `jsonb.py` | `JsonbLoader`, `json_file_to_ndjson_buffer` |
+| `incremental.py` | `get_max_date`, `missing_dates`, `write_dates_csv`, `read_dates_csv` |
 | `text.py` | `normalize_string`, `ColumnSanitizer` |
 | `parsers/json.py` | `make_df_from_json_list`, `normalize_json_object` |
 | `parsers/html.py` | `make_bs_object` |
@@ -122,11 +126,13 @@ Dataclass com todos os caminhos e nomes de um pipeline. Campos:
 | `landing_file` / `bronze_file` | nomes de arquivo; aceitam o template `{date}` |
 | `parameter_dir` / `parameter_file` | CSV de entrada que parametriza a extração |
 | `output_param_dir` / `output_param_file` | CSV de IDs gerado para o próximo pipeline |
+| `options` | dict livre com as chaves do bloco `options:` do YAML (a core não interpreta) |
 | `criar_dirs` | cria os diretórios no `__init__` (default `True`) |
 
 No `__post_init__` ele resolve `${VAR}`, aplica `subpath`, troca `{date}` pela data
-de hoje, deriva `bronze_file` a partir de `landing_file` (trocando a extensão para
-`.csv`) e cria os diretórios.
+de hoje (outros placeholders, como `{game_id}`, são preservados para o pipeline),
+deriva `bronze_file` a partir de `landing_file` (trocando a extensão para `.csv`) e
+cria os diretórios.
 
 > **Atenção:** o construtor cria diretórios por padrão. Em testes passe
 > `criar_dirs=False` para não sujar o disco.
@@ -219,6 +225,7 @@ você passa `filename`) e **`data_carga`**.
 | `send_df_to_db(df, table_name, how="replace", filename=None, schema="raw")` | Grava um DataFrame |
 | `send_csv_to_db(csv_path, table_name, sep=";", chunksize=50_000, how="replace")` | CSV grande em streaming; respeita o limite de 65535 parâmetros do Postgres e cria a tabela mesmo se o CSV só tiver cabeçalho |
 | `load_files_to_table(input_dir, table_name=None, file_extension="csv", pattern=None, strip_prefix="", source_column="arquivo_origem", sep=",")` | Carrega um diretório inteiro (ver os dois modos abaixo) |
+| `connect()` | Conexão psycopg2 crua, para `copy_expert`/transação explícita (levanta se falhar) |
 | `execute_query(sql)` | Executa DDL/DML |
 | `fetchone(sql)` | Uma linha (ex.: high-water mark) |
 | `fetchall(sql)` | Resultado completo como DataFrame |
@@ -239,6 +246,44 @@ db.load_files_to_table(bronze_dir, strip_prefix="consolidado_")
 
 > Cargas são **full refresh** (`how="replace"`) por padrão: os volumes são pequenos
 > e a idempotência vem de recarregar tudo. Use `how="append"` conscientemente.
+
+---
+
+## `jsonb.py` — `JsonbLoader`
+
+Carga de JSON bruto em tabela `(payload JSONB, source_filename TEXT)` via `COPY`,
+para fontes cuja normalização fica no dbt (precedente: `esportes/nhl`).
+
+```python
+loader = JsonbLoader(PostgresClient(log=logger), control_table="nhl_ingestion_control")
+loader.load_file(path, "nhl_raw_all_teams_id", array_key="data", overwrite=True)
+loader.load_files(landing_dir.glob("raw_*.json"), "nhl_raw_all_play_by_play")
+```
+
+- `overwrite=True`: `TRUNCATE` + recarga; `False`: só arquivos ausentes da tabela
+  de controle `raw.<control_table>` (`table_schema, table_name, filename, ingested_at`).
+- `array_key` aponta a lista dentro de um dict (`{"data": [...]}`); lista no topo
+  vira um registro por item; dict sem chave vira um registro só.
+- `json_file_to_ndjson_buffer(path, array_key, source_filename)` é a função pura
+  que serializa para o formato `COPY ... FORMAT text` (com o escape de `\`, `\n`,
+  `\r`, `\t`). Testada em `tests/core/test_jsonb.py`.
+- Tudo numa transação: falha no meio do lote faz rollback.
+
+---
+
+## `incremental.py`
+
+Extração incremental por data (energia/solar, clima/openweather):
+
+```python
+get_first(db, sql)              # aceita conexão psycopg2 OU PostgresHook do Airflow
+get_max_date(db, sql) -> date | None
+missing_dates(since, cutoff_hour=20, now=None) -> list[str]   # since+1 .. ontem (hoje se >= 20h)
+write_dates_csv(dates, path) / read_dates_csv(path)           # arquivo de controle, 1 data por linha
+```
+
+`missing_dates` é pura (injete `now` em testes). O `cutoff_hour` existe porque
+resumos diários só fecham à noite.
 
 ---
 

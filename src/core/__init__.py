@@ -9,7 +9,9 @@ from core.config import (
 from core.db import PostgresClient
 from core.etl import GenericETL
 from core.http import HttpClient
+from core.incremental import missing_dates
 from core.io import concat_files_to_df, list_files, write_csv
+from core.jsonb import JsonbLoader
 from core.logging import setup_logger
 from core.text import ColumnSanitizer, normalize_string
 
@@ -17,6 +19,7 @@ __all__ = [
     "ColumnSanitizer",
     "GenericETL",
     "HttpClient",
+    "JsonbLoader",
     "PipelineConfig",
     "PostgresClient",
     "concat_files_to_df",
@@ -24,6 +27,7 @@ __all__ = [
     "list_files",
     "load_source_config",
     "load_yaml",
+    "missing_dates",
     "normalize_string",
     "setup_logger",
     "write_csv",
