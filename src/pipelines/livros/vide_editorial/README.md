@@ -2,22 +2,23 @@
 
 Coletor de livros e promoções do site da **Vide Editorial**. Extrai listas de
 produtos (home e categorias), pagina automaticamente, salva JSON no lake e carrega
-no Postgres. Configuração em `vide_editorial_config.yml`.
+no Postgres. ETL em `vide_editorial_etl.py` (parsers inclusos); configuração em
+`vide_editorial_config.yml`.
 
 ## O que coleta
 
-| Script | Source | Fluxo | Destino |
-|---|---|---|---|
-| `vide_editorial_livros_em_destaque.py` | `livros_em_destaque` | HTML da home → JSON por dia no landing → bronze CSV → tabela | `raw_vide_editorial.livros_em_destaque` |
-| `vide_editorial_categorias.py` | `categorias` | Páginas de categoria (`options.hrefs`) → JSON por página | só landing (`load: none`), **sem consumidor hoje** |
+| Entidade | Fluxo | Destino |
+|---|---|---|
+| `livros_em_destaque` | HTML da home → JSON por dia no landing → bronze CSV → tabela | `raw_vide_editorial.livros_em_destaque` |
+| `categorias` | Páginas de categoria (`options.hrefs`) → JSON por página | só landing (`load: none`), **sem consumidor hoje** |
 
-`_parsers.py` concentra os seletores BeautifulSoup e a descoberta de paginação.
+`parse_products_page` e `get_last_page_number` concentram os seletores BeautifulSoup e a descoberta de paginação.
 
 ## Como executar
 
 ```bash
-uv run python -m pipelines.livros.vide_editorial.vide_editorial_livros_em_destaque
-uv run python -m pipelines.livros.vide_editorial.vide_editorial_categorias      # extract-only
+uv run python -m pipelines.livros.vide_editorial.vide_editorial_etl livros_em_destaque
+uv run python -m pipelines.livros.vide_editorial.vide_editorial_etl categorias      # extract-only
 ```
 
 Saída dos arquivos: `raw/vide/destaques/vide_livros_em_destaque_{data}.json` para a
@@ -51,4 +52,4 @@ martelar o site.
 - Credenciais do banco vêm do `.env` da raiz (perfil `DB__<ENV>__*`); o schema é a
   chave `db_schema` do YAML.
 - Se o site mudar o HTML, os seletores a ajustar estão em
-  `_parsers.parse_products_page` (`div.item-product`, `.name a.product-name`, etc.).
+  `parse_products_page` (`div.item-product`, `.name a.product-name`, etc.).

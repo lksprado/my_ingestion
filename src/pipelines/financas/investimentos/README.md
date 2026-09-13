@@ -6,13 +6,17 @@ bem diferentes (Excel, PDF, Google Sheets e o próprio DW), landando CSVs nos sc
 categorização e a análise vivem no dbt. Configuração em `investimentos_config.yml`
 (`load: files`: cada CSV do bronze vira a tabela de mesmo nome).
 
+As origens têm estrutura muito diferente, então é a exceção ao "tudo num arquivo":
+cada uma tem seu módulo (`investimentos_b3.py`, `_avenue.py`, `_google.py`, só com
+extract/transform) e o **entrypoint único** `investimentos_etl.py` registra as três.
+
 A intervenção nos dados é mínima — o suficiente para torná-los tabulares com nomes
 de coluna limpos. Por isso as cargas são **full refresh**: o volume é pequeno e a
 idempotência vem de recarregar tudo, o que também tolera mudança de schema na origem.
 
 ## Fontes
 
-| Script | Source | Origem | Entrada | Tabelas destino |
+| Módulo | Entidade | Origem | Entrada | Tabelas destino |
 |---|---|---|---|---|
 | `investimentos_b3.py` | `b3` | B3 | Excel mensal (uma aba por classe de ativo), já no landing | `raw_b3.<aba>` |
 | `investimentos_avenue.py` | `avenue` | Avenue | PDF de Account Statement, já no landing | `raw_avenue.assets`, `raw_avenue.dividends_interest` |
@@ -22,13 +26,13 @@ idempotência vem de recarregar tudo, o que também tolera mudança de schema na
 ## Como executar
 
 ```bash
-uv run python -m pipelines.financas.investimentos.run_all          # b3 + avenue + google
-uv run python -m pipelines.financas.investimentos.run_all b3       # uma fonte só
-uv run python -m pipelines.financas.investimentos.investimentos_google --steps transform,load
-uv run python -m pipelines.financas.investimentos.investimentos_fgc  # à parte (ver abaixo)
+uv run python -m pipelines.financas.investimentos.investimentos_etl          # b3 + avenue + google
+uv run python -m pipelines.financas.investimentos.investimentos_etl b3       # uma fonte só
+uv run python -m pipelines.financas.investimentos.investimentos_etl google --steps transform,load
+uv run python -m pipelines.financas.investimentos.investimentos_fgc          # à parte (ver abaixo)
 ```
 
-O orquestrador (`core.run_many`) roda as três ingestões em sequência e **não aborta**
+Sem entidades, `investimentos_etl` roda as três ingestões em sequência e **não aborta**
 quando uma falha: registra o erro, segue para a próxima e sai com código 1 no fim.
 O `fgc` fica fora porque depende da camada `intermediate` já materializada no DW.
 
@@ -53,7 +57,7 @@ ${LAKE_ROOT}/raw/investments/instituicoes/instituicoes_conglomerado_prudencial.c
 
 O bronze é gravado em `${LAKE_ROOT}/bronze/investments/<fonte>/<tabela>.csv` (`;`).
 
-O transform **apaga os CSVs do bronze antes de regravar** (`_common.reset_bronze`):
+O transform **apaga os CSVs do bronze antes de regravar** (`core.reset_bronze`):
 com `load: files` qualquer arquivo que sobrasse viraria uma tabela fantasma.
 
 ## Detalhes por fonte

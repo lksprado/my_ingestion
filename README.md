@@ -12,16 +12,16 @@ num único ambiente — todos os submódulos de código do `airflow3` vivem aqui
 src/                   # raiz de código (layout plano: imports sem prefixo de pacote)
 ├── settings.py        # config central (pydantic-settings, lê o .env da raiz)
 ├── core/              # biblioteca compartilhada (contrato extract → transform → load)
-│   ├── etl.py         # GenericETL (load por modo: table | files | jsonb | none), run_cli, run_many
+│   ├── etl.py         # GenericETL (load por modo: table | files | jsonb | none), Etl, run_source, build_etl
 │   ├── config.py      # PipelineConfig.from_yaml, load_yaml (${VAR} nos YAMLs)
 │   ├── http.py        # HttpClient: get_json/get_text/request, save_json, fetch_and_save(_many)
 │   ├── db.py          # PostgresClient: send_df_to_db/load_files_to_table/read_sql
-│   ├── io.py          # write_bronze(_streaming), concat_files_to_df, write_csv, list_files
-│   ├── incremental.py # por data (missing_dates_from_db) e por ID (pending_ids, mark_no_data)
+│   ├── io.py          # write_bronze(_streaming), concat_landing, reset_bronze, write_csv, list_files
+│   ├── incremental.py # por data (missing_dates_from_db) e por ID (extract_by_ids, pending_ids)
 │   ├── jsonb.py       # JsonbLoader: JSON -> tabela JSONB via COPY, com controle de ingestão
 │   ├── text.py        # sanitize_columns, sanitize_values, strip_newlines, normalize_string
 │   ├── logging.py     # setup_logger (configura o root uma vez)
-│   └── parsers/       # json (normalize_json_object), html (make_bs_object)
+│   └── parsers/       # json (normalize_json_object, flatten_children), html (make_bs_object)
 └── pipelines/
     ├── legislativo/   # Câmara, Senado, e-Cidadania, Ranking Políticos, Radar Congresso
     ├── financas/      # investimentos (b3, avenue, google, fgc) e fundos_imobiliarios
@@ -32,8 +32,9 @@ src/                   # raiz de código (layout plano: imports sem prefixo de p
     └── livros/        # vide_editorial
 ```
 
-Cada fonte tem sua pasta com código + `*_config.yml` (blocos `environments:
-{local, airflow}` e `sources:`) + um `README.md` próprio. Paths usam
+Cada fonte tem sua pasta com **um** `<fonte>_etl.py` (o ETL de todas as entidades)
++ `<fonte>_config.yml` (blocos `environments: {local, airflow}` e `sources:`) + um
+`README.md` próprio. Paths usam
 `${LAKE_ROOT}`/`${SEEDS_ROOT}` — nada hardcoded, nada de credencial em código.
 
 📖 Documentação:
@@ -66,17 +67,16 @@ uv run task test                 # pytest (exceto marker integration)
 uv run task lint                 # ruff check + format --check
 uv run task format               # ruff format + fix
 
-# Pipelines (exemplos); todo script aceita --steps extract,transform,load
-uv run python -m pipelines.legislativo.camara.camara_deputados
-uv run python -m pipelines.legislativo.camara.camara_proposicao --steps transform,load
-uv run python -m pipelines.financas.investimentos.run_all       # b3+avenue+google
+# Pipelines (exemplos): <fonte>_etl [entidade ...] [--steps extract,transform,load]
+uv run python -m pipelines.legislativo.camara.camara_etl                     # todas, na ordem
+uv run python -m pipelines.legislativo.camara.camara_etl proposicao --steps transform,load
+uv run python -m pipelines.financas.investimentos.investimentos_etl          # b3+avenue+google
 uv run python -m pipelines.financas.fundos_imobiliarios.run --month 2026-09
 uv run python -m pipelines.precos.atacadao.run
-uv run python -m pipelines.energia.solar.solar_daily_energy     # depois: solar_hourly_energy
-uv run python -m pipelines.clima.openweather.openweather_daily
-uv run python -m pipelines.esportes.nhl.nhl_games_summary       # depois: dbt + run_all
-uv run python -m pipelines.esportes.nhl.run_all
-uv run python -m pipelines.livros.vide_editorial.vide_editorial_livros_em_destaque
+uv run python -m pipelines.energia.solar.solar_etl                           # daily + hourly
+uv run python -m pipelines.clima.openweather.openweather_etl
+uv run python -m pipelines.esportes.nhl.nhl_etl games_summary                # depois: dbt + dinâmicos
+uv run python -m pipelines.livros.vide_editorial.vide_editorial_etl livros_em_destaque
 ```
 
 ## ⚠️ Segredos vazados nos repos antigos — ROTACIONAR
@@ -149,3 +149,9 @@ precisam ser trocados nos serviços:
   (classes antigas), `test_postgres` (conexão real com senha).
 - Loaders agora acrescentam `arquivo_origem`/`data_carga` também nas cargas
   ex-investments/books (comportamento padrão do `PostgresClient`).
+- **Um script de ETL por fonte (2026-09-13)**: os scripts por tabela, `_common.py`,
+  `_parsers.py`, `_extraction.py` e `run_all.py` foram consolidados em um
+  `<fonte>_etl.py` com `ETLS = {entidade: Etl(...)}` e `run_source` (CLI
+  `[entidade ...] --steps`). Helpers compartilhados (`extract_by_ids`,
+  `concat_landing`, `flatten_children`, `reset_bronze`) foram para a `core`.
+  `run_cli`/`run_many` deixaram de existir.

@@ -7,22 +7,22 @@ Postgres → extração só das datas faltantes → CSV consolidado no staging.
 
 Migrado do repo `openweather` (submódulo `include/openweather` do airflow3).
 
-## Fluxo (`openweather_daily.py`)
+## Fluxo (`openweather_etl.py`, entidade `daily`)
 
 1. **extract** — `core.missing_dates_from_db` lê `MAX(date)` de
    `raw_openweather.openweather_daily` (schema/tabela/coluna vêm do YAML), gera as
    datas faltantes até ontem (ou até hoje se já passou das 20h), grava
    `missing_dates.csv` e requisita o `day_summary` de cada data
    (`day_summary_YYYY-MM-DD.json`).
-2. **transform** — `_parsers.parse_day_summary` achata cada JSON, converte Kelvin →
+2. **transform** — `parse_day_summary` achata cada JSON, converte Kelvin →
    Celsius e fixa tipos; `core.write_bronze` consolida em `all_dfs.csv` (`,`).
 3. **load** — `none`: o Airflow carrega (ver Notas).
 
 ## Como executar
 
 ```bash
-uv run python -m pipelines.clima.openweather.openweather_daily
-uv run python -m pipelines.clima.openweather.openweather_daily --steps transform
+uv run python -m pipelines.clima.openweather.openweather_etl
+uv run python -m pipelines.clima.openweather.openweather_etl --steps transform
 ```
 
 Sem datas faltantes, o extract encerra com `Nenhuma data faltando.`
@@ -51,6 +51,6 @@ YAML; `bronze_sep: ","` porque o Airflow lê o CSV. Saídas em
 
 - `missing_raw.identify_missing_dates(db)` deixou de existir. Equivalente:
   `core.missing_dates_from_db(PostgresClient(connection=hook.get_conn()), [sql], control)`,
-  ou simplesmente rodar o script por etapa: `... openweather_daily --steps extract`
+  ou simplesmente rodar por etapa: `... openweather_etl --steps extract`
   e `--steps transform`.
-- Módulo renomeado: `pipelines.clima.openweather.run` → `.openweather_daily`.
+- Módulo renomeado: `pipelines.clima.openweather.run` → `.openweather_etl`.

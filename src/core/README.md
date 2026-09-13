@@ -2,8 +2,8 @@
 
 Tudo que mais de um pipeline precisa mora aqui: cliente HTTP, carga no Postgres,
 configuração por YAML, orquestração das três etapas, escrita do bronze e limpeza
-de texto. A regra é **um jeito de fazer cada coisa**; helper que serve a um domínio
-só fica em `pipelines/<domínio>/<fonte>/_common.py`.
+de texto. A regra é **um jeito de fazer cada coisa**; helper que serve a uma fonte
+só fica no próprio `pipelines/<domínio>/<fonte>/<fonte>_etl.py`.
 
 **Regra prática:** se você está prestes a escrever `requests.Session()`,
 `create_engine(...)`, `yaml.safe_load(...)`, `to_csv(...)` de bronze ou
@@ -13,9 +13,10 @@ Tudo que um pipeline usa é reexportado no pacote:
 
 ```python
 from core import (
+    Etl,
     GenericETL,
-    run_cli,
-    run_many,  # etl.py
+    build_etl,
+    run_source,  # etl.py
     PipelineConfig,
     load_yaml,  # config.py
     HttpClient,  # http.py
@@ -24,17 +25,23 @@ from core import (
     JsonbLoader,  # jsonb.py
     write_bronze,
     write_bronze_streaming,  # io.py
+    reset_bronze,
     list_files,
     concat_files_to_df,
+    concat_landing,
     write_csv,  # io.py
     missing_dates,
     missing_dates_from_db,  # incremental.py (por data)
     pending_ids,
-    mark_no_data,  # incremental.py (por ID)
+    mark_no_data,
+    read_ids,
+    landing_ids,
+    extract_by_ids,  # incremental.py (por ID)
     sanitize_columns,
     sanitize_values,
     normalize_string,  # text.py
     setup_logger,  # logging.py
+    flatten_children,  # parsers/json.py
 )
 ```
 
@@ -54,29 +61,32 @@ Todo pipeline é **extract → transform → load**, e cada etapa lê e escreve 
 | `transform(cfg)` | `cfg.bronze_filepath` (CSV, `cfg.bronze_sep`), sempre via `write_bronze` | no-op (fontes JSON → JSONB) |
 | `load()` | `raw_<fonte>.<tabela>` | por `cfg.load`: `table` \| `files` \| `jsonb` \| `none` |
 
+Uma fonte é **um arquivo** `<fonte>_etl.py` que registra as funções de cada
+entidade do YAML:
+
 ```python
 import logging
 from pathlib import Path
 
-from core import GenericETL, PipelineConfig, run_cli, write_bronze
+from core import Etl, PipelineConfig, run_source, write_bronze
 
 logger = logging.getLogger(__name__)
-_CONFIG_FILE = Path(__file__).parent / "camara_config.yml"
+CONFIG_FILE = Path(__file__).parent / "camara_config.yml"
 
 
-def extract(cfg: PipelineConfig) -> None: ...  # arquivos em cfg.landing_dir
-def transform(cfg: PipelineConfig) -> None:  # termina em write_bronze
+def extract_deputados(cfg: PipelineConfig) -> None: ...  # arquivos em cfg.landing_dir
+def transform_deputados(cfg: PipelineConfig) -> None:  # termina em write_bronze
     write_bronze(cfg, df)
 
 
-def build() -> GenericETL:
-    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "deputados")
-    return GenericETL(cfg, extract_fn=extract, transform_fn=transform, log=logger)
-
+ETLS = {  # ordem = ordem de execução
+    "legislaturas": Etl(transform=transform_legislaturas),  # extract padrão
+    "deputados": Etl(extract=extract_deputados, transform=transform_deputados),
+}
 
 if __name__ == "__main__":
-    run_cli(build)
-    # uv run python -m pipelines.legislativo.camara.camara_deputados [--steps transform,load]
+    run_source(CONFIG_FILE, ETLS)
+    # uv run python -m pipelines.legislativo.camara.camara_etl [entidade ...] [--steps transform,load]
 ```
 
 ---
@@ -101,12 +111,21 @@ if __name__ == "__main__":
   - `none` — só loga (o orquestrador carrega).
 - `db_schema` ausente ou sem prefixo `raw_` levanta `ValueError` antes de conectar.
 
-### `run_cli(build, argv=None)`
-Entrypoint padrão: `setup_logger()` + `--steps a,b` + `build().run(steps)`.
+### `Etl(extract=None, transform=None, load=None)`
+Dataclass com as funções de uma entidade; `None` usa o default do `GenericETL`.
+Entidades que só diferem por um argumento compartilham a função via
+`functools.partial` (ex.: `partial(transform_dados_abertos, url_col="url_votos")`).
 
-### `run_many(pipelines: dict[str, Callable], only=None)`
-Roda vários pipelines isolando falhas (loga, segue, `sys.exit(1)` no fim se alguma
-falhou). `only` roda um só. Usado por `nhl/run_all.py` e `investimentos/run_all.py`.
+### `build_etl(config_file, source, etl) -> GenericETL`
+`PipelineConfig.from_yaml(config_file, source)` + `GenericETL` com as funções de
+`etl` e logger `<fonte>.<entidade>`. Ponto de entrada para DAGs e testes:
+`build_etl(camara_etl.CONFIG_FILE, "votacoes", camara_etl.ETLS["votacoes"]).run(["extract"])`.
+
+### `run_source(config_file, etls: dict[str, Etl], argv=None)`
+Entrypoint de todo `<fonte>_etl.py`: `[entidade ...] [--steps a,b]`. Sem entidades,
+roda todas na ordem do dict; entidade ou etapa desconhecida sai com erro de uso.
+Com mais de uma entidade, isola falhas (loga, segue, `sys.exit(1)` no fim); com uma
+só, a exceção propaga. Chama `setup_logger()`.
 
 ---
 
@@ -232,6 +251,18 @@ logada e pulada; escrita em temporário + `os.replace`. É um **rebuild** comple
 quem quiser incrementalidade filtra `files` antes.
 
 ```python
+concat_landing(cfg, parse_fn, pattern="*.json") -> DataFrame
+```
+Aplica `parse_fn(file)` a cada arquivo do landing e concatena (exceção loga e pula o
+arquivo; `None`/vazio é ignorado). É o "um DataFrame por arquivo" antes do `write_bronze`.
+
+```python
+reset_bronze(cfg) -> None
+```
+Apaga os CSVs de `cfg.bronze_dir`. Para `load: files`, em que cada CSV vira uma
+tabela: sem isso, um CSV antigo viraria tabela fantasma.
+
+```python
 list_files(input_dir, pattern="*") -> list[Path]                   # rglob ordenado
 concat_files_to_df(input_dir, pattern="*.csv", sep=",", source_column=None) -> DataFrame
 write_csv(df, output_dir, filename, sep=";") -> Path               # seeds, exceções
@@ -258,10 +289,16 @@ Por ID (legislativo):
 ```python
 pending_ids(all_ids, done_ids, no_data_path=None) -> list[str]   # preserva a ordem
 mark_no_data(no_data_path, id_) -> None                          # CSV com header "id"
+read_ids(path, column) -> list[str]                              # sem ".0" de float
+landing_ids(landing_dir, suffix) -> set[str]
+extract_by_ids(cfg, has_data=bool, http=None) -> None
 ```
 O padrão dos "três conjuntos": todos os IDs menos os já no landing menos os que a
-API nunca respondeu. `pipelines/legislativo/_common.extract_by_ids` monta tudo a
-partir do YAML.
+API nunca respondeu. `extract_by_ids` monta o loop inteiro a partir do YAML:
+placeholder `{id}` em `base_url`/`landing_file`, `parameter_file` com os IDs e, em
+`options`, `no_data_file`, `parameter_column` (default `id`) e `blacklist_on_error`
+(default `true`: erro/timeout também entra no "sem dados"). `has_data(resposta)`
+decide o que é "sem dados" (a câmara usa `dados` não vazio).
 
 ---
 
@@ -303,7 +340,7 @@ setup_logger(name=None, level=logging.INFO, log_file=None) -> Logger
 ```
 Configura o logger **raiz** uma vez (console e, opcionalmente, arquivo rotativo) e
 devolve `getLogger(name)`. Regra: módulos usam `logging.getLogger(__name__)`; o
-entrypoint chama `setup_logger()` — `run_cli` e `run_many` já fazem isso. Assim o
+entrypoint chama `setup_logger()` — `run_source` já faz isso. Assim o
 `INFO` de qualquer módulo chega ao console, sem depender da hierarquia de nomes.
 
 ---
@@ -312,6 +349,7 @@ entrypoint chama `setup_logger()` — `run_cli` e `run_many` já fazem isso. Ass
 
 ```python
 normalize_json_object(filepath, key=None) -> DataFrame   # pd.json_normalize(sep=".")
+flatten_children(records, parent_cols, child_key) -> list[dict]  # uma linha por filho
 make_bs_object(input_file=None, response=None) -> BeautifulSoup
 ```
 
@@ -321,7 +359,7 @@ make_bs_object(input_file=None, response=None) -> BeautifulSoup
 
 - Nada de credencial ou caminho absoluto: use `settings` e `${LAKE_ROOT}` no YAML.
 - Um jeito por coisa. Antes de adicionar uma função, veja se é variação de uma que
-  existe (parâmetro) ou se serve a um domínio só (`_common.py` do domínio).
+  existe (parâmetro) ou se serve a uma fonte só (fica no `<fonte>_etl.py`).
 - Toda função pública com docstring — é o que aparece nesta referência.
 - Cuidado com nomes de topo: `src/` é a raiz de código, então um `src/novo.py` vira
   o módulo global `novo` dentro do venv.

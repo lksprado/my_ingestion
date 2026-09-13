@@ -10,17 +10,19 @@ Migrado do repo `nhl-extraction` (submódulo `include/nhl_extraction` do airflow
 
 ## O que coleta
 
-| Script | Source | Tabela | Carga |
-|---|---|---|---|
-| `nhl_seasons.py` | `seasons` | `raw_nhl.nhl_raw_all_seasons_id` | full (anual) |
-| `nhl_teams.py` | `teams` | `raw_nhl.nhl_raw_all_teams_id` | full (anual) |
-| `nhl_games_summary.py` | `games_summary` | `raw_nhl.nhl_raw_all_games_summary` | full (diário) |
-| `nhl_games_details.py` | `games_details` | `raw_nhl.nhl_raw_all_games_details` | incremental |
-| `nhl_games_summary_details.py` | `games_summary_details` | `raw_nhl.nhl_raw_all_games_summary_details` | incremental |
-| `nhl_play_by_play.py` | `play_by_play` | `raw_nhl.nhl_raw_all_play_by_play` | incremental |
-| `nhl_club_stats.py` | `club_stats` | `raw_nhl.nhl_raw_all_club_stats` | full |
-| `nhl_players.py` | `players` | `raw_nhl.nhl_raw_all_players` | full |
-| `nhl_player_game_log.py` | `player_game_log` | `raw_nhl.nhl_raw_all_player_game_log` | full (temporada mais recente) |
+ETL em `nhl_etl.py` (todas as entidades); configuração em `nhl_config.yml`.
+
+| Entidade | Tabela | Carga |
+|---|---|---|
+| `seasons` | `raw_nhl.nhl_raw_all_seasons_id` | full (anual) |
+| `teams` | `raw_nhl.nhl_raw_all_teams_id` | full (anual) |
+| `games_summary` | `raw_nhl.nhl_raw_all_games_summary` | full (diário) |
+| `games_summary_details` | `raw_nhl.nhl_raw_all_games_summary_details` | incremental |
+| `games_details` | `raw_nhl.nhl_raw_all_games_details` | incremental |
+| `play_by_play` | `raw_nhl.nhl_raw_all_play_by_play` | incremental |
+| `club_stats` | `raw_nhl.nhl_raw_all_club_stats` | full |
+| `player_game_log` | `raw_nhl.nhl_raw_all_player_game_log` | full (temporada mais recente) |
+| `players` | `raw_nhl.nhl_raw_all_players` | full |
 
 Os nomes de tabela e de pasta (`raw/nhl/single`, `raw/nhl/raw_all_games_details`…)
 **fogem do padrão** `raw_<fonte>.<entidade>` do monorepo de propósito: o dbt os
@@ -29,9 +31,8 @@ o schema segue o padrão (`raw_nhl`, chave `db_schema` do YAML).
 
 ## Como funciona
 
-`_common.build(source)` monta o `GenericETL` a partir do YAML: sources **estáticos**
-usam o extract padrão da `core` (uma requisição a `base_url`); sources **dinâmicos**
-(com `param_view`) usam `extract_dynamic`, que lê os IDs de uma view do dbt e
+Em `ETLS`, as entidades **estáticas** usam o extract padrão da `core` (uma requisição
+a `base_url`); as **dinâmicas** (com `param_view` no YAML) usam `extract_dynamic`, que lê os IDs de uma view do dbt e
 requisita `base_url.format(**linha)`. Não há transform. O load é o modo `jsonb` da
 `core` (`JsonbLoader`, controle em `raw_nhl.nhl_ingestion_control`); só
 `player_game_log` usa um `load_fn` próprio para carregar a temporada mais recente.
@@ -43,15 +44,18 @@ Os seis pipelines dinâmicos descobrem **quais IDs requisitar** em views do dbt
 Logo a sequência é a do `dag_nhl_master` do airflow3:
 
 ```bash
-uv run python -m pipelines.esportes.nhl.nhl_games_summary     # 1) base dos IDs
+uv run python -m pipelines.esportes.nhl.nhl_etl games_summary   # 1) base dos IDs
 dbt build --selector nhl          # 2) no my_datawarehouse: (re)constrói as views
-uv run python -m pipelines.esportes.nhl.run_all               # 3) os seis dinâmicos
+uv run python -m pipelines.esportes.nhl.nhl_etl \
+    games_summary_details games_details play_by_play club_stats player_game_log players   # 3) os seis dinâmicos
 dbt build --selector nhl          # 4) staging/intermediate/marts com os dados novos
 ```
 
-`seasons` e `teams` mudam uma vez por ano (rodar em outubro). `run_all` aceita um
-source como argumento para rodar um só; todo script aceita `--steps load` para
-recarregar o landing sem bater na API (era `--load-only`).
+`seasons` e `teams` mudam uma vez por ano (rodar em outubro:
+`nhl_etl seasons teams`). Rodar `nhl_etl` sem entidades executa as nove em
+sequência, o que só faz sentido com as views já construídas. Uma entidade que
+falha não aborta as demais. `--steps load` recarrega o landing sem bater na API
+(era `--load-only`).
 
 ## Configuração
 

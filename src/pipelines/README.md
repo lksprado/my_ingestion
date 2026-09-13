@@ -15,9 +15,8 @@ novo está escrevendo credencial, caminho absoluto, `requests.Session()`,
 
 ```
 pipelines/<domínio>/<fonte>/
-├── <fonte>_config.yml     # o quê ingerir, por ambiente
-├── <fonte>_<entidade>.py  # um script por entidade/tabela
-├── _common.py             # opcional: o que os scripts da fonte compartilham
+├── <fonte>_config.yml     # o quê ingerir, por ambiente (uma source por entidade)
+├── <fonte>_etl.py         # o ETL de todas as entidades da fonte
 └── README.md              # obrigatório (ver seção 7)
 ```
 
@@ -30,15 +29,23 @@ Convenções de nome, na cascata:
 | Item | Padrão | Exemplo |
 |---|---|---|
 | Pasta | `<fonte>` | `camara/` |
-| Script | `<fonte>_<entidade>.py` | `camara_votos_deputados.py` |
-| Source no YAML | `<entidade>` | `votos_deputados` |
+| Script | `<fonte>_etl.py` | `camara_etl.py` |
+| Source no YAML e chave de `ETLS` | `<entidade>` | `votos_deputados` |
 | Schema | `raw_<fonte>` (chave `db_schema` no topo do YAML) | `raw_camara` |
 | Tabela | `<entidade>` | `raw_camara.votos_deputados` |
 
-Um script por tabela destino. Resista à tentação de fazer um script que carrega
-cinco tabelas: a granularidade é o que permite reexecutar só o que falhou. O que
-vários scripts da mesma fonte compartilham vai para `_common.py` da pasta (e o que
-o domínio inteiro compartilha, para `pipelines/<domínio>/_common.py`).
+**Um script de ETL por fonte.** As entidades de uma mesma origem compartilham
+cliente, envelope de resposta e parsers; espalhá-las em um script por tabela
+duplica o esqueleto e empurra o que é comum para arquivos `_common.py`. Parsers e
+helpers da fonte moram no próprio `<fonte>_etl.py`; o que serve a mais de uma fonte
+vai para a `core`. A granularidade para reexecutar só o que falhou vem da CLI
+(`<fonte>_etl votacoes --steps transform`), não do arquivo.
+
+**Separe em mais de um módulo só quando a estrutura muda muito** entre as entidades
+(formato de origem, bibliotecas, centenas de linhas de parser sem nada em comum).
+Mesmo aí há um único entrypoint `<fonte>_etl.py` que registra as funções dos
+módulos: é o caso de `financas/investimentos` (Excel da B3, PDF da Avenue, Google
+Sheets em `investimentos_b3.py`/`_avenue.py`/`_google.py`).
 
 ---
 
@@ -89,41 +96,61 @@ Regras:
 ## 3. O esqueleto do script
 
 ```python
+"""ETL da <fonte> -> ``raw_<fonte>.<entidade>``."""
+
 import logging
+from functools import partial
 from pathlib import Path
 
 import pandas as pd
 
-from core import GenericETL, HttpClient, PipelineConfig, run_cli, write_bronze
+from core import (
+    Etl,
+    HttpClient,
+    PipelineConfig,
+    concat_landing,
+    run_source,
+    write_bronze,
+)
 
 logger = logging.getLogger(__name__)
-_CONFIG_FILE = Path(__file__).parent / "<fonte>_config.yml"
+CONFIG_FILE = Path(__file__).parent / "<fonte>_config.yml"
 
 
-def extract(cfg: PipelineConfig) -> None:
+def extract_paginado(cfg: PipelineConfig) -> None:
     """Busca o dado bruto e grava em cfg.landing_dir."""
-    HttpClient(logger).fetch_and_save(cfg.url_base, cfg.landing_dir, cfg.landing_file)
+    ...
 
 
-def transform(cfg: PipelineConfig) -> None:
+def parse_envelope(path: Path, key: str) -> pd.DataFrame | None:
+    """Um arquivo do landing -> DataFrame (função pura: é o que os testes cobrem)."""
+    ...
+
+
+def transform(cfg: PipelineConfig, key: str) -> None:
     """Lê o landing, normaliza e grava o bronze."""
-    frames = [pd.read_json(f) for f in sorted(cfg.landing_dir.glob("*.json"))]
-    write_bronze(cfg, pd.concat(frames, ignore_index=True) if frames else None)
+    write_bronze(cfg, concat_landing(cfg, partial(parse_envelope, key=key)))
 
 
-def build() -> GenericETL:
-    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "<entidade>")
-    return GenericETL(cfg, extract_fn=extract, transform_fn=transform, log=logger)
-
+ETLS = {  # ordem = ordem de execução (produtores de parâmetros primeiro)
+    "<entidade_a>": Etl(transform=partial(transform, key="dados")),  # extract padrão
+    "<entidade_b>": Etl(
+        extract=extract_paginado, transform=partial(transform, key="items")
+    ),
+}
 
 if __name__ == "__main__":
-    run_cli(build)
-    # uv run python -m pipelines.<domínio>.<fonte>.<fonte>_<entidade> [--steps transform,load]
+    run_source(CONFIG_FILE, ETLS)
+    # uv run python -m pipelines.<domínio>.<fonte>.<fonte>_etl [entidade ...] [--steps transform,load]
 ```
 
-Sempre deixe o comentário com o comando de execução no fim do `__main__` — é o que
-as pessoas copiam. `--steps` roda um subconjunto das etapas (é assim que o
-orquestrador as separa em tasks, e como você reprocessa sem bater na API).
+Cada chave de `ETLS` é uma source do YAML. Entidades que só diferem por um argumento
+compartilham a função com `functools.partial`, sem copiar código. Sempre deixe o
+comentário com o comando de execução no fim do `__main__`: é o que as pessoas
+copiam. Sem entidades, `run_source` roda todas na ordem do dict (falha de uma não
+aborta as outras); `--steps` roda um subconjunto das etapas (é assim que o
+orquestrador as separa em tasks, e como você reprocessa sem bater na API). Em DAG
+ou teste, `build_etl(CONFIG_FILE, "<entidade>", ETLS["<entidade>"]).run([...])`.
 
 ### Quais etapas você realmente escreve
 
@@ -170,8 +197,8 @@ Documente a ordem de execução resultante no README da fonte.
 comparar três conjuntos e requisitar só a diferença: todos os IDs
 (`parameter_file`), os já no `landing_dir`, e os que a API não respondeu
 (`options.no_data_file`). `core.pending_ids`/`mark_no_data` fazem a conta;
-`pipelines/legislativo/_common.extract_by_ids(cfg)` monta o loop inteiro a partir
-do YAML (placeholder `{id}` em `base_url`/`landing_file`).
+`core.extract_by_ids(cfg, has_data=...)` monta o loop inteiro a partir do YAML
+(placeholder `{id}` em `base_url`/`landing_file`).
 
 **Extração incremental por data.** `core.missing_dates_from_db(db, sqls, control)`
 descobre no Postgres até onde os dados vão e devolve as datas faltantes. Veja
@@ -181,8 +208,8 @@ descobre no Postgres até onde os dados vão e devolve as datas faltantes. Veja
 levantar exceção — trate o item, logue e siga. Um ID quebrado não pode derrubar uma
 extração de 4 horas.
 
-**Vários pipelines de uma vez.** `core.run_many({"nome": fn, ...}, only)` roda em
-sequência isolando falhas (`nhl/run_all.py`, `investimentos/run_all.py`).
+**Várias entidades de uma vez.** `<fonte>_etl a b c` roda só essas, em sequência,
+isolando falhas (ex.: os seis dinâmicos da NHL depois do dbt).
 
 ---
 
@@ -231,7 +258,7 @@ está no padrão.
       `tmp_path`.
 - [ ] `uv run task lint` e `uv run task test` limpos.
 - [ ] O módulo importa isolado:
-      `uv run python -c "import pipelines.<domínio>.<fonte>.<script>"`.
+      `uv run python -c "import pipelines.<domínio>.<fonte>.<fonte>_etl"`.
 - [ ] Rodou de verdade uma vez e conferiu a tabela em `raw_<fonte>.*` do `analytics_dev`.
 - [ ] Nenhum caminho absoluto e nenhum segredo no diff (o `pre-commit` roda o
       gitleaks, mas confira).
