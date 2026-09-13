@@ -1,0 +1,46 @@
+# Fonte: scraping da Vide Editorial (HTML -> lista de produtos em JSON no landing).
+# O diretório raw/vide preserva o histórico de JSONs do repo antigo.
+db_schema: "raw_vide_editorial"
+
+environments:
+  local:
+    base_raw: "${LAKE_ROOT}/raw/vide"
+    base_bronze: "${LAKE_ROOT}/bronze/vide"
+  airflow:
+    base_raw: "/usr/local/airflow/mylake/raw/vide"
+    base_bronze: "/usr/local/airflow/mylake/bronze/vide"
+
+sources:
+  livros_em_destaque:
+    base_url: "https://videeditorial.com.br/"
+    landing_file: "vide_livros_em_destaque_{date}.json"
+    bronze_file: "vide_livros_em_destaque.csv"
+    db_table: "livros_em_destaque"
+    options:
+      file_pattern: "vide_livros_em_destaque_*.json"   # só os JSONs desta entidade
+
+  # Páginas de categoria: extract-only (load: none), sem consumidor no momento.
+  categorias:
+    base_url: "https://videeditorial.com.br/"
+    subpath: "categorias"
+    landing_file: "{name}_page_{page}_{date}.json"
+    load: none
+    options:
+      delay: 1.2
+      hrefs:
+        - name: historia
+          link: https://videeditorial.com.br/historia
+        - name: ciencias_sociais
+          link: https://videeditorial.com.br/index.php?route=product/category&path=2
+        - name: filosofia
+          link: https://videeditorial.com.br/filosofia
+        - name: biografias
+          link: https://videeditorial.com.br/biografias
+        - name: literatura
+          link: https://videeditorial.com.br/literatura
+        - name: autoconhecimento
+          link: https://videeditorial.com.br/autoconhecimento
+        - name: economia
+          link: https://videeditorial.com.br/economia
+        - name: politica
+          link: https://videeditorial.com.br/politica

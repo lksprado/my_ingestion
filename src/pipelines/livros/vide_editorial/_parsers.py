@@ -1,54 +1,13 @@
+"""Parsers do HTML da Vide Editorial (listas de produtos e paginação)."""
+
+import logging
 from datetime import datetime
 from urllib.parse import parse_qs, urljoin, urlparse
 
-import pandas as pd
 from bs4 import BeautifulSoup
 
-from core import setup_logger
-
-logger = setup_logger(__name__)
-
-
-def get_routes(input_html, output_dir):
-    """Extrai os hrefs de um HTML salvo manualmente (Devtools > Sources).
-
-    Args:
-        input_html: caminho do HTML salvo (ex-data/historia.html).
-        output_dir: diretório onde gravar o CSV de rotas.
-    """
-    BASE_URL = "https://videeditorial.com.br/"  # noqa: N806
-
-    with open(input_html, encoding="utf-8") as f:
-        soup = BeautifulSoup(f, "html.parser")
-
-    routes = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"].strip()
-        text = a.get_text(strip=True)
-
-        # ignora âncoras vazias e JS
-        if not href or href.startswith("#") or href.lower().startswith("javascript"):
-            continue
-
-        # transforma em URL absoluta (se for relativa)
-        full_url = urljoin(BASE_URL, href)
-
-        routes.append(
-            {
-                "text": text,
-                "href_raw": href,
-                "href_full": full_url,
-            }
-        )
-
-    df = pd.DataFrame(routes)
-    created_at = datetime.now().strftime("%Y-%m-%d")
-    df.drop_duplicates(inplace=True)
-    from pathlib import Path
-
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output_dir / f"all_hrefs_{created_at}.csv", sep=";", index=False)
+logger = logging.getLogger(__name__)
+BASE_URL = "https://videeditorial.com.br/"
 
 
 def get_last_page_number(response: str) -> int:
@@ -113,7 +72,7 @@ def parse_products_page(
         name = name_tag.get_text(strip=True) if name_tag else None
 
         raw_url = name_tag["href"] if name_tag and name_tag.has_attr("href") else None
-        url = urljoin("https://videeditorial.com.br/", raw_url) if raw_url else None
+        url = urljoin(BASE_URL, raw_url) if raw_url else None
 
         # Autor
         author_tag = item.select_one("p.author a")
@@ -157,7 +116,7 @@ def parse_products_page(
 
         products.append(product)
 
-    logger.info(f"[{source}] Retrieved {len(products) - 1} registers.")
+    logger.info(f"[{source}] {len(products)} produto(s).")
     return products
 
 
