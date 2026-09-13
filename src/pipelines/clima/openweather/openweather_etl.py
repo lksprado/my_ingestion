@@ -1,4 +1,4 @@
-"""Resumo diário do clima (OpenWeather day_summary), incremental por data.
+"""ETL do resumo diário do clima (OpenWeather day_summary), incremental por data.
 
 extract: high-water mark em raw_openweather.openweather_daily -> datas faltantes
 (CSV de controle) -> um JSON por dia no landing. transform: JSONs -> all_dfs.csv.
@@ -12,19 +12,48 @@ from pathlib import Path
 import pandas as pd
 
 from core import (
-    GenericETL,
+    Etl,
     HttpClient,
     PipelineConfig,
     PostgresClient,
     missing_dates_from_db,
-    run_cli,
+    run_source,
     write_bronze,
 )
-from pipelines.clima.openweather._parsers import parse_day_summary
 from settings import settings
 
 logger = logging.getLogger(__name__)
-_CONFIG_FILE = Path(__file__).parent / "openweather_config.yml"
+CONFIG_FILE = Path(__file__).parent / "openweather_config.yml"
+
+_TEMPERATURE_COLS = [
+    "temperature_min",
+    "temperature_max",
+    "temperature_afternoon",
+    "temperature_night",
+    "temperature_evening",
+    "temperature_morning",
+]
+_INT_COLS = [
+    "cloud_cover_afternoon",
+    "humidity_afternoon",
+    "precipitation_total",
+    "wind_max_direction",
+    "pressure_afternoon",
+]
+_DROP_COLS = ["tz", "units"]
+
+
+def parse_day_summary(content: dict) -> pd.DataFrame:
+    """Achata um day_summary (uma linha) e converte Kelvin -> Celsius."""
+    df = pd.json_normalize(content)
+    df.columns = [c.replace(".", "_") for c in df.columns]
+    for col in _TEMPERATURE_COLS:
+        df[col] = (df[col].astype(float) - 273.15).round(2)
+    for col in _INT_COLS:
+        df[col] = df[col].astype(int)
+    df["lat"] = df["lat"].astype(float)
+    df["lon"] = df["lon"].astype(float)
+    return df.drop(columns=[c for c in _DROP_COLS if c in df.columns])
 
 
 def extract(cfg: PipelineConfig) -> None:
@@ -65,11 +94,8 @@ def transform(cfg: PipelineConfig) -> None:
     write_bronze(cfg, pd.concat(frames, ignore_index=True) if frames else None)
 
 
-def build() -> GenericETL:
-    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "daily")
-    return GenericETL(cfg, extract_fn=extract, transform_fn=transform, log=logger)
-
+ETLS = {"daily": Etl(extract=extract, transform=transform)}
 
 if __name__ == "__main__":
-    run_cli(build)
-    # uv run python -m pipelines.clima.openweather.openweather_daily [--steps transform]
+    run_source(CONFIG_FILE, ETLS)
+    # uv run python -m pipelines.clima.openweather.openweather_etl [--steps transform]

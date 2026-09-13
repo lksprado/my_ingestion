@@ -3,8 +3,7 @@ import json
 import pandas as pd
 
 from core import PipelineConfig
-from pipelines.clima.openweather._parsers import parse_day_summary
-from pipelines.clima.openweather.openweather_daily import transform
+from pipelines.clima.openweather.openweather_etl import parse_day_summary, transform
 
 SAMPLE = {
     "lat": -23.137,

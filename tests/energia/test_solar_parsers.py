@@ -3,7 +3,7 @@ import json
 import pandas as pd
 
 from core import PipelineConfig
-from pipelines.energia.solar._parsers import (
+from pipelines.energia.solar.solar_etl import (
     daily_summary,
     hourly,
     load_landing,
