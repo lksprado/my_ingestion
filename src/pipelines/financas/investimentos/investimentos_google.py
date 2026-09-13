@@ -3,22 +3,19 @@
 extract: ``get_all_values()`` de cada aba de ``options.sheets`` gravado como JSON
 (``{workbook}_{sheet}.json``). transform: aplica ``header_row``, normaliza o
 cabeçalho e grava ``<aba>.csv`` (ou ``<aba>_<workbook>.csv`` fora da planilha
-primária). load: files -> ``raw_google.<aba>``.
+primária). load: files -> ``raw_google.<aba>``. Registrado em ``investimentos_etl.py``.
 """
 
 import json
 import logging
-from pathlib import Path
 
 import gspread as gp
 import pandas as pd
 
-from core import GenericETL, PipelineConfig, normalize_string, run_cli, write_csv
-from pipelines.financas.investimentos._common import reset_bronze
+from core import PipelineConfig, normalize_string, reset_bronze, write_csv
 from settings import settings
 
 logger = logging.getLogger(__name__)
-_CONFIG_FILE = Path(__file__).parent / "investimentos_config.yml"
 
 
 def _workbooks(cfg: PipelineConfig) -> list[dict]:
@@ -112,13 +109,3 @@ def transform(cfg: PipelineConfig) -> None:
             df["source_sheet"] = sheet["name"]
             df["source_workbook"] = wb["key"]
             write_csv(df, cfg.bronze_dir, f"{sheet['stem']}.csv", sep=cfg.bronze_sep)
-
-
-def build() -> GenericETL:
-    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "google")
-    return GenericETL(cfg, extract_fn=extract, transform_fn=transform, log=logger)
-
-
-if __name__ == "__main__":
-    run_cli(build)
-    # uv run python -m pipelines.financas.investimentos.investimentos_google

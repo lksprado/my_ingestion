@@ -1,6 +1,7 @@
 """Relatórios Excel da B3 (uma tabela por aba, consolidando todas as pessoas).
 
 Sem extract: os arquivos são colocados manualmente em raw/investments/b3/<pessoa>/.
+Registrado em ``investimentos_etl.py``.
 """
 
 import logging
@@ -11,17 +12,14 @@ from pathlib import Path
 import pandas as pd
 
 from core import (
-    GenericETL,
     PipelineConfig,
     list_files,
     normalize_string,
-    run_cli,
+    reset_bronze,
     write_csv,
 )
-from pipelines.financas.investimentos._common import reset_bronze
 
 logger = logging.getLogger(__name__)
-_CONFIG_FILE = Path(__file__).parent / "investimentos_config.yml"
 
 # Abas com nomes diferentes mas mesmo schema, consolidadas sob um nome só.
 ALIASES = {"proventos_recebidos": "proventos"}
@@ -55,13 +53,3 @@ def transform(cfg: PipelineConfig) -> None:
         df = pd.concat(dfs, ignore_index=True)
         write_csv(df, cfg.bronze_dir, f"{name}.csv", sep=cfg.bronze_sep)
         logger.info(f"{name}: {len(dfs)} aba(s) -> {len(df)} linhas")
-
-
-def build() -> GenericETL:
-    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "b3")
-    return GenericETL(cfg, transform_fn=transform, log=logger)
-
-
-if __name__ == "__main__":
-    run_cli(build)
-    # uv run python -m pipelines.financas.investimentos.investimentos_b3

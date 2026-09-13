@@ -2,7 +2,7 @@
 
 from core.config import PipelineConfig, load_yaml
 from core.db import PostgresClient, validate_raw_schema
-from core.etl import Etl, GenericETL, build_etl, run_cli, run_many, run_source
+from core.etl import Etl, GenericETL, build_etl, run_source
 from core.http import HttpClient
 from core.incremental import (
     extract_by_ids,
@@ -49,8 +49,6 @@ __all__ = [
     "pending_ids",
     "read_ids",
     "reset_bronze",
-    "run_cli",
-    "run_many",
     "run_source",
     "sanitize_columns",
     "sanitize_values",

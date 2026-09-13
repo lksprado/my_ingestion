@@ -1,9 +1,9 @@
 """Logger único do monorepo.
 
-Regra: módulos usam ``logging.getLogger(__name__)``; o entrypoint (``run_cli``,
-``run_many`` ou o ``__main__`` de um script-exceção) chama ``setup_logger()`` uma
-vez. Como a configuração vai no logger raiz, todo ``INFO`` de qualquer módulo
-chega ao console — sem depender de hierarquia de nomes.
+Regra: módulos usam ``logging.getLogger(__name__)``; o entrypoint (``run_source``
+ou o ``__main__`` de um script-exceção) chama ``setup_logger()`` uma vez. Como a
+configuração vai no logger raiz, todo ``INFO`` de qualquer módulo chega ao
+console — sem depender de hierarquia de nomes.
 
 Uso:
     from core import setup_logger

@@ -3,6 +3,7 @@
 Sem extract: os PDFs são colocados manualmente em
 raw/investments/avenue/<pessoa>/<layout>/. O transform grava assets.csv e
 dividends_interest.csv no bronze; load: files -> raw_avenue.assets|dividends_interest.
+Registrado em ``investimentos_etl.py``.
 """
 
 import logging
@@ -12,11 +13,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from core import GenericETL, PipelineConfig, list_files, run_cli, write_csv
-from pipelines.financas.investimentos._common import reset_bronze
+from core import PipelineConfig, list_files, reset_bronze, write_csv
 
 logger = logging.getLogger(__name__)
-_CONFIG_FILE = Path(__file__).parent / "investimentos_config.yml"
 
 ASSET_COLS = [
     "period_start",
@@ -414,13 +413,3 @@ def transform(cfg: PipelineConfig) -> None:
     write_csv(
         dividends_df, cfg.bronze_dir, "dividends_interest.csv", sep=cfg.bronze_sep
     )
-
-
-def build() -> GenericETL:
-    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "avenue")
-    return GenericETL(cfg, transform_fn=transform, log=logger)
-
-
-if __name__ == "__main__":
-    run_cli(build)
-    # uv run python -m pipelines.financas.investimentos.investimentos_avenue
