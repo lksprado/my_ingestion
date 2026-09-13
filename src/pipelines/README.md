@@ -4,8 +4,10 @@ Guia de design para adicionar uma fonte ao monorepo. A referência da biblioteca
 compartilhada está em [`../core/README.md`](../core/README.md) — leia antes.
 
 O princípio que organiza tudo: **o YAML descreve *o quê* ingerir, o Python descreve
-*como*, e a `core` faz o resto.** Se um pipeline novo está escrevendo credencial,
-caminho absoluto, `requests.Session()` ou `create_engine()`, ele saiu do trilho.
+*como*, e a `core` faz o resto.** Todo pipeline é **extract → transform → load**:
+arquivos brutos no landing, CSV no bronze, tabela em `raw_<fonte>`. Se um pipeline
+novo está escrevendo credencial, caminho absoluto, `requests.Session()`,
+`create_engine()` ou `to_csv` de bronze, ele saiu do trilho.
 
 ---
 
@@ -15,13 +17,13 @@ caminho absoluto, `requests.Session()` ou `create_engine()`, ele saiu do trilho.
 pipelines/<domínio>/<fonte>/
 ├── <fonte>_config.yml     # o quê ingerir, por ambiente
 ├── <fonte>_<entidade>.py  # um script por entidade/tabela
+├── _common.py             # opcional: o que os scripts da fonte compartilham
 └── README.md              # obrigatório (ver seção 7)
 ```
 
 O **domínio** é o assunto, não a origem técnica: `legislativo`, `financas`,
-`precos`, `energia`, `clima`, `esportes`, `livros`. Se a fonte nova não cabe em nenhum, crie um domínio
-novo — é uma pasta com `__init__.py`. A **fonte** é o sistema de origem (`camara`,
-`atacadao`, `vide_editorial`), não a entidade.
+`precos`, `energia`, `clima`, `esportes`, `livros`. A **fonte** é o sistema de
+origem (`camara`, `atacadao`, `vide_editorial`), não a entidade.
 
 Convenções de nome, na cascata:
 
@@ -34,7 +36,9 @@ Convenções de nome, na cascata:
 | Tabela | `<entidade>` | `raw_camara.votos_deputados` |
 
 Um script por tabela destino. Resista à tentação de fazer um script que carrega
-cinco tabelas: a granularidade é o que permite reexecutar só o que falhou.
+cinco tabelas: a granularidade é o que permite reexecutar só o que falhou. O que
+vários scripts da mesma fonte compartilham vai para `_common.py` da pasta (e o que
+o domínio inteiro compartilha, para `pipelines/<domínio>/_common.py`).
 
 ---
 
@@ -45,6 +49,7 @@ hardcoded:
 
 ```yaml
 db_schema: "raw_<fonte>"               # schema de todas as tabelas deste arquivo
+load: table                            # table (default) | files | jsonb | none
 
 environments:
   local:
@@ -60,6 +65,7 @@ sources:
   <entidade>:
     base_url: "https://api.exemplo/v1/<entidade>"
     subpath: "<entidade>"              # separa esta entidade dentro do raw/bronze
+    landing_file: "<entidade>_{date}.json"
     bronze_file: "<fonte>_<entidade>.csv"
     db_table: "<entidade>"             # -> raw_<fonte>.<entidade>
 ```
@@ -70,12 +76,13 @@ Regras:
 - Os dois ambientes (`local` e `airflow`) existem porque o mesmo código roda na
   máquina e no orquestrador. O ativo vem de `ENV` no `.env`.
 - `subpath` evita que entidades da mesma fonte se misturem no mesmo diretório.
-- `landing_file` e `bronze_file` aceitam `{date}`, substituído pela data de hoje.
-  É o **único** placeholder que a core resolve; outros (`{game_id}`, `{day}`) são
-  preservados para o script resolver com `cfg.landing_file.format(...)`.
-- Chaves que só a sua fonte entende (`array_key`, `overwrite`, `lat`/`lon`...) vão
-  num bloco `options:` e chegam em `cfg.options` como dict. Documente-as no
-  cabeçalho do YAML.
+- `landing_file`, `bronze_file` e `base_url` aceitam `{date}`, substituído pela
+  data de hoje. É o **único** placeholder que a core resolve; outros (`{id}`,
+  `{day}`, `{game_id}`) são preservados para o script resolver com `str.format`.
+- `db_schema`, `load`, `bronze_sep` e `options` valem no topo (default do arquivo)
+  e por source (override).
+- Chaves que só a sua fonte entende vão num bloco `options:` e chegam em
+  `cfg.options` como dict. Documente-as no cabeçalho do YAML.
 
 ---
 
@@ -87,73 +94,57 @@ from pathlib import Path
 
 import pandas as pd
 
-from core import GenericETL, PipelineConfig, load_source_config
-from core.http import HttpClient
-from core.text import ColumnSanitizer
+from core import GenericETL, HttpClient, PipelineConfig, run_cli, write_bronze
 
-logger = logging.getLogger("raw_<fonte>_<entidade>")
-
+logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "<fonte>_config.yml"
 
 
-def extract(cfg: PipelineConfig):
+def extract(cfg: PipelineConfig) -> None:
     """Busca o dado bruto e grava em cfg.landing_dir."""
-    extractor = HttpClient(logger)
-    extractor.fetch_and_save(
-        url=cfg.url_base,
-        output_dir=cfg.landing_dir,
-        filename="<entidade>.json",
-    )
+    HttpClient(logger).fetch_and_save(cfg.url_base, cfg.landing_dir, cfg.landing_file)
 
 
-def transform(cfg: PipelineConfig):
-    """Lê o landing, normaliza e grava o CSV em cfg.bronze_filepath."""
-    dataframes = []
-    for json_file in cfg.landing_dir.glob("*.json"):
-        df = pd.read_json(json_file)
-        df = ColumnSanitizer(df).sanitize_columns_names().df
-        dataframes.append(df)
-
-    dfs = pd.concat(dataframes, ignore_index=True)
-    dfs.to_csv(cfg.bronze_filepath, sep=";", index=False)
+def transform(cfg: PipelineConfig) -> None:
+    """Lê o landing, normaliza e grava o bronze."""
+    frames = [pd.read_json(f) for f in sorted(cfg.landing_dir.glob("*.json"))]
+    write_bronze(cfg, pd.concat(frames, ignore_index=True) if frames else None)
 
 
-def run_pipeline(cfg: PipelineConfig) -> None:
-    GenericETL(
-        cfg=cfg, extract_fn=extract, transform_fn=transform, load_fn=None, log=logger
-    ).run()
+def build() -> GenericETL:
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "<entidade>")
+    return GenericETL(cfg, extract_fn=extract, transform_fn=transform, log=logger)
 
 
 if __name__ == "__main__":
-    config = load_source_config(_CONFIG_FILE, source="<entidade>")
-    run_pipeline(PipelineConfig(**config))
-    # uv run python -m pipelines.<domínio>.<fonte>.<fonte>_<entidade>
+    run_cli(build)
+    # uv run python -m pipelines.<domínio>.<fonte>.<fonte>_<entidade> [--steps transform,load]
 ```
 
 Sempre deixe o comentário com o comando de execução no fim do `__main__` — é o que
-as pessoas copiam.
+as pessoas copiam. `--steps` roda um subconjunto das etapas (é assim que o
+orquestrador as separa em tasks, e como você reprocessa sem bater na API).
 
 ### Quais etapas você realmente escreve
 
 | Etapa | Default da `core` | Quando escrever a sua |
 |---|---|---|
-| `extract` | Baixa `cfg.url_base` para `cfg.landing_filepath` | Paginação, parametrização por IDs, Selenium, POST/GraphQL — quase sempre |
-| `transform` | **Não tem default** | Sempre. É o que difere uma fonte da outra |
-| `load` | Lê o bronze (`;`) e grava em `<db_schema>.<db_table>` | Raro: só se o destino não for uma tabela (CSV, seed do dbt) |
-
-Passar `load_fn=None` é o caso comum e significa "use o loader padrão" — não
-significa "não carregue".
+| `extract` | Baixa `cfg.url_base` para `cfg.landing_filepath`; sem `url_base`, no-op | Paginação, parametrização por IDs, Selenium, POST — quase sempre |
+| `transform` | No-op | Sempre que houver bronze (é o que difere uma fonte da outra); termina em `write_bronze` |
+| `load` | Por `load:` do YAML — `table`, `files`, `jsonb`, `none` | Praticamente nunca (`load_fn` só para casos como carregar uma subpasta) |
 
 ---
 
 ## 4. Padrões que já existem — reaproveite
 
-**Bronze em CSV `;`.** O loader padrão lê com `sep=";"`. Se gravar com `,`, a carga
-quebra.
+**Bronze sempre por `write_bronze(cfg, df)`** (ou `write_bronze_streaming` quando o
+landing tem milhares de arquivos). Ele sanitiza nomes de coluna, remove quebras de
+linha dos valores, grava com `cfg.bronze_sep` (`;`) e preserva o bronze anterior
+se não houver dado. Não chame `to_csv` direto.
 
-**Nomes de coluna sempre sanitizados** com `ColumnSanitizer(df).sanitize_columns_names().df`.
-Para preservar o case de URLs e e-mails nos *valores*, use
-`not_sanitize_columns_values([...])`.
+**Nomes de coluna** são definidos por `sanitize_columns` (dentro do `write_bronze`).
+Chame explicitamente só quando a lógica do transform depende do nome sanitizado.
+Para normalizar valores preservando URLs e e-mails, `sanitize_values(df, exclude=[...])`.
 
 **Extração parametrizada por IDs.** Quando uma entidade depende dos IDs de outra, o
 produtor declara `output_param_file` e o consumidor declara `parameter_file`:
@@ -165,51 +156,51 @@ votacoes:
     id_proposicao.csv: id_proposicao
 
 votos_deputados:
+  base_url: ".../votacoes/{id}/votos"
+  landing_file: "{id}_votos_deputados.json"
   parameter_file: id_votacoes.csv    # consome o que votacoes gerou
+  options:
+    no_data_file: sem_dados_id_votacao.csv
 ```
 
-No transform do produtor: `cfg.write_output_params(df, logger=logger)`.
+No transform do produtor: `cfg.write_output_params(df, default_column="id")`.
 Documente a ordem de execução resultante no README da fonte.
 
-**Extração incremental.** Para fontes com milhares de IDs, o padrão adotado é
-comparar três conjuntos e requisitar só a diferença:
+**Extração incremental por ID.** Para fontes com milhares de IDs, o padrão é
+comparar três conjuntos e requisitar só a diferença: todos os IDs
+(`parameter_file`), os já no `landing_dir`, e os que a API não respondeu
+(`options.no_data_file`). `core.pending_ids`/`mark_no_data` fazem a conta;
+`pipelines/legislativo/_common.extract_by_ids(cfg)` monta o loop inteiro a partir
+do YAML (placeholder `{id}` em `base_url`/`landing_file`).
 
-1. todos os IDs (do `parameter_file`),
-2. os já baixados (arquivos existentes no `landing_dir`),
-3. os que a API não respondeu antes (um CSV de "sem dados" no `parameter_dir`).
-
-Registrar o terceiro conjunto é o que evita martelar a API com IDs que nunca
-voltam. Veja `legislativo/camara/camara_votos_deputados.py`.
+**Extração incremental por data.** `core.missing_dates_from_db(db, sqls, control)`
+descobre no Postgres até onde os dados vão e devolve as datas faltantes. Veja
+`clima/openweather` e `energia/solar`.
 
 **Falhas não abortam o lote.** O `HttpClient` devolve `None` em erro em vez de
 levantar exceção — trate o item, logue e siga. Um ID quebrado não pode derrubar uma
 extração de 4 horas.
 
+**Vários pipelines de uma vez.** `core.run_many({"nome": fn, ...}, only)` roda em
+sequência isolando falhas (`nhl/run_all.py`, `investimentos/run_all.py`).
+
 ---
 
-## 5. Quando *não* usar o `GenericETL`
+## 5. Exceções ao `GenericETL`
 
-O `GenericETL` pressupõe o fluxo landing → bronze → tabela. Nem toda fonte é assim,
-e forçar o encaixe piora o código. Precedentes no repositório:
+O critério é simples: **se não escreve em `raw_<fonte>.*`, não é um pipeline de
+ingestão** e não precisa do `GenericETL`. Hoje são:
 
-- **`precos/atacadao`** — a saída é CSV para virar seed do dbt; não há carga em
-  banco. Usa `HttpClient` e `core.io` direto, com um `run.py` próprio.
-- **`financas/fundos_imobiliarios`** — CLI com `--month/--force/--consolidate-only`,
-  consolidação idempotente e relatório HTML. Fluxo mensal, não ETL linear.
-- **`financas/investimentos`** — quatro fontes heterogêneas (Excel, PDF, Sheets, DW)
-  com um orquestrador `run_all.py` que isola falhas por fonte.
-- **`esportes/nhl`** — não há transform: o JSON bruto vai para uma tabela JSONB via
-  `core.jsonb.JsonbLoader`, e os IDs a requisitar vêm de **views do dbt**, não de
-  `parameter_file`. Um `_common.py` na pasta concentra a lógica; os nove scripts
-  são de duas linhas.
-- **`energia/solar` e `clima/openweather`** — extração incremental **por data**
-  (high-water mark no Postgres via `core.incremental`), sem carga: o orquestrador
-  faz o upsert.
+- **`precos/atacadao`** — coleta CSV no landing e consolida um seed do dbt.
+- **`financas/fundos_imobiliarios`** — CLI mensal com histórico consolidado em CSV e
+  relatório HTML (`dividend_report.py`).
+- **`financas/investimentos/investimentos_fgc.py`** — lê `intermediate.*` do DW e
+  grava um seed.
 
-O critério: **use o `GenericETL` quando o fluxo for landing → bronze → `raw_<fonte>.*`.**
-Fora disso, monte o seu, mas continue usando `HttpClient`, `PostgresClient`,
-`core.io` e `setup_logger` — a padronização que importa é a da biblioteca, não a do
-orquestrador.
+Mesmo aí, use `HttpClient`, `PostgresClient.read_sql`, `write_csv`,
+`concat_files_to_df` e `setup_logger()` da `core`. Tudo o mais — inclusive fontes
+sem transform (NHL, `load: jsonb`) e sem load (solar/openweather, `load: none`) —
+está no padrão.
 
 ---
 
@@ -217,6 +208,8 @@ orquestrador.
 
 - Credencial nova vai para o `.env` **e** para o `.env.example` (com valor vazio), e
   vira campo em `src/settings.py`. Nunca leia `os.getenv` espalhado pelo código.
+  Grupos de valores usam o delimitador duplo (`URL_FINANCE__<CHAVE>` →
+  `settings.url_finance[<chave>]`).
 - Campo obrigatório em `Settings` não leva default: é melhor falhar na importação do
   que criar diretórios errados com valor vazio.
 - Arquivo de credencial (chave de service account, por exemplo) mora **fora do
@@ -234,7 +227,8 @@ orquestrador.
       destino), dependências entre pipelines, como executar, e as armadilhas
       conhecidas (seletor frágil, binário externo, limite de paginação).
 - [ ] Testes em `tests/<domínio>/`. Priorize os **parsers**, que é onde a regressão
-      silenciosa mora. Em teste, `PipelineConfig(..., criar_dirs=False)`.
+      silenciosa mora. Em teste, `PipelineConfig(..., criar_dirs=False)` ou
+      `tmp_path`.
 - [ ] `uv run task lint` e `uv run task test` limpos.
 - [ ] O módulo importa isolado:
       `uv run python -c "import pipelines.<domínio>.<fonte>.<script>"`.
@@ -244,14 +238,10 @@ orquestrador.
 
 ---
 
-## 8. Dívidas conhecidas do código migrado
+## 8. Dívidas conhecidas
 
-Ao copiar um pipeline existente como modelo, saiba o que **não** imitar:
-
-- Os pipelines do `legislativo` usam `logging.getLogger(...)` no módulo e
-  `logging.basicConfig(...)` no `__main__`, herdados da migração. Em código novo,
-  prefira `setup_logger(__name__)` da `core`.
-- Alguns passam `env="local"` explicitamente no `load_source_config`. Omita: o
-  default vem de `settings.env`, e é isso que faz o mesmo código rodar no Airflow.
-- `_params/dbt_seed_maker.py` grava em caminho absoluto para o repo do dbt. É
-  exceção consciente (aquele warehouse não é o `SEEDS_ROOT`), não um exemplo.
+- `legislativo/_params/dbt_seed_maker.py` grava em caminho absoluto para o repo do
+  dbt. É exceção consciente (aquele warehouse não é o `SEEDS_ROOT`), não um exemplo.
+- `legislativo/ecidadania` guarda no landing o CSV já parseado, não o HTML bruto.
+- Comportamentos registrados por fonte (timeout na lista "sem dados", vínculo
+  senado_status ← ecidadania) estão nos READMEs de `camara` e `senado`.

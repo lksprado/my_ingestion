@@ -11,16 +11,16 @@ num único ambiente — todos os submódulos de código do `airflow3` vivem aqui
 ```
 src/                   # raiz de código (layout plano: imports sem prefixo de pacote)
 ├── settings.py        # config central (pydantic-settings, lê o .env da raiz)
-├── core/              # biblioteca compartilhada
-│   ├── http.py        # HttpClient: requests com retry/backoff, fetch_and_save(_many)
-│   ├── db.py          # PostgresClient: send_df/send_csv/load_files_to_table
-│   ├── config.py      # load_yaml, PipelineConfig, load_source_config (${VAR} nos YAMLs)
-│   ├── etl.py         # GenericETL (extract/transform/load plugáveis)
-│   ├── io.py          # concat_files_to_df, write_csv, list_files
-│   ├── text.py        # normalize_string, ColumnSanitizer
-│   ├── logging.py     # setup_logger
+├── core/              # biblioteca compartilhada (contrato extract → transform → load)
+│   ├── etl.py         # GenericETL (load por modo: table | files | jsonb | none), run_cli, run_many
+│   ├── config.py      # PipelineConfig.from_yaml, load_yaml (${VAR} nos YAMLs)
+│   ├── http.py        # HttpClient: get_json/get_text/request, save_json, fetch_and_save(_many)
+│   ├── db.py          # PostgresClient: send_df_to_db/load_files_to_table/read_sql
+│   ├── io.py          # write_bronze(_streaming), concat_files_to_df, write_csv, list_files
+│   ├── incremental.py # por data (missing_dates_from_db) e por ID (pending_ids, mark_no_data)
 │   ├── jsonb.py       # JsonbLoader: JSON -> tabela JSONB via COPY, com controle de ingestão
-│   ├── incremental.py # high-water mark por data (missing_dates, get_max_date)
+│   ├── text.py        # sanitize_columns, sanitize_values, strip_newlines, normalize_string
+│   ├── logging.py     # setup_logger (configura o root uma vez)
 │   └── parsers/       # json (normalize_json_object), html (make_bs_object)
 └── pipelines/
     ├── legislativo/   # Câmara, Senado, e-Cidadania, Ranking Políticos, Radar Congresso
@@ -66,16 +66,17 @@ uv run task test                 # pytest (exceto marker integration)
 uv run task lint                 # ruff check + format --check
 uv run task format               # ruff format + fix
 
-# Pipelines (exemplos)
+# Pipelines (exemplos); todo script aceita --steps extract,transform,load
 uv run python -m pipelines.legislativo.camara.camara_deputados
+uv run python -m pipelines.legislativo.camara.camara_proposicao --steps transform,load
 uv run python -m pipelines.financas.investimentos.run_all       # b3+avenue+google
 uv run python -m pipelines.financas.fundos_imobiliarios.run --month 2026-09
 uv run python -m pipelines.precos.atacadao.run
-uv run python -m pipelines.energia.solar.run
-uv run python -m pipelines.clima.openweather.run
+uv run python -m pipelines.energia.solar.solar_daily_energy     # depois: solar_hourly_energy
+uv run python -m pipelines.clima.openweather.openweather_daily
 uv run python -m pipelines.esportes.nhl.nhl_games_summary       # depois: dbt + run_all
 uv run python -m pipelines.esportes.nhl.run_all
-uv run python -m pipelines.livros.vide_editorial.run
+uv run python -m pipelines.livros.vide_editorial.vide_editorial_livros_em_destaque
 ```
 
 ## ⚠️ Segredos vazados nos repos antigos — ROTACIONAR
@@ -97,6 +98,21 @@ precisam ser trocados nos serviços:
    está no `.gitignore`, mas houve commit "Remove generated files").
 
 ## Notas da migração (2026-09)
+
+- **Padronização (2026-09-13)**: um contrato único extract → transform → load para
+  todos os pipelines que escrevem em `raw_*` (inclusive NHL com `load: jsonb` e
+  solar/openweather com `load: none`); `core` enxuta (`PipelineConfig.from_yaml`,
+  `write_bronze`, `run_cli --steps`, `sanitize_columns` no lugar de
+  `ColumnSanitizer`). Scripts renomeados na cascata `<fonte>_<entidade>.py`
+  (`camara_proposicao`, `senado_legislaturas`, `senado_processo`,
+  `ecidadania_bignumbers`, `radar_governismo_deputados|senadores`,
+  `openweather_daily`, `solar_daily_energy|hourly_energy`,
+  `vide_editorial_livros_em_destaque`, `investimentos_b3|avenue|google|fgc`).
+  Mudanças que afetam o Airflow: `missing_raw.identify_missing_dates` removido
+  (use `core.missing_dates_from_db` ou `--steps`), módulos renomeados, NHL
+  `--load-only` → `--steps load`. Limpeza única: apagar
+  `bronze/investments/b3/consolidado_*.csv` e `bronze/investments/google/google_*.csv`.
+  `.env`: `URL_FINANCE_<CHAVE>` virou `URL_FINANCE__<CHAVE>`.
 
 - Convenções de env: `DB_PASSWORD` (não mais `DB_PW`), `APSYSTEMS_USER`/
   `APSYSTEMS_PASSWORD` (não mais `LOGIN`/`PW`), `GOOGLE_CREDENTIALS_FILE`

@@ -2,7 +2,8 @@
 
 Extrai o ranking de desempenho parlamentar da [API do Politicos.org.br](https://apirest2.politicos.org.br/api/),
 que pontua parlamentares por critérios como presença, economia de cota, processos e
-privilégios. Configuração em `ranking_politicos_config.yml`.
+privilégios. Configuração em `ranking_politicos_config.yml`; extract/transform em
+`_common.py` (os dois scripts só escolhem o source).
 
 ## O que coleta
 
@@ -22,9 +23,5 @@ Não há dependência entre os dois nem com outros pipelines.
 
 ## Notas
 
-- A extração é por ano: cada execução baixa o ranking do ano corrente para um
-  arquivo próprio (`ranking_deputados_<ano>.json`), e a transformação concatena
-  **todos** os JSONs do landing. O histórico de anos anteriores é preservado ao
-  reprocessar.
-- O `parliamentarianregister` é derivado do campo `register` e, quando ele vem
-  nulo, do último número encontrado em `otherInformations`.
+- A extração é por ano: `landing_file` usa `{year}` (`ranking_deputados_<ano>.json`)
+  e a transformação concatena **todos** os JSONs do landing, preservando o histórico.

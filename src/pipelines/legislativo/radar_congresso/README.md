@@ -2,23 +2,24 @@
 
 Extrai dados do [Radar Congresso em Foco](https://radar.congressoemfoco.com.br/),
 que calcula o índice de governismo dos parlamentares a partir dos votos em plenário.
-Configuração em `radar_congresso_config.yml`.
+Configuração em `radar_congresso_config.yml`; o transform do governismo (wide
+trimestral → long) fica em `_common.py`.
 
 ## O que coleta
 
 | Script | Source (YAML) | Fonte | Tabela destino |
 |---|---|---|---|
-| `radar_governismo.py` | `governismo_deputados` | Índice de governismo dos deputados | `raw_radar_congresso.governismo_deputados` |
-| `radar_governismo.py` | `governismo_senadores` | Índice de governismo dos senadores | `raw_radar_congresso.governismo_senadores` |
+| `radar_governismo_deputados.py` | `governismo_deputados` | Índice de governismo dos deputados | `raw_radar_congresso.governismo_deputados` |
+| `radar_governismo_senadores.py` | `governismo_senadores` | Índice de governismo dos senadores | `raw_radar_congresso.governismo_senadores` |
 | `radar_parlamentares.py` | `parlamentares` | Cadastro de parlamentares | `raw_radar_congresso.parlamentares` |
 
-`radar_governismo.py` atende **duas** sources (deputados e senadores) — a casa é
-escolhida no `__main__` do script.
+Os três usam o extract padrão da `core` (uma requisição a `base_url`).
 
 ## Como executar
 
 ```bash
-uv run python -m pipelines.legislativo.radar_congresso.radar_governismo
+uv run python -m pipelines.legislativo.radar_congresso.radar_governismo_deputados
+uv run python -m pipelines.legislativo.radar_congresso.radar_governismo_senadores
 uv run python -m pipelines.legislativo.radar_congresso.radar_parlamentares
 ```
 

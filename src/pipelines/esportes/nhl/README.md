@@ -2,8 +2,9 @@
 
 Extrai estatísticas de hóquei das APIs públicas da NHL (`api-web.nhle.com` e
 `api.nhle.com/stats`) e carrega os JSONs **sem transformação** em tabelas JSONB
-(`payload`, `source_filename`) no schema `raw_nhl`. A normalização acontece no dbt
-[`my_datawarehouse`](https://github.com/lksprado/my_datawarehouse) (seletor `nhl`).
+(`payload`, `source_filename`) no schema `raw_nhl` (`load: jsonb` no YAML). A
+normalização acontece no dbt [`my_datawarehouse`](https://github.com/lksprado/my_datawarehouse)
+(seletor `nhl`).
 
 Migrado do repo `nhl-extraction` (submódulo `include/nhl_extraction` do airflow3).
 
@@ -26,6 +27,15 @@ Os nomes de tabela e de pasta (`raw/nhl/single`, `raw/nhl/raw_all_games_details`
 referencia em `_sources.yml` e o lake já tem ~170 mil JSONs nesses diretórios. Só
 o schema segue o padrão (`raw_nhl`, chave `db_schema` do YAML).
 
+## Como funciona
+
+`_common.build(source)` monta o `GenericETL` a partir do YAML: sources **estáticos**
+usam o extract padrão da `core` (uma requisição a `base_url`); sources **dinâmicos**
+(com `param_view`) usam `extract_dynamic`, que lê os IDs de uma view do dbt e
+requisita `base_url.format(**linha)`. Não há transform. O load é o modo `jsonb` da
+`core` (`JsonbLoader`, controle em `raw_nhl.nhl_ingestion_control`); só
+`player_game_log` usa um `load_fn` próprio para carregar a temporada mais recente.
+
 ## Dependências entre pipelines (ordem de execução)
 
 Os seis pipelines dinâmicos descobrem **quais IDs requisitar** em views do dbt
@@ -40,15 +50,16 @@ dbt build --selector nhl          # 4) staging/intermediate/marts com os dados n
 ```
 
 `seasons` e `teams` mudam uma vez por ano (rodar em outubro). `run_all` aceita um
-source como argumento para rodar um só; todo script dinâmico aceita `--load-only`
-para recarregar o landing sem bater na API.
+source como argumento para rodar um só; todo script aceita `--steps load` para
+recarregar o landing sem bater na API (era `--load-only`).
 
 ## Configuração
 
-`nhl_config.yml`: um source por endpoint. O bloco `options` de cada um diz como
-extrair e carregar (documentado no cabeçalho do YAML): `param_view`/`param_columns`/
-`param_filter` (de onde vêm os IDs), `overwrite`, `array_key`, `file_pattern`,
-`season_subdir` e `workers` (threads; default 1, seja gentil com a API).
+`nhl_config.yml`: no topo, `load: jsonb`, `control_table` e `param_schema`; um
+source por endpoint com seu bloco `options` (documentado no cabeçalho do YAML):
+`param_view`/`param_columns`/`param_filter` (de onde vêm os IDs), `overwrite`,
+`array_key`, `file_pattern`, `season_subdir` e `workers` (threads; default 1, seja
+gentil com a API).
 
 Credenciais: só o Postgres do `.env` da raiz (perfil `DB__<ENV>__*`). As tabelas
 `raw_nhl.nhl_raw_*` e as views `staging.vw_stg_request_*` ficam no banco do

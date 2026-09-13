@@ -47,5 +47,8 @@ CSV + HTML em `${LAKE_ROOT}/reports/fii/`.
   abortar a execução.
 - O seletor da tabela de rankings é `table#rankigns` — **o typo é do site**, não
   daqui. Se o parsing vier vazio, confira se corrigiram o HTML.
-- Os logs do mês vão para `${LAKE_ROOT}/raw/fii/logs/{YYYY-MM}.log`.
+- Os logs do mês vão para `${LAKE_ROOT}/raw/fii/logs/{YYYY-MM}.log`
+  (`core.setup_logger(log_file=...)`).
+- Exceção consciente ao `GenericETL`: não escreve em `raw_*`; usa só `HttpClient`
+  e `setup_logger` da `core`.
 - Testes do parser em `tests/financas/test_fii_parser.py`.

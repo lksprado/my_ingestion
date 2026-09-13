@@ -5,9 +5,9 @@ pipelines consomem (CSVs de parâmetros) ou que o dbt consome (seeds).
 
 ## `atualizar_deputados.py`
 
-Busca todos os deputados atuais na API da Câmara e grava `id_deputados.csv` no
-`parameter_dir` resolvido a partir do `camara_config.yml` — é o arquivo que
-parametriza o pipeline `camara_deputados`.
+Busca todos os deputados atuais na API da Câmara e grava `id_deputados.csv`
+(coluna `id`, separador `,`) no `parameter_dir` resolvido a partir do
+`camara_config.yml` — é o arquivo que parametriza o pipeline `camara_deputados`.
 
 ```bash
 uv run python -m pipelines.legislativo._params.atualizar_deputados
@@ -21,15 +21,16 @@ Baixa tabelas estáticas do Senado (tipos de entes, tipos de decisão, tipos de
 projetos) e grava direto na pasta `seeds/` do projeto dbt, para virarem seeds.
 
 ```bash
-uv run python -c "from pipelines.legislativo._params import dbt_seed_maker; dbt_seed_maker.obter_tipo_entes()"
+uv run python -m pipelines.legislativo._params.dbt_seed_maker                          # todas
+uv run python -m pipelines.legislativo._params.dbt_seed_maker raw_senado_tipos_entes   # uma
 ```
 
-⚠️ Os destinos são **caminhos absolutos hardcoded** apontando para o repo
-`demodadosdw` (`/home/lucas/workspace/demodados/demodadosdw/seeds/`). Não usam
+⚠️ O destino é um **caminho absoluto hardcoded** apontando para o repo
+`demodadosdw` (`/home/lucas/workspace/demodados/demodadosdw/seeds/`). Não usa
 `SEEDS_ROOT`, porque essa variável aponta para outro data warehouse (`the_dw`).
-Se o repo dbt mudar de lugar, edite os caminhos no script.
+Se o repo dbt mudar de lugar, edite `SEEDS_DIR`.
 
-Gravam com `sep=","` e `index=False` — o dbt exige esse formato para seeds.
+Grava com `sep=","` e `index=False` — o dbt exige esse formato para seeds.
 
 ## CSVs nesta pasta
 

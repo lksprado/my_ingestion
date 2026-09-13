@@ -40,7 +40,12 @@ O `historic.py` concatena os CSVs mensais de
 
 ## Notas
 
-- Não há carga em banco aqui: a saída é CSV, e o dbt do `the_dw` assume daí.
+- Não há carga em banco aqui: a saída é CSV, e o dbt do `the_dw` assume daí. Por
+  isso é exceção consciente ao `GenericETL` (usa `HttpClient`, `load_yaml`,
+  `concat_files_to_df`, `write_csv` e `setup_logger` da `core`).
+- ⚠️ Nada neste repo produz `bronze/inflation/months/` (entrada do `historic.py`),
+  e o separador difere (`;` na coleta, `,` na leitura): a consolidação mensal é
+  manual/externa.
 - O `HttpClient` é configurado com retry mais curto (3 tentativas, backoff 0.5) por
   ser scraping de site. Keywords sem resultado são simplesmente puladas.
 - Cada keyword busca **duas páginas** de 100 itens (`after=0` e `after=100`), com
