@@ -2,10 +2,9 @@ import json
 
 import pandas as pd
 
-from pipelines.clima.openweather.transforming import (
-    parse_day_summary,
-    parsing_daily_weather,
-)
+from core import PipelineConfig
+from pipelines.clima.openweather._parsers import parse_day_summary
+from pipelines.clima.openweather.openweather_daily import transform
 
 SAMPLE = {
     "lat": -23.137,
@@ -42,13 +41,19 @@ def test_parse_day_summary_flattens_and_converts():
     assert row["date"] == "2021-09-16"
 
 
-def test_parsing_daily_weather_consolidates_and_skips_invalid(tmp_path):
+def test_transform_consolidates_and_skips_invalid(tmp_path):
     (tmp_path / "day_summary_2021-09-16.json").write_text(json.dumps(SAMPLE))
-    other = {**SAMPLE, "date": "2021-09-17"}
-    (tmp_path / "day_summary_2021-09-17.json").write_text(json.dumps(other))
+    (tmp_path / "day_summary_2021-09-17.json").write_text(
+        json.dumps({**SAMPLE, "date": "2021-09-17"})
+    )
     (tmp_path / "day_summary_bad.json").write_text("{")
-
-    out = parsing_daily_weather(tmp_path)
-    df = pd.read_csv(out)
-    assert len(df) == 2
+    cfg = PipelineConfig(
+        landing_dir=tmp_path,
+        bronze_dir=tmp_path,
+        landing_file="day_summary_{day}.json",
+        bronze_file="all_dfs.csv",
+        bronze_sep=",",
+    )
+    transform(cfg)
+    df = pd.read_csv(tmp_path / "all_dfs.csv")
     assert list(df["date"]) == ["2021-09-16", "2021-09-17"]
