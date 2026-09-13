@@ -175,5 +175,7 @@ class PostgresClient:
 
     def read_sql(self, sql: str) -> pd.DataFrame:
         """Resultado de uma query como DataFrame (leituras: staging, intermediate)."""
-        con = self.external_connection or self.alchemy()
-        return pd.read_sql(sql, con=con)
+        if self.external_connection:
+            return pd.read_sql(sql, con=self.external_connection)
+        # text(): '%' literal (LIKE) não vira placeholder do driver.
+        return pd.read_sql(text(sql), con=self.alchemy())

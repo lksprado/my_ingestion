@@ -86,3 +86,16 @@ def test_load_files_reads_semicolon_by_default(tmp_path, monkeypatch):
     )
     pg.load_files_to_table(tmp_path, schema="raw_b3")
     assert sent == [("acoes", ["a", "b"])]
+
+
+def test_read_sql_wraps_engine_queries_in_text(monkeypatch):
+    seen = {}
+
+    def fake_read_sql(sql, con):
+        seen["sql"] = sql
+        return pd.DataFrame()
+
+    monkeypatch.setattr(pd, "read_sql", fake_read_sql)
+    PostgresClient(engine=_Sentinel()).read_sql("select 1 where x like 'a%'")
+    assert str(seen["sql"]) == "select 1 where x like 'a%'"
+    assert not isinstance(seen["sql"], str)  # sqlalchemy.text
