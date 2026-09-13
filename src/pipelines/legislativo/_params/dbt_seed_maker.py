@@ -1,56 +1,38 @@
+"""Tabelas de domínio do Senado como seeds do dbt (demodadosdw).
+
+Exceção consciente: grava em caminho absoluto porque o destino é o repo do dbt
+legislativo, que não é o ``SEEDS_ROOT`` (esse aponta para the_dw).
+"""
+
+import logging
+from pathlib import Path
+
 import pandas as pd
 
-from core.http import HttpClient
+from core import HttpClient, setup_logger
+
+logger = logging.getLogger(__name__)
+SEEDS_DIR = Path("/home/lucas/workspace/demodados/demodadosdw/seeds")
+SEEDS = {
+    "raw_senado_tipos_entes": "https://legis.senado.leg.br/dadosabertos/processo/entes",
+    "raw_senado_tipos_decisao": "https://legis.senado.leg.br/dadosabertos/processo/tipos-decisao",
+    "raw_senado_tipos_projetos": "https://legis.senado.leg.br/dadosabertos/processo/siglas",
+}
 
 
-def obter_tipo_entes():
-    """Obter tabela de tipos de entes"""
-    url_base = "https://legis.senado.leg.br/dadosabertos/processo/entes"
-    destination = (
-        "/home/lucas/workspace/demodados/demodadosdw/seeds/raw_senado_tipos_entes.csv"
-    )
-
-    extractor = HttpClient()
-    data = extractor.make_http_request(
-        url=url_base,
-    )
-    df = pd.DataFrame(data)
-
-    df.to_csv(destination, sep=",", index=False)  ### <<< necessario para dbt seed
-    print("Finalizado")
-
-
-def obter_tipos_decisao():
-    """Obter tabela de tipos de decisao"""
-    url_base = "https://legis.senado.leg.br/dadosabertos/processo/tipos-decisao"
-    destination = (
-        "/home/lucas/workspace/demodados/demodadosdw/seeds/raw_senado_tipos_decisao.csv"
-    )
-    extractor = HttpClient()
-    data = extractor.make_http_request(
-        url=url_base,
-    )
-    df = pd.DataFrame(data)
-
-    df.to_csv(destination, sep=",", index=False)  ### <<< necessario para dbt seed
-    print("Finalizado")
-
-
-def obter_tipos_projetos():
-    """Obter tabela de tipos de decisao"""
-    url_base = "https://legis.senado.leg.br/dadosabertos/processo/siglas"
-    destination = "/home/lucas/workspace/demodados/demodadosdw/seeds/raw_senado_tipos_projetos.csv"
-    extractor = HttpClient()
-    data = extractor.make_http_request(
-        url=url_base,
-    )
-    df = pd.DataFrame(data)
-
-    df.to_csv(destination, sep=",", index=False)  ### <<< necessario para dbt seed
-    print("Finalizado")
+def gerar_seed(nome: str) -> None:
+    data = HttpClient(logger).get_json(SEEDS[nome])
+    if data is None:
+        raise RuntimeError(f"Falha ao obter {nome}.")
+    destino = SEEDS_DIR / f"{nome}.csv"
+    pd.DataFrame(data).to_csv(destino, sep=",", index=False)  # seed do dbt: ","
+    logger.info(f"📄 Seed gravada em {destino}")
 
 
 if __name__ == "__main__":
-    # obter_tipo_entes()
-    # obter_tipos_decisao()
-    obter_tipos_projetos()
+    import sys
+
+    setup_logger()
+    for nome in sys.argv[1:] or SEEDS:
+        gerar_seed(nome)
+    # uv run python -m pipelines.legislativo._params.dbt_seed_maker [nome ...]

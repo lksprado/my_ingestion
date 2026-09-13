@@ -1,23 +1,25 @@
-# Schema destino de todas as tabelas deste arquivo (tabela = entidade)
+# Schema destino de todas as tabelas deste arquivo (tabela = entidade).
+# Sources por ID: base_url e landing_file usam o placeholder {id} (ver
+# legislativo/_common.py). ``status`` consome como parâmetro o BRONZE do
+# e-Cidadania (ecidadania_paginas_consolidado.csv), que precisa ser copiado para
+# base_parameters — vínculo não declarado pelo YAML do e-Cidadania.
 db_schema: "raw_senado"
 
 environments:
   local:
     base_raw: "${LAKE_ROOT}/raw/demodados/senado"
     base_bronze: "${LAKE_ROOT}/bronze/demodados/senado"
-    base_error: "${LAKE_ROOT}/raw/demodados/senado/error"
     base_parameters: "${LAKE_ROOT}/raw/demodados/senado/parameters"
   airflow:
     base_raw: "/usr/local/airflow/mylake/raw/demodados/senado"
     base_bronze: "/usr/local/airflow/mylake/bronze/demodados/senado"
-    base_error: "/usr/local/airflow/mylake/raw/demodados/senado/error"
     base_parameters: "/usr/local/airflow/mylake/raw/demodados/senado/parameters"
 
 sources:
-  legislatura:
-    base_url: "https://legis.senado.leg.br/dadosabertos/senador/lista/legislatura/"
+  legislaturas:
+    base_url: "https://legis.senado.leg.br/dadosabertos/senador/lista/legislatura/58?exercicio=S&v=4"
     subpath: "legislatura"
-    landing_file: "senadores_legislaturas.json"
+    landing_file: "58_senadores_legislatura.json"
     bronze_file: "senadores_legislaturas.csv"
     db_table: "legislaturas"
 
@@ -30,10 +32,12 @@ sources:
       id_votacoes.csv: "codigosessaovotacao"
       id_processo.csv: "idprocesso"
 
-  votos_senadores:
+  votos_senadores:                 # sem extract: lê o landing de votacoes
     subpath: "votos_senadores"
     bronze_file: "senado_votos_senadores.csv"
     db_table: "votos_senadores"
+    options:
+      source_landing_subpath: "votacoes"
 
   votos_orientacao:
     base_url: "https://legis.senado.leg.br/dadosabertos/plenario/votacao/orientacaoBancada/"
@@ -44,7 +48,7 @@ sources:
   senadores:
     base_url: "https://legis.senado.leg.br/dadosabertos/senador/lista/atual?v=4"
     subpath: "senadores"
-    landing_file: "senado_senadores.json"
+    landing_file: "57_58_senado_senadores.json"
     bronze_file: "senado_senadores.csv"
     db_table: "senadores"
 
@@ -56,8 +60,12 @@ sources:
     parameter_file: "ecidadania_paginas_consolidado.csv"
 
   processo:
-    base_url: "https://legis.senado.leg.br/dadosabertos/processo"
+    base_url: "https://legis.senado.leg.br/dadosabertos/processo?idProcesso={id}&v=1"
     subpath: "processo"
+    landing_file: "{id}_processo.json"
     bronze_file: "senado_processo_consolidado.csv"
     db_table: "processo"
     parameter_file: "id_processo.csv"
+    options:
+      parameter_column: "idprocesso"
+      no_data_file: "sem_dados_id_processo.csv"

@@ -1,4 +1,4 @@
-"""Temas de cada proposição (extração incremental por ID, bronze em streaming)."""
+"""Detalhe de cada proposição (extração incremental por ID, bronze em streaming)."""
 
 import logging
 from functools import partial
@@ -15,12 +15,12 @@ def transform(cfg: PipelineConfig) -> None:
     write_bronze_streaming(
         cfg,
         sorted(cfg.landing_dir.glob("*.json")),
-        partial(parse_dados_abertos, url_col="url_temas"),
+        partial(parse_dados_abertos, url_col="urls"),
     )
 
 
 def build() -> GenericETL:
-    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "proposicao_tema")
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "proposicao")
     return GenericETL(
         cfg, extract_fn=extract_by_ids, transform_fn=transform, log=logger
     )
@@ -28,4 +28,4 @@ def build() -> GenericETL:
 
 if __name__ == "__main__":
     run_cli(build)
-    # uv run python -m pipelines.legislativo.camara.camara_proposicao_tema
+    # uv run python -m pipelines.legislativo.camara.camara_proposicao

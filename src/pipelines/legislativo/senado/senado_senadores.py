@@ -1,18 +1,25 @@
+"""Senadores em exercício (extract padrão: base_url -> landing_file)."""
+
 import json
 import logging
 from pathlib import Path
 
 import pandas as pd
 
-from core import GenericETL, PipelineConfig, load_source_config
-from core.http import HttpClient
-from core.text import ColumnSanitizer
+from core import (
+    GenericETL,
+    PipelineConfig,
+    run_cli,
+    sanitize_columns,
+    sanitize_values,
+    write_bronze,
+)
+from pipelines.legislativo._common import concat_landing
 
-logger = logging.getLogger("raw_senado_senadores")
-
+logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "senado_config.yml"
-
-cols_to_not_sanitize_values = [
+_RECORD_PATH = ["ListaParlamentarEmExercicio", "Parlamentares", "Parlamentar"]
+_KEEP_VALUES = [
     "identificacaoparlamentar_urlfotoparlamentar",
     "identificacaoparlamentar_urlpaginaparlamentar",
     "mandato_suplentes_suplente",
@@ -23,63 +30,21 @@ cols_to_not_sanitize_values = [
 ]
 
 
-def extract(cfg: PipelineConfig):
-    logger.info("📥 Iniciando extracao...")
-    extractor = HttpClient(logger)
-    current = 58
-    previous = current - 1
-
-    extractor.fetch_and_save(
-        url=f"{cfg.url_base}",
-        output_dir=cfg.landing_dir,
-        filename=f"{previous}_{current}_senado_senadores.json",
-    )
+def _parse(path: Path) -> pd.DataFrame:
+    with open(path, encoding="utf-8") as fp:
+        df = pd.json_normalize(json.load(fp), record_path=_RECORD_PATH, sep=".")
+    return sanitize_values(sanitize_columns(df), exclude=_KEEP_VALUES)
 
 
-def transform(cfg: PipelineConfig):
-    logger.info("🔄 Iniciando transformacao...")
-    dataframes = []
-    for json_file in cfg.landing_dir.glob("*.json"):
-        with open(json_file, encoding="utf-8") as fh:
-            data = json.load(fh)
-
-        df = pd.json_normalize(
-            data,
-            record_path=["ListaParlamentarEmExercicio", "Parlamentares", "Parlamentar"],
-            sep=".",
-        )
-
-        df = (
-            ColumnSanitizer(df)
-            .sanitize_columns_names()
-            .not_sanitize_columns_values(cols=cols_to_not_sanitize_values)
-            .df
-        )
-        dataframes.append(df)
-
-    df_final = pd.concat(dataframes, ignore_index=True)
-
-    df_final.to_csv(cfg.bronze_filepath, sep=";", index=False)
-    logger.info(f"💾 CSV salvo em: {cfg.bronze_filepath}")
+def transform(cfg: PipelineConfig) -> None:
+    write_bronze(cfg, concat_landing(cfg, _parse))
 
 
-def run_pipeline(cfg: PipelineConfig):
-    etl = GenericETL(
-        cfg=cfg,
-        extract_fn=extract,
-        transform_fn=transform,
-        load_fn=None,
-        log=logger,
-    )
-    etl.run()
+def build() -> GenericETL:
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "senadores")
+    return GenericETL(cfg, transform_fn=transform, log=logger)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
-    )
-    config = load_source_config(_CONFIG_FILE, source="senadores", env="local")
-    run_pipeline(PipelineConfig(**config))
+    run_cli(build)
     # uv run python -m pipelines.legislativo.senado.senado_senadores

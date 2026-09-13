@@ -1,27 +1,23 @@
+"""Votações do trimestre corrente (paginado); gera id_votacoes.csv e id_proposicao.csv."""
+
 import logging
 from datetime import date
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import pandas as pd
-
-from core import GenericETL, PipelineConfig, load_source_config
-from core.http import HttpClient
+from core import (
+    GenericETL,
+    HttpClient,
+    PipelineConfig,
+    run_cli,
+    sanitize_columns,
+    write_bronze,
+)
 from core.parsers.json import normalize_json_object
-from core.text import ColumnSanitizer
+from pipelines.legislativo._common import concat_landing
 
-logger = logging.getLogger("raw_camara_votacoes")
-
+logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "camara_config.yml"
-
-
-def _get_last_page(links: list) -> int:
-    for link in links:
-        if link.get("rel") == "last":
-            qs = parse_qs(urlparse(link["href"]).query)
-            return int(qs.get("pagina", [1])[0])
-    return 1
-
 
 QUARTERS = [
     ("01-01", "03-31", "Q1"),
@@ -31,132 +27,56 @@ QUARTERS = [
 ]
 
 
-def _current_quarter() -> tuple[int, str, str, str]:
+def _last_page(links: list) -> int:
+    for link in links:
+        if link.get("rel") == "last":
+            qs = parse_qs(urlparse(link["href"]).query)
+            return int(qs.get("pagina", [1])[0])
+    return 1
+
+
+def extract(cfg: PipelineConfig) -> None:
     today = date.today()
+    inicio, fim, label = QUARTERS[(today.month - 1) // 3]
     y = today.year
-    q = (today.month - 1) // 3  # 0-based index into QUARTERS
-    inicio, fim, label = QUARTERS[q]
-    return y, inicio, fim, label
-
-
-def _previous_quarter() -> tuple[int, str, str, str]:
-    today = date.today()
-    y = today.year
-    q = (today.month - 1) // 3  # 0-based index into QUARTERS
-    if q == 0:  # Q1 -> Q4 do ano anterior
-        q = 3
-        y -= 1
-    else:
-        q -= 1
-    inicio, fim, label = QUARTERS[q]
-    return y, inicio, fim, label
-
-
-def extract(cfg: PipelineConfig):
-    logger.info("📥 Iniciando extracao do quarter atual...")
-    extractor = HttpClient(logger)
-
-    y, inicio, fim, label = _current_quarter()
-    logger.info(f"Extraindo {y}-{label}...")
-    base_params = (
+    params = (
         f"dataInicio={y}-{inicio}&dataFim={y}-{fim}"
-        f"&itens=100&ordem=DESC&ordenarPor=dataHoraRegistro"
+        "&itens=100&ordem=DESC&ordenarPor=dataHoraRegistro"
     )
-
-    first_page_data = extractor.make_http_request(
-        f"{cfg.url_base}?{base_params}&pagina=1"
-    )
-    if not first_page_data:
+    http = HttpClient(logger)
+    first = http.get_json(f"{cfg.url_base}?{params}&pagina=1")
+    if not first:
         logger.warning(f"⚠️ Sem dados para {y}-{label}.")
         return
-
-    last_page = _get_last_page(first_page_data.get("links", []))
-    logger.info(f"{y}-{label}: {last_page} pagina(s)")
-
+    last = _last_page(first.get("links", []))
+    logger.info(f"{y}-{label}: {last} pagina(s)")
     tasks = [
-        (f"{cfg.url_base}?{base_params}&pagina={p}", f"votacoes_{y}_{label}_{p}.json")
-        for p in range(1, last_page + 1)
+        (f"{cfg.url_base}?{params}&pagina={p}", f"votacoes_{y}_{label}_{p}.json")
+        for p in range(1, last + 1)
     ]
-    extractor.fetch_and_save_many(tasks, cfg.landing_dir)
+    http.fetch_and_save_many(tasks, cfg.landing_dir)
 
 
-def full_extract_votacoes(cfg: PipelineConfig):
-    logger.info("📥 Iniciando extracao...")
-    extractor = HttpClient(logger)
-
-    for y in range(2001, 2027):
-        for inicio, fim, label in QUARTERS:
-            logger.info(f"Extraindo {y}-{label}...")
-            base_params = (
-                f"dataInicio={y}-{inicio}&dataFim={y}-{fim}"
-                f"&itens=100&ordem=DESC&ordenarPor=dataHoraRegistro"
-            )
-
-            first_page_data = extractor.make_http_request(
-                f"{cfg.url_base}?{base_params}&pagina=1"
-            )
-            if not first_page_data:
-                logger.warning(f"⚠️ Sem dados para {y}-{label}, pulando.")
-                continue
-
-            last_page = _get_last_page(first_page_data.get("links", []))
-            logger.info(f"{y}-{label}: {last_page} pagina(s)")
-
-            tasks = [
-                (
-                    f"{cfg.url_base}?{base_params}&pagina={p}",
-                    f"votacoes_{y}_{label}_{p}.json",
-                )
-                for p in range(1, last_page + 1)
-            ]
-            extractor.fetch_and_save_many(tasks, cfg.landing_dir)
-
-
-def transform(cfg: PipelineConfig):
-    logger.info("🔄 Iniciando transformacao...")
-    dataframes = []
-    for f in cfg.landing_dir.iterdir():
-        try:
-            data = normalize_json_object(f, "dados")
-            if not data.empty:
-                df = ColumnSanitizer(data).sanitize_columns_names().df
-                dataframes.append(df)
-
-        except Exception:
-            logger.error(f"❌ Erro ao transformar {f}", exc_info=True)
-            continue
-
-    dfs = pd.concat(dataframes, ignore_index=True)
-    dfs.to_csv(cfg.bronze_filepath, sep=";", index=False)
-
-    # Deriva o id da proposição a partir da URI (ex.: .../proposicoes/2611539 -> 2611539)
-    if "uriproposicaoobjeto" in dfs.columns:
-        dfs["id_proposicao"] = dfs["uriproposicaoobjeto"].str.extract(
+def transform(cfg: PipelineConfig) -> None:
+    df = concat_landing(cfg, lambda f: normalize_json_object(f, "dados"))
+    if df.empty:
+        write_bronze(cfg, df)
+        return
+    df = sanitize_columns(df)
+    # id da proposição a partir da URI (.../proposicoes/2611539 -> 2611539)
+    if "uriproposicaoobjeto" in df.columns:
+        df["id_proposicao"] = df["uriproposicaoobjeto"].str.extract(
             r"/(\d+)/?$", expand=False
         )
+    write_bronze(cfg, df)
+    cfg.write_output_params(df, default_column="id")
 
-    cfg.write_output_params(dfs, default_column="id", logger=logger)
 
-
-def run_pipeline(cfg):
-    etl = GenericETL(
-        cfg=cfg,
-        extract_fn=extract,
-        transform_fn=transform,
-        load_fn=None,
-        log=logger,
-    )
-    etl.extract()
-    etl.transform()
-    etl.load()
+def build() -> GenericETL:
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "votacoes")
+    return GenericETL(cfg, extract_fn=extract, transform_fn=transform, log=logger)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
-    )
-    config = load_source_config(_CONFIG_FILE, source="votacoes", env="local")
-    run_pipeline(PipelineConfig(**config))
+    run_cli(build)
     # uv run python -m pipelines.legislativo.camara.camara_votacoes

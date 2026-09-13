@@ -1,31 +1,36 @@
-# Schema destino de todas as tabelas deste arquivo (tabela = entidade)
+# Schema destino de todas as tabelas deste arquivo (tabela = entidade).
+# Sources por ID: base_url e landing_file usam o placeholder {id}; o CSV de
+# parâmetros vem de parameter_file (coluna options.parameter_column, default id)
+# e os IDs sem resposta ficam em options.no_data_file (ver legislativo/_common.py).
 db_schema: "raw_camara"
 
 environments:
   local:
     base_raw: "${LAKE_ROOT}/raw/demodados/camara"
     base_bronze: "${LAKE_ROOT}/bronze/demodados/camara"
-    base_error: "${LAKE_ROOT}/raw/demodados/camara/error"
     base_parameters: "${LAKE_ROOT}/raw/demodados/camara/parameters"
   airflow:
     base_raw: "/usr/local/airflow/mylake/raw/demodados/camara"
     base_bronze: "/usr/local/airflow/mylake/bronze/demodados/camara"
-    base_error: "/usr/local/airflow/mylake/raw/demodados/camara/error"
     base_parameters: "/usr/local/airflow/mylake/raw/demodados/camara/parameters"
 
 sources:
-  legislatura:
-    base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados/"
+  legislaturas:
+    base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados?idLegislatura=57&ordem=ASC&ordenarPor=nome"
     subpath: "legislatura"
+    landing_file: "57_deputados_legislatura.json"
     bronze_file: "legislaturas_deputados.csv"
     db_table: "legislaturas"
 
   deputados:
-    base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados/"
+    base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados/{id}"
     subpath: "deputados"
+    landing_file: "{id}_deputado.json"
     bronze_file: "parlamento_deputados.csv"
     db_table: "deputados"
     parameter_file: "id_deputados.csv"
+    options:
+      workers: 4
 
   votacoes:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes"
@@ -37,29 +42,44 @@ sources:
       id_proposicao.csv: "id_proposicao"
 
   votos_deputados:
-    base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes/"
+    base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes/{id}/votos"
     subpath: "votos_deputados"
+    landing_file: "{id}_votos_deputados.json"
     bronze_file: "camara_votos_deputados.csv"
     db_table: "votos_deputados"
     parameter_file: "id_votacoes.csv"
+    options:
+      no_data_file: "sem_dados_id_votacao.csv"
 
   votos_orientacao:
-    base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes/"
+    base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes/{id}/orientacoes"
     subpath: "votos_orientacao"
+    landing_file: "{id}_votacoes_orientacao.json"
     bronze_file: "camara_votos_orientacao.csv"
     db_table: "votos_orientacao"
     parameter_file: "id_votacoes.csv"
+    options:
+      no_data_file: "sem_dados_id_votacao_orientacao.csv"
+      blacklist_on_error: false   # timeout não entra na lista (diverge dos demais)
 
   proposicao_tema:
-    base_url: "https://dadosabertos.camara.leg.br/api/v2/proposicoes/"
+    base_url: "https://dadosabertos.camara.leg.br/api/v2/proposicoes/{id}/temas"
     subpath: "proposicao_tema"
+    landing_file: "{id}_proposicao_tema.json"
     bronze_file: "camara_proposicao_tema.csv"
     db_table: "proposicao_tema"
     parameter_file: "id_proposicao.csv"
+    options:
+      parameter_column: "id_proposicao"
+      no_data_file: "sem_dados_id_proposicao_tema.csv"
 
   proposicao:
-    base_url: "https://dadosabertos.camara.leg.br/api/v2/proposicoes/"
+    base_url: "https://dadosabertos.camara.leg.br/api/v2/proposicoes/{id}"
     subpath: "proposicao"
+    landing_file: "{id}_proposicao.json"
     bronze_file: "camara_proposicao.csv"
     db_table: "proposicao"
     parameter_file: "id_proposicao.csv"
+    options:
+      parameter_column: "id_proposicao"
+      no_data_file: "sem_dados_id_proposicao.csv"

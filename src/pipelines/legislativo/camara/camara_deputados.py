@@ -1,19 +1,24 @@
+"""Ficha de cada deputado (IDs de parameters/id_deputados.csv, full refresh)."""
+
 import logging
-from functools import partial
 from pathlib import Path
 
-import pandas as pd
-
-from core import GenericETL, PipelineConfig, load_source_config
-from core.http import HttpClient
+from core import (
+    GenericETL,
+    HttpClient,
+    PipelineConfig,
+    run_cli,
+    sanitize_columns,
+    sanitize_values,
+    write_bronze,
+)
 from core.parsers.json import normalize_json_object
-from core.text import ColumnSanitizer
+from pipelines.legislativo._common import concat_landing, read_ids
 
-logger = logging.getLogger("raw_camara_deputados")
-
+logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "camara_config.yml"
 
-cols_to_not_sanitize_values = [
+_KEEP_VALUES = [
     "uri",
     "urlwebsite",
     "redesocial",
@@ -26,63 +31,33 @@ cols_to_not_sanitize_values = [
     "ultimostatus_data",
     "ultimostatus_gabinete_telefone",
     "ultimostatus_gabinete_email",
-    "arquivo_origem",
-    "data_carga",
 ]
 
 
-def extract(cfg: PipelineConfig, workers: int = 1):
-    logger.info("📥 Iniciando extracao...")
-    extractor = HttpClient(logger)
-    df_ids = pd.read_csv(cfg.parameter_filepath)
-    ids_list = df_ids["id"].drop_duplicates().to_list()
-
-    tasks = [
-        (f"{cfg.url_base}{dep_id}", f"{dep_id}_deputado.json") for dep_id in ids_list
-    ]
-    extractor.fetch_and_save_many(tasks, cfg.landing_dir, workers=workers)
-
-
-def transform(cfg: PipelineConfig):
-    logger.info("🔄 Iniciando transformacao...")
-    dataframes = []
-    for f in cfg.landing_dir.iterdir():
-        try:
-            data = normalize_json_object(f, "dados")
-            if not data.empty:
-                df = (
-                    ColumnSanitizer(data)
-                    .sanitize_columns_names()
-                    .not_sanitize_columns_values(cols=cols_to_not_sanitize_values)
-                    .df
-                )
-                dataframes.append(df)
-
-        except Exception:
-            logger.error(f"❌ Erro ao transformar {f}", exc_info=True)
-            continue
-
-    dfs = pd.concat(dataframes, ignore_index=True)
-    dfs.to_csv(cfg.bronze_filepath, sep=";", index=False)
-
-
-def run_pipeline(cfg):
-    etl = GenericETL(
-        cfg=cfg,
-        extract_fn=partial(extract, workers=4),
-        transform_fn=transform,
-        load_fn=None,
-        log=logger,
+def extract(cfg: PipelineConfig) -> None:
+    ids = read_ids(cfg.parameter_filepath, "id")
+    tasks = [(cfg.url_base.format(id=i), cfg.landing_file.format(id=i)) for i in ids]
+    HttpClient(logger).fetch_and_save_many(
+        tasks, cfg.landing_dir, workers=int(cfg.options.get("workers", 1))
     )
-    etl.run()
+
+
+def _parse(path: Path):
+    df = normalize_json_object(path, "dados")
+    if df.empty:
+        return None
+    return sanitize_values(sanitize_columns(df), exclude=_KEEP_VALUES)
+
+
+def transform(cfg: PipelineConfig) -> None:
+    write_bronze(cfg, concat_landing(cfg, _parse))
+
+
+def build() -> GenericETL:
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "deputados")
+    return GenericETL(cfg, extract_fn=extract, transform_fn=transform, log=logger)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
-    )
-    config = load_source_config(_CONFIG_FILE, source="deputados", env="local")
-    run_pipeline(PipelineConfig(**config))
+    run_cli(build)
     # uv run python -m pipelines.legislativo.camara.camara_deputados

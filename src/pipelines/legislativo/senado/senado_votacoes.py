@@ -1,100 +1,53 @@
+"""Votações nominais por ano (2001..); gera id_votacoes.csv e id_processo.csv."""
+
 import logging
-from datetime import date
 from pathlib import Path
 
-import pandas as pd
-
-from core import GenericETL, PipelineConfig, load_source_config
-from core.http import HttpClient
+from core import (
+    GenericETL,
+    HttpClient,
+    PipelineConfig,
+    run_cli,
+    sanitize_columns,
+    write_bronze,
+)
 from core.parsers.json import normalize_json_object
-from core.text import ColumnSanitizer
+from pipelines.legislativo._common import concat_landing
 
-logger = logging.getLogger("raw_senado_votacoes")
-
+logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "senado_config.yml"
+YEARS = range(2001, 2027)
 
 
-def extract_current_year(cfg: PipelineConfig):
-    logger.info("📥 Iniciando extracao do ano atual...")
-    extractor = HttpClient(logger)
-    y = date.today().year
-    base_params = f"dataInicio={y}-01-01&dataFim={y}-12-31&v=1"
-    data = extractor.make_http_request(f"{cfg.url_base}?{base_params}")
-    if not data:
-        logger.warning(f"⚠️ Sem dados para {y}.")
-        return
-    extractor.save_response(data, cfg.landing_dir, f"{y}_senado_votacoes")
-
-
-def extract(cfg: PipelineConfig):
-    logger.info("📥 Iniciando extracao historica...")
-    extractor = HttpClient(logger)
-
-    for y in range(2001, 2027):
-        logger.info(f"Extraindo {y}...")
-        base_params = f"dataInicio={y}-01-01&dataFim={y}-12-31&v=1"
-
-        data = extractor.make_http_request(f"{cfg.url_base}?{base_params}")
+def extract(cfg: PipelineConfig) -> None:
+    http = HttpClient(logger)
+    for y in YEARS:
+        data = http.get_json(
+            f"{cfg.url_base}?dataInicio={y}-01-01&dataFim={y}-12-31&v=1"
+        )
         if not data:
             logger.warning(f"⚠️ Sem dados para {y}.")
             continue
-        extractor.save_response(data, cfg.landing_dir, f"{y}_senado_votacoes")
+        http.save_json(data, cfg.landing_dir, f"{y}_senado_votacoes")
 
 
-def transform(cfg: PipelineConfig):
-    logger.info("🔄 Iniciando transformacao...")
-    dataframes = []
-    for f in cfg.landing_dir.iterdir():
-        try:
-            # JSON é um array na raiz — sem chave intermediária
-            # pd.json_normalize achata informeLegislativo automaticamente (sep=".")
-            data = normalize_json_object(f)
-            if not data.empty:
-                # votos é uma lista de dicts por linha; descartado aqui
-                # (tratado em pipeline separado de votos individuais)
-                if "votos" in data.columns:
-                    data = data.drop(columns=["votos"])
-                df = ColumnSanitizer(data).sanitize_columns_names().df
-                dataframes.append(df)
-
-        except Exception:
-            logger.error(f"❌ Erro ao transformar {f}", exc_info=True)
-            continue
-
-    dfs = pd.concat(dataframes, ignore_index=True)
-
-    # Remove quebras de linha embutidas em colunas de texto (ex: informelegislativo_texto)
-    # para evitar ParserError no pd.read_csv posterior
-    str_cols = dfs.select_dtypes(include="object").columns
-    dfs[str_cols] = dfs[str_cols].apply(
-        lambda col: col.str.replace(r"[\r\n]+", " ", regex=True)
-    )
-
-    dfs.to_csv(cfg.bronze_filepath, sep=";", index=False)
-
-    cfg.write_output_params(dfs, default_column="codigosessaovotacao", logger=logger)
+def _parse(path: Path):
+    # Array na raiz; ``votos`` (lista por linha) fica para senado_votos_senadores.
+    df = normalize_json_object(path)
+    return df.drop(columns=["votos"], errors="ignore")
 
 
-def run_pipeline(cfg):
-    etl = GenericETL(
-        cfg=cfg,
-        extract_fn=extract,
-        transform_fn=transform,
-        load_fn=None,
-        log=logger,
-    )
+def transform(cfg: PipelineConfig) -> None:
+    df = sanitize_columns(concat_landing(cfg, _parse))
+    write_bronze(cfg, df)
+    cfg.write_output_params(df, default_column="codigosessaovotacao")
 
-    # etl.extract()
-    etl.transform()
-    # etl.load()
+
+def build() -> GenericETL:
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "votacoes")
+    return GenericETL(cfg, extract_fn=extract, transform_fn=transform, log=logger)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
-    )
-    config = load_source_config(_CONFIG_FILE, source="votacoes", env="local")
-    run_pipeline(PipelineConfig(**config))
+    run_cli(build)
     # uv run python -m pipelines.legislativo.senado.senado_votacoes

@@ -1,4 +1,5 @@
-# Schema destino de todas as tabelas deste arquivo (tabela = entidade)
+# Schema destino de todas as tabelas deste arquivo (tabela = entidade).
+# O landing guarda o CSV já parseado (não o HTML): reprocessar exige nova extração.
 db_schema: "raw_ecidadania"
 
 environments:
@@ -10,20 +11,25 @@ environments:
     base_bronze: "/usr/local/airflow/mylake/bronze/demodados/ecidadania"
 
 sources:
-  big_numbers:
+  bignumbers:
     base_url: "https://www12.senado.leg.br/ecidadania/principalmateria"
     subpath: "big_numbers"
+    landing_file: "big_numbers_{date}.csv"
     bronze_file: "ecidadania_bignumbers_consolidado.csv"
     db_table: "bignumbers"
 
   mais_votados:
     base_url: "https://www12.senado.leg.br/ecidadania/principalmateria"
     subpath: "mais_votados"
+    landing_file: "mais_votados_{date}.csv"
     bronze_file: "ecidadania_mais_votados_consolidado.csv"
     db_table: "mais_votados"
 
   paginas:
     base_url: "https://www12.senado.leg.br/ecidadania/principalmateria?p="
     subpath: "paginas"
+    landing_file: "consultas_publicas_{date}_page_{page}.csv"
     bronze_file: "ecidadania_paginas_consolidado.csv"
     db_table: "paginas"
+    options:
+      pages: 145

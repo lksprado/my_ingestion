@@ -1,93 +1,26 @@
-import json
+"""Deputados da legislatura atual (extract padrão: base_url -> landing_file)."""
+
 import logging
+from functools import partial
 from pathlib import Path
 
-import pandas as pd
+from core import GenericETL, PipelineConfig, run_cli, write_bronze
+from pipelines.legislativo._common import concat_landing, parse_dados_abertos
 
-from core import GenericETL, PipelineConfig, load_source_config
-from core.http import HttpClient
-from core.text import ColumnSanitizer
-
-logger = logging.getLogger("raw_camara_legislaturas")
-
+logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "camara_config.yml"
 
 
-def range_extract_legislatura(cfg: PipelineConfig):
-    logger.info("📥 Iniciando extracao...")
-    extractor = HttpClient(logger)
-
-    for leg in range(51, 57):
-        extractor.fetch_and_save(
-            url=f"{cfg.url_base}?idLegislatura={leg}&ordem=ASC&ordenarPor=nome",
-            output_dir=cfg.landing_dir,
-            filename=f"{leg}_deputados_legislatura.json",
-        )
+def transform(cfg: PipelineConfig) -> None:
+    df = concat_landing(cfg, partial(parse_dados_abertos, url_col="url_link"))
+    write_bronze(cfg, df)
 
 
-def extract(cfg: PipelineConfig):
-    logger.info("📥 Iniciando extracao...")
-    extractor = HttpClient(logger)
-    current = 57
-
-    extractor.fetch_and_save(
-        url=f"{cfg.url_base}?idLegislatura={current}&ordem=ASC&ordenarPor=nome",
-        output_dir=cfg.landing_dir,
-        filename=f"{current}_deputados_legislatura.json",
-    )
-
-
-def transform(cfg: PipelineConfig):
-    logger.info("🔄 Iniciando transformacao...")
-    dataframes = []
-    for f in cfg.landing_dir.iterdir():
-        try:
-            with open(f, encoding="utf-8") as fp:
-                raw = json.load(fp)
-
-            dados = raw.get("dados", [])
-            if not dados:
-                continue
-
-            uri_self = next(
-                (
-                    lnk["href"]
-                    for lnk in raw.get("links", [])
-                    if lnk.get("rel") == "self"
-                ),
-                None,
-            )
-
-            df = pd.json_normalize(dados, sep=".")
-            df["url_link"] = uri_self
-            df = ColumnSanitizer(df).sanitize_columns_names().df
-            dataframes.append(df)
-
-        except Exception as e:
-            logger.error(f"❌ Erro ao transformar {f}: {e}", exc_info=True)
-            continue
-
-    dfs = pd.concat(dataframes, ignore_index=True)
-    dfs.to_csv(cfg.bronze_filepath, sep=";", index=False)
-
-
-def run_pipeline(cfg):
-    etl = GenericETL(
-        cfg=cfg,
-        extract_fn=extract,
-        transform_fn=transform,
-        load_fn=None,
-        log=logger,
-    )
-    etl.run()
+def build() -> GenericETL:
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "legislaturas")
+    return GenericETL(cfg, transform_fn=transform, log=logger)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
-    )
-    config = load_source_config(_CONFIG_FILE, source="legislatura", env="local")
-    run_pipeline(PipelineConfig(**config))
+    run_cli(build)
     # uv run python -m pipelines.legislativo.camara.camara_legislaturas

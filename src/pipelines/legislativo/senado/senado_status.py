@@ -1,75 +1,42 @@
+"""Status das proposições mais votadas no e-Cidadania (>= 5000 votos)."""
+
 import logging
 from pathlib import Path
 
 import pandas as pd
 
-from core import GenericETL, PipelineConfig, load_source_config
-from core.http import HttpClient
-from core.text import ColumnSanitizer
+from core import GenericETL, HttpClient, PipelineConfig, run_cli, write_bronze
+from pipelines.legislativo._common import concat_landing
 
-logger = logging.getLogger("raw_senado_status")
-
+logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "senado_config.yml"
 
 
-def extract(cfg: PipelineConfig):
-    logger.info("📥 Iniciando extracao...")
-    parameter_df = pd.read_csv(cfg.parameter_filepath, sep=";")
-    parameter_df = parameter_df.loc[
-        parameter_df["total_votos"] >= 5000, ["sigla", "numero", "ano"]
+def extract(cfg: PipelineConfig) -> None:
+    params = pd.read_csv(cfg.parameter_filepath, sep=";")
+    params = params.loc[
+        params["total_votos"] >= 5000, ["sigla", "numero", "ano"]
     ].drop_duplicates()
 
-    extractor = HttpClient(logger)
-    for _, row in parameter_df.iterrows():
-        sigla = row["sigla"]
-        numero = int(row["numero"])
-        ano = int(row["ano"])
-
-        filename = f"status_{sigla}_{numero}_{ano}.json"
-        url = f"{cfg.url_base}?sigla={sigla}&numero={numero}&ano={ano}&v=1"
-
-        data = extractor.make_http_request(url=url)
+    http = HttpClient(logger)
+    for _, row in params.iterrows():
+        sigla, numero, ano = row["sigla"], int(row["numero"]), int(row["ano"])
+        data = http.get_json(
+            f"{cfg.url_base}?sigla={sigla}&numero={numero}&ano={ano}&v=1"
+        )
         if data:
-            extractor.save_response(data, cfg.landing_dir, filename)
-
-    logger.info(f"✅ Extracao completa em {cfg.landing_dir}")
+            http.save_json(data, cfg.landing_dir, f"status_{sigla}_{numero}_{ano}.json")
 
 
-def transform(cfg: PipelineConfig) -> Path:
-    logger.info("🔄 Iniciando transformacao...")
-    dataframes = []
-    for f in cfg.landing_dir.iterdir():
-        try:
-            data = pd.read_json(f)
-            if not data.empty:
-                df = ColumnSanitizer(data).sanitize_columns_names().df
-                dataframes.append(df)
-        except Exception:
-            logger.error(f"❌ Erro ao transformar {f}", exc_info=True)
-            continue
-
-    dfs = pd.concat(dataframes, ignore_index=True)
-    dfs.to_csv(cfg.bronze_filepath, sep=";", index=False)
-    logger.info(f"💾 CSV salvo em: {cfg.bronze_filepath}")
+def transform(cfg: PipelineConfig) -> None:
+    write_bronze(cfg, concat_landing(cfg, pd.read_json))
 
 
-def run_pipeline(cfg: PipelineConfig):
-    etl = GenericETL(
-        cfg=cfg,
-        extract_fn=extract,
-        transform_fn=transform,
-        load_fn=None,
-        log=logger,
-    )
-    etl.run()
+def build() -> GenericETL:
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "status")
+    return GenericETL(cfg, extract_fn=extract, transform_fn=transform, log=logger)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
-    )
-    config = load_source_config(_CONFIG_FILE, source="status", env="local")
-    run_pipeline(PipelineConfig(**config))
+    run_cli(build)
     # uv run python -m pipelines.legislativo.senado.senado_status
