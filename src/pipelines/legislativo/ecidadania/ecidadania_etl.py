@@ -1,12 +1,31 @@
-"""Parsers do HTML do e-Cidadania (consultas públicas)."""
+"""ETL do e-Cidadania (consultas públicas do Senado) -> ``raw_ecidadania.<entidade>``.
+
+Scraping do HTML: o extract já grava no landing o CSV parseado (``;``), não o HTML
+bruto — reprocessar exige nova extração. O transform concatena os CSVs do landing.
+O bronze de ``paginas`` é parâmetro do ``senado_etl status``.
+"""
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
+from functools import partial
+from pathlib import Path
 
 import pandas as pd
 from bs4 import BeautifulSoup
 
+from core import (
+    Etl,
+    HttpClient,
+    PipelineConfig,
+    concat_landing,
+    run_source,
+    write_bronze,
+)
+from core.parsers.html import make_bs_object
+
 logger = logging.getLogger(__name__)
+CONFIG_FILE = Path(__file__).parent / "ecidadania_config.yml"
 
 SITE = "https://www12.senado.leg.br/ecidadania/"
 
@@ -104,3 +123,80 @@ def parse_big_numbers(soup: BeautifulSoup) -> pd.DataFrame:
             }
         ]
     )
+
+
+# ------------------------------ extract / transform ------------------------------
+
+
+def fetch_to_csv(
+    cfg: PipelineConfig,
+    parser: Callable[[BeautifulSoup], pd.DataFrame],
+    url: str,
+    filename: str,
+    http: HttpClient | None = None,
+) -> None:
+    """Baixa ``url``, parseia e grava o CSV (``;``) em ``landing_dir/filename``."""
+    html = (http or HttpClient(logger)).get_text(url)
+    if html is None:
+        logger.warning(f"⚠️ Sem resposta de {url}")
+        return
+    df = parser(make_bs_object(response=html))
+    df.to_csv(cfg.landing_dir / filename, sep=";", index=False)
+
+
+def extract_page(
+    cfg: PipelineConfig, parser: Callable[[BeautifulSoup], pd.DataFrame]
+) -> None:
+    """Uma página (``base_url``) -> ``landing_file``."""
+    fetch_to_csv(cfg, parser, cfg.url_base, cfg.landing_file)
+
+
+def extract_paginas(cfg: PipelineConfig) -> None:
+    """Todas as páginas de consultas públicas (``options.pages``)."""
+    http = HttpClient(logger)
+    for page in range(1, int(cfg.options.get("pages", 145)) + 1):
+        logger.info(f"Extraindo pagina {page}...")
+        fetch_to_csv(
+            cfg,
+            parse_materias,
+            f"{cfg.url_base}{page}",
+            cfg.landing_file.format(page=page),
+            http=http,
+        )
+
+
+def _read_csv(path: Path) -> pd.DataFrame:
+    return pd.read_csv(path, sep=";", dtype=str)
+
+
+def _concat_csvs(cfg: PipelineConfig) -> pd.DataFrame:
+    return concat_landing(cfg, _read_csv, pattern="*.csv")
+
+
+def transform(cfg: PipelineConfig) -> None:
+    write_bronze(cfg, _concat_csvs(cfg))
+
+
+def transform_paginas(cfg: PipelineConfig) -> None:
+    """Como ``transform``, acrescentando ``total_votos`` (sim + não)."""
+    df = _concat_csvs(cfg)
+    if not df.empty:
+        df["total_votos"] = pd.to_numeric(df["votos_sim"], errors="coerce") + (
+            pd.to_numeric(df["votos_nao"], errors="coerce")
+        )
+    write_bronze(cfg, df)
+
+
+ETLS = {
+    "bignumbers": Etl(
+        extract=partial(extract_page, parser=parse_big_numbers), transform=transform
+    ),
+    "mais_votados": Etl(
+        extract=partial(extract_page, parser=parse_materias), transform=transform
+    ),
+    "paginas": Etl(extract=extract_paginas, transform=transform_paginas),
+}
+
+if __name__ == "__main__":
+    run_source(CONFIG_FILE, ETLS)
+    # uv run python -m pipelines.legislativo.ecidadania.ecidadania_etl [entidade ...] [--steps ...]

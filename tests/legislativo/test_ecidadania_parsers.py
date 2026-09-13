@@ -1,5 +1,8 @@
 from core.parsers.html import make_bs_object
-from pipelines.legislativo.ecidadania._parsers import parse_big_numbers, parse_materias
+from pipelines.legislativo.ecidadania.ecidadania_etl import (
+    parse_big_numbers,
+    parse_materias,
+)
 
 HTML = """
 <div id="container-consulta-publica">
