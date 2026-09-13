@@ -1,0 +1,24 @@
+# Fonte: OpenWeather One Call 3.0 — day_summary (resumo diário de um ponto).
+# Os JSONs ficam no staging (um por dia); a consolidação all_dfs.csv também.
+# O orquestrador (Airflow) faz o upsert em raw.openweather_daily e move os JSONs
+# para bronze/weather_project — por isso o caminho preserva o nome antigo.
+#
+# ``{day}`` em landing_file é resolvido pelo pipeline (data requisitada), não pela
+# core (que só conhece {date} = hoje).
+
+environments:
+  local:
+    base_raw: "${LAKE_ROOT}/staging/weather_project"
+  airflow:
+    base_raw: "/usr/local/airflow/mylake/staging/weather_project"
+
+sources:
+  daily:
+    base_url: "https://api.openweathermap.org/data/3.0/onecall/day_summary"
+    landing_file: "day_summary_{day}.json"
+    db_table: "openweather_daily"          # lida só para o high-water mark
+    options:
+      lat: -23.137                         # Atibaia/SP
+      lon: -46.5547861
+      control_file: "missing_dates.csv"
+      output_csv: "all_dfs.csv"
