@@ -165,11 +165,11 @@ default do arquivo e podem ser sobrescritos por source; `options` faz merge):
 db_schema: "raw_camara"
 load: table                       # opcional
 environments:
-  local:
+  dev:
     base_raw: "${LAKE_ROOT}/raw/demodados/camara"
     base_bronze: "${LAKE_ROOT}/bronze/demodados/camara"
     base_parameters: "${LAKE_ROOT}/raw/demodados/camara/parameters"
-  airflow:
+  prod:
     base_raw: "/usr/local/airflow/mylake/raw/demodados/camara"
 sources:
   votos_deputados:
@@ -221,9 +221,17 @@ A conexão vem de `settings.db_target` (perfil `DB__<ENV>__*` do `.env`) ou de u
 (`validate_raw_schema`). Todo carregamento acrescenta `arquivo_origem` (quando você
 passa `filename`) e `data_carga`.
 
+**Na raw os dados são sempre texto.** `send_df_to_db` passa o DataFrame por
+`to_raw_frame(df)`: toda coluna vira `TEXT` (nulo continua NULL); a exceção é a
+coluna cujos valores são objetos JSON (dict/list), gravada como `JSONB`. A tipagem
+é responsabilidade do dbt (staging). `data_carga` é metadado da carga e fica
+`TIMESTAMP` (é o `loaded_at_field` do dbt). Os CSVs do bronze são lidos com
+`READ_CSV_AS_TEXT` (`dtype=str`, só a célula vazia vira nulo): `007` não vira `7`
+e `NA` não vira NULL. O `JsonbLoader` (NHL) já grava `payload JSONB`.
+
 | Método | Para quê |
 |---|---|
-| `send_df_to_db(df, table_name, *, schema, how="replace", filename=None)` | Grava um DataFrame |
+| `send_df_to_db(df, table_name, *, schema, how="replace", filename=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
 | `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", how="replace", source_column="arquivo_origem", sep=";")` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
 | `read_sql(sql)` | Resultado como DataFrame (leituras em `staging.*`, `intermediate.*`) |
 | `connect()` | Conexão psycopg2 crua (`copy_expert`, transação explícita) |
@@ -237,8 +245,10 @@ passa `filename`) e `data_carga`.
 write_bronze(cfg, df) -> Path | None
 ```
 **A forma de terminar um transform.** Sanitiza nomes de coluna
-(`sanitize_columns`), remove CR/LF dos valores texto (`strip_newlines`), cria o
-diretório e grava `cfg.bronze_filepath` com `cfg.bronze_sep`. DataFrame vazio ou
+(`sanitize_columns`), remove CR/LF dos valores texto (`strip_newlines`), grava
+float inteiro como inteiro (`integral_floats_to_int`: coluna inteira com nulo que o
+pandas promoveu a float sai `123`, não `123.0`), cria o diretório e grava
+`cfg.bronze_filepath` com `cfg.bronze_sep`. DataFrame vazio ou
 `None`: warning, não grava, bronze anterior preservado.
 
 ```python
@@ -266,6 +276,7 @@ tabela: sem isso, um CSV antigo viraria tabela fantasma.
 list_files(input_dir, pattern="*") -> list[Path]                   # rglob ordenado
 concat_files_to_df(input_dir, pattern="*.csv", sep=",", source_column=None) -> DataFrame
 write_csv(df, output_dir, filename, sep=";") -> Path               # seeds, exceções
+integral_floats_to_int(df) -> DataFrame   # use antes de write_csv num bronze de load: files
 ```
 
 ---

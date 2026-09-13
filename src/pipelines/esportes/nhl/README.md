@@ -67,7 +67,7 @@ gentil com a API).
 
 Credenciais: só o Postgres do `.env` da raiz (perfil `DB__<ENV>__*`). As tabelas
 `raw_nhl.nhl_raw_*` e as views `staging.vw_stg_request_*` ficam no banco do
-ambiente (`analytics_dev` em local); o dbt `my_datawarehouse` precisa rodar contra
+ambiente (`analytics_dev` em dev); o dbt `my_datawarehouse` precisa rodar contra
 ele antes dos pipelines dinâmicos. A API não exige token.
 
 ## Idempotência

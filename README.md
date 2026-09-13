@@ -33,7 +33,7 @@ src/                   # raiz de código (layout plano: imports sem prefixo de p
 ```
 
 Cada fonte tem sua pasta com **um** `<fonte>_etl.py` (o ETL de todas as entidades)
-+ `<fonte>_config.yml` (blocos `environments: {local, airflow}` e `sources:`) + um
++ `<fonte>_config.yml` (blocos `environments: {dev, prod}` e `sources:`) + um
 `README.md` próprio. Paths usam
 `${LAKE_ROOT}`/`${SEEDS_ROOT}` — nada hardcoded, nada de credencial em código.
 
@@ -117,9 +117,9 @@ precisam ser trocados nos serviços:
   `APSYSTEMS_PASSWORD` (não mais `LOGIN`/`PW`), `GOOGLE_CREDENTIALS_FILE`
   (não mais `CREDENTIALS`), `OPENWEATHER_API_KEY` (não mais `MY_API`).
 - **Destino no Postgres (2026-09-13)**: um banco por ambiente e um schema por
-  fonte. `ENV` escolhe o perfil `DB__<ENV>__*` do `.env` (`DB__LOCAL__HOST`,
-  `DB__LOCAL__NAME=analytics_dev`...); em `local` o banco tem que ser
-  `analytics_dev` (validado na importação), `airflow` é a produção em outro host.
+  fonte. `ENV` escolhe o perfil `DB__<ENV>__*` do `.env` (`DB__DEV__HOST`,
+  `DB__DEV__NAME=analytics_dev`...); em `dev` o banco tem que ser
+  `analytics_dev` (validado na importação), `prod` (Airflow) é a produção em outro host.
   Toda carga vai para `raw_<fonte>.<entidade>` (`raw_camara.deputados`,
   `raw_b3.acoes`). Os antigos `DB_NAME` (`demodados`) e `DW_DB_NAME` (`postgres`)
   deixaram de existir; os dados desses bancos **não migram sozinhos** — as cargas
@@ -155,3 +155,7 @@ precisam ser trocados nos serviços:
   `[entidade ...] --steps`). Helpers compartilhados (`extract_by_ids`,
   `concat_landing`, `flatten_children`, `reset_bronze`) foram para a `core`.
   `run_cli`/`run_many` deixaram de existir.
+- **Ambientes `dev` e `prod` (2026-09-13)**: os únicos dois ambientes passam a se
+  chamar `dev` (execução local) e `prod` (Airflow), no lugar de `local`/`airflow`:
+  `ENV=dev|prod`, perfis `DB__DEV__*`/`DB__PROD__*` e blocos `environments: {dev, prod}`
+  nos YAMLs.

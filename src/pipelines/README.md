@@ -59,11 +59,11 @@ db_schema: "raw_<fonte>"               # schema de todas as tabelas deste arquiv
 load: table                            # table (default) | files | jsonb | none
 
 environments:
-  local:
+  dev:                                 # execução local
     base_raw: "${LAKE_ROOT}/raw/<fonte>"
     base_bronze: "${LAKE_ROOT}/bronze/<fonte>"
     base_parameters: "${LAKE_ROOT}/raw/<fonte>/parameters"
-  airflow:
+  prod:                                # Airflow
     base_raw: "/usr/local/airflow/mylake/raw/<fonte>"
     base_bronze: "/usr/local/airflow/mylake/bronze/<fonte>"
     base_parameters: "/usr/local/airflow/mylake/raw/<fonte>/parameters"
@@ -80,7 +80,7 @@ sources:
 Regras:
 
 - **Sempre `${LAKE_ROOT}`/`${SEEDS_ROOT}`**, nunca `/media/...` ou `/home/...`.
-- Os dois ambientes (`local` e `airflow`) existem porque o mesmo código roda na
+- São só dois ambientes: `dev` (execução local) e `prod` (Airflow), porque o mesmo código roda na
   máquina e no orquestrador. O ativo vem de `ENV` no `.env`.
 - `subpath` evita que entidades da mesma fonte se misturem no mesmo diretório.
 - `landing_file`, `bronze_file` e `base_url` aceitam `{date}`, substituído pela
@@ -166,8 +166,13 @@ ou teste, `build_etl(CONFIG_FILE, "<entidade>", ETLS["<entidade>"]).run([...])`.
 
 **Bronze sempre por `write_bronze(cfg, df)`** (ou `write_bronze_streaming` quando o
 landing tem milhares de arquivos). Ele sanitiza nomes de coluna, remove quebras de
-linha dos valores, grava com `cfg.bronze_sep` (`;`) e preserva o bronze anterior
-se não houver dado. Não chame `to_csv` direto.
+linha dos valores, grava inteiros sem `.0`, grava com `cfg.bronze_sep` (`;`) e
+preserva o bronze anterior se não houver dado. Não chame `to_csv` direto.
+
+**A raw é texto.** Todo load tabular grava as colunas como `TEXT` (colunas de
+objetos JSON como `JSONB`); não tipe nada no transform pensando no banco, e deixe o
+cast para o staging do dbt. Com `load: files` e `write_csv` próprio, passe o
+DataFrame por `integral_floats_to_int` antes (ver `investimentos_b3`).
 
 **Nomes de coluna** são definidos por `sanitize_columns` (dentro do `write_bronze`).
 Chame explicitamente só quando a lógica do transform depende do nome sanitizado.
@@ -242,7 +247,7 @@ está no padrão.
 - Arquivo de credencial (chave de service account, por exemplo) mora **fora do
   repo**, em `~/.secrets/`, e o `.env` guarda só o caminho.
 - Banco: nunca escolha o destino no código. `PostgresClient()` usa o perfil
-  `DB__<ENV>__*` do ambiente ativo (`settings.db_target`); em `local` é sempre
+  `DB__<ENV>__*` do ambiente ativo (`settings.db_target`); em `dev` é sempre
   `analytics_dev`. O schema vem do YAML (`db_schema: raw_<fonte>`) e toda escrita
   exige `schema=` explícito — a `core` recusa qualquer coisa sem o prefixo `raw_`.
 
