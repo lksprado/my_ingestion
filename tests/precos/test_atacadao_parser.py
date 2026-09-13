@@ -28,7 +28,7 @@ class FakeHttp:
         self.pages = pages
         self.calls = []
 
-    def make_request(self, url, mode="json"):
+    def get_json(self, url):
         self.calls.append(url)
         return (
             self.pages[len(self.calls) - 1]
