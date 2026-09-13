@@ -1,13 +1,51 @@
-import csv
+"""Extratos PDF da Avenue (pdftotext): posições (assets) e dividendos.
+
+Sem extract: os PDFs são colocados manualmente em
+raw/investments/avenue/<pessoa>/<layout>/. O transform grava assets.csv e
+dividends_interest.csv no bronze; load: files -> raw_avenue.assets|dividends_interest.
+"""
+
 import logging
-import os
 import re
 import subprocess
 from pathlib import Path
 
-from core.io import list_files
+import pandas as pd
+
+from core import GenericETL, PipelineConfig, list_files, run_cli, write_csv
 
 logger = logging.getLogger(__name__)
+_CONFIG_FILE = Path(__file__).parent / "investimentos_config.yml"
+
+ASSET_COLS = [
+    "period_start",
+    "period_end",
+    "account_number",
+    "asset_class",
+    "description",
+    "symbol_cusip",
+    "account_type",
+    "quantity",
+    "price",
+    "market_value",
+    "last_period_market_value",
+    "pct_change",
+    "est_annual_income",
+    "pct_of_total_portfolio",
+    "person",
+    "layout",
+    "source_file",
+]
+DIVIDEND_COLS = [
+    "period_start",
+    "period_end",
+    "account_number",
+    "debit",
+    "credit",
+    "person",
+    "layout",
+    "source_file",
+]
 
 MONTHS = (
     "January|February|March|April|May|June"
@@ -239,7 +277,7 @@ def parse_file(path):
         r["period_start"] = period_start
         r["period_end"] = period_end
         r["account_number"] = account_number
-        r["source_file"] = os.path.abspath(path)
+        r["source_file"] = str(Path(path).resolve())
 
     return rows, validation
 
@@ -308,186 +346,79 @@ def parse_dividends_total(path):
         "account_number": account_number,
         "debit": debit,
         "credit": credit,
-        "source_file": os.path.abspath(path),
+        "source_file": str(Path(path).resolve()),
     }
 
 
-def run_avenue_dividends_etl(input_dir: Path, output_dir: Path) -> Path:
-    """Consolida o total de dividendos e juros de todos os PDFs num unico CSV.
-
-    Diferente de run_avenue_etl, nao filtra por variant: junta current e legacy
-    de todas as pessoas em um unico dividends_interest.csv, com o layout gravado
-    por linha a partir da subpasta. Uma linha por extrato, so com debit/credit da
-    linha "Total Dividends And Interest".
-    """
-    input_dir = Path(input_dir)
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Espera <input_dir>/<pessoa>/<variant>/arquivo.pdf, como run_avenue_etl,
-    # mas aceita qualquer variant (parts[1]) para unificar os dois layouts.
-    files = [
+def _pdfs(input_dir: Path) -> list[Path]:
+    """``<input_dir>/<pessoa>/<layout>/*.pdf`` (pessoa e layout viram colunas)."""
+    return [
         f
         for f in list_files(input_dir)
         if f.suffix.lower() == ".pdf" and len(f.relative_to(input_dir).parts) >= 3
     ]
-    logger.info("Avenue dividends: %d PDF(s) em %s", len(files), input_dir)
-    if not files:
-        logger.warning("Nenhum PDF encontrado em %s", input_dir)
 
-    all_rows = []
+
+def _validate(fname: str, validation: dict, rows: list[dict]) -> int:
+    """Compara os totais declarados no extrato com a soma das linhas (divergências)."""
+    sums: dict[str, float] = {}
+    for r in rows:
+        if isinstance(r["market_value"], int | float):
+            sums[r["asset_class"]] = sums.get(r["asset_class"], 0) + r["market_value"]
+    issues = 0
+    for label in ("Equities", "Fixed Income"):
+        stated, summed = validation.get(label), sums.get(label)
+        if stated is not None and summed is not None and abs(stated - summed) > 0.05:
+            logger.warning(
+                f"MISMATCH {fname} [{label}]: declarado={stated} somado={summed:.2f}"
+            )
+            issues += 1
+    total_stated = validation.get("Total Priced Portfolio")
+    total_summed = sum(sums.values())
+    if total_stated is not None and abs(total_stated - total_summed) > 0.05:
+        logger.warning(
+            f"MISMATCH {fname} [TOTAL]: declarado={total_stated} "
+            f"somado={total_summed:.2f}"
+        )
+        issues += 1
+    return issues
+
+
+def transform(cfg: PipelineConfig) -> None:
+    files = _pdfs(cfg.landing_dir)
+    logger.info(f"Avenue: {len(files)} PDF(s) em {cfg.landing_dir}")
+
+    assets, dividends, issues = [], [], 0
     for f in files:
-        rel = f.relative_to(input_dir).parts
-        row = parse_dividends_total(str(f))
-        row["person"] = rel[0]
-        row["layout"] = rel[1]
-        all_rows.append(row)
-
-    all_rows.sort(key=lambda r: (r["period_end"] or "", r["person"], r["layout"]))
-
-    fieldnames = [
-        "period_start",
-        "period_end",
-        "account_number",
-        "debit",
-        "credit",
-        "person",
-        "layout",
-        "source_file",
-    ]
-
-    output_path = output_dir / "dividends_interest.csv"
-    with open(output_path, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=fieldnames)
-        w.writeheader()
-        for r in all_rows:
-            w.writerow(r)
-
-    logger.info(
-        "Avenue dividends: %d linha(s) de %d arquivo(s) -> %s",
-        len(all_rows),
-        len(files),
-        output_path,
-    )
-    return output_path
-
-
-def run_avenue_etl(input_dir: Path, output_dir: Path) -> Path:
-    """Consolida os PDFs de holdings de todas as pessoas num unico CSV.
-
-    Como o run_avenue_dividends_etl, nao filtra por variant: junta current e
-    legacy de todas as pessoas em um unico <output_dir>/avenue.csv, com o layout
-    gravado por linha a partir da subpasta. A logica de parsing e a mesma para os
-    dois layouts; a distincao fica so nas colunas "person"/"layout".
-    """
-    input_dir = Path(input_dir)
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Espera <input_dir>/<pessoa>/<variant>/arquivo.pdf; a pessoa vem da 1a parte
-    # do caminho relativo e o layout da 2a, como o b3 preserva a pasta da pessoa.
-    files = [
-        f
-        for f in list_files(input_dir)
-        if f.suffix.lower() == ".pdf" and len(f.relative_to(input_dir).parts) >= 3
-    ]
-    logger.info("Avenue: %d PDF(s) em %s", len(files), input_dir)
-    if not files:
-        logger.warning("Nenhum PDF encontrado em %s", input_dir)
-
-    all_rows = []
-    val_report = []
-    for f in files:
-        rel = f.relative_to(input_dir).parts
-        person, layout = rel[0], rel[1]
+        person, layout = f.relative_to(cfg.landing_dir).parts[:2]
         rows, validation = parse_file(str(f))
         for r in rows:
-            r["person"] = person
-            r["layout"] = layout
-        all_rows.extend(rows)
-        # soma por asset class para validacao
-        sums = {}
-        for r in rows:
-            ac = r["asset_class"]
-            mv = r["market_value"]
-            if isinstance(mv, (int, float)):
-                sums[ac] = sums.get(ac, 0) + mv
-        val_report.append((f"{person}/{f.name}", validation, sums))
-
-    all_rows.sort(
-        key=lambda r: (
-            r["period_end"] or "",
-            r["person"],
-            r["layout"],
-            r["asset_class"],
-            r["description"],
+            r.update(person=person, layout=layout)
+        assets.extend(rows)
+        issues += _validate(f"{person}/{f.name}", validation, rows)
+        dividends.append(
+            {**parse_dividends_total(str(f)), "person": person, "layout": layout}
         )
+    logger.info(f"Avenue: {issues} divergencia(s) em {len(files)} arquivo(s)")
+
+    assets_df = pd.DataFrame(assets, columns=ASSET_COLS).sort_values(
+        ["period_end", "person", "layout", "asset_class", "description"],
+        na_position="first",
+    )
+    dividends_df = pd.DataFrame(dividends, columns=DIVIDEND_COLS).sort_values(
+        ["period_end", "person", "layout"], na_position="first"
+    )
+    write_csv(assets_df, cfg.bronze_dir, "assets.csv", sep=cfg.bronze_sep)
+    write_csv(
+        dividends_df, cfg.bronze_dir, "dividends_interest.csv", sep=cfg.bronze_sep
     )
 
-    fieldnames = [
-        "period_start",
-        "period_end",
-        "account_number",
-        "asset_class",
-        "description",
-        "symbol_cusip",
-        "account_type",
-        "quantity",
-        "price",
-        "market_value",
-        "last_period_market_value",
-        "pct_change",
-        "est_annual_income",
-        "pct_of_total_portfolio",
-        "person",
-        "layout",
-        "source_file",
-    ]
 
-    output_path = output_dir / "assets.csv"
-    with open(output_path, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=fieldnames)
-        w.writeheader()
-        for r in all_rows:
-            w.writerow(r)
+def build() -> GenericETL:
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "avenue")
+    return GenericETL(cfg, transform_fn=transform, log=logger)
 
-    logger.info(
-        "Avenue: %d linha(s) de %d arquivo(s) -> %s",
-        len(all_rows),
-        len(files),
-        output_path,
-    )
 
-    # --- Validacao (total declarado vs soma das linhas) ---
-    issues = 0
-    for fname, validation, sums in val_report:
-        for ac_label, val_key in [
-            ("Equities", "Equities"),
-            ("Fixed Income", "Fixed Income"),
-        ]:
-            stated = validation.get(val_key)
-            summed = sums.get(ac_label)
-            if stated is not None and summed is not None:
-                if abs(stated - summed) > 0.05:
-                    logger.warning(
-                        "MISMATCH %s [%s]: declarado=%s somado=%s",
-                        fname,
-                        ac_label,
-                        stated,
-                        round(summed, 2),
-                    )
-                    issues += 1
-        total_stated = validation.get("Total Priced Portfolio")
-        total_summed = sum(v for v in sums.values() if isinstance(v, (int, float)))
-        if total_stated is not None:
-            if abs(total_stated - total_summed) > 0.05:
-                logger.warning(
-                    "MISMATCH %s [TOTAL]: declarado=%s somado=%s",
-                    fname,
-                    total_stated,
-                    round(total_summed, 2),
-                )
-                issues += 1
-    logger.info("Avenue: %d divergencia(s) em %d arquivo(s)", issues, len(files))
-
-    return output_path
+if __name__ == "__main__":
+    run_cli(build)
+    # uv run python -m pipelines.financas.investimentos.investimentos_avenue

@@ -5,9 +5,9 @@ matching contra `Nome da Instituicao` do CSV de conglomerados prudenciais e herd
 `conglomerado`. O resultado permite agrupar posicoes por conglomerado para raciocinar
 sobre a cobertura do FGC.
 
-Saida: `de_para_instituicoes_fgc.csv`, carregado (full-refresh) em
-`raw.de_para_instituicoes_fgc`. Roda standalone, apos os ETLs de ingestao e a
-materializacao da camada `intermediate`.
+Saida: `de_para_instituicoes_fgc.csv` em SEEDS_ROOT (seed do dbt, sem carga em
+banco) — por isso e uma excecao documentada ao GenericETL. Roda standalone, apos
+os ETLs de ingestao e a materializacao da camada `intermediate`.
 """
 
 import logging
@@ -17,13 +17,28 @@ from pathlib import Path
 
 import pandas as pd
 from rapidfuzz import fuzz, process
-from sqlalchemy import create_engine, text
 
-from core.text import normalize_string
+from core import (
+    PipelineConfig,
+    PostgresClient,
+    normalize_string,
+    setup_logger,
+    write_csv,
+)
+from settings import settings
 
 logger = logging.getLogger(__name__)
+_CONFIG_FILE = Path(__file__).parent / "investimentos_config.yml"
 
 OUTPUT_NAME = "de_para_instituicoes_fgc.csv"
+# Mantem apenas produtos cobertos pelo FGC: o tipo e o primeiro token de
+# `investimento` (ex.: 'CDB BANCO ...'). Debentures ('DEB ...') ficam de fora.
+_SQL_EMISSORES = (
+    "SELECT DISTINCT emissor FROM intermediate.int_renda_fixa "
+    "WHERE emissor IS NOT NULL AND emissor <> '' "
+    "AND split_part(upper(investimento), ' ', 1) IN ('CDB', 'LCA', 'LCI', 'LC') "
+    "ORDER BY emissor"
+)
 
 
 def _normalize_for_match(s: str) -> str:
@@ -49,37 +64,9 @@ def _normalize_for_match(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def build_depara(
-    db_url: str,
-    csv_path: Path,
-    output_dir: Path,
-    threshold: int = 80,
-) -> str:
+def build_depara(csv_path: Path, output_dir: Path, threshold: int = 80) -> Path:
     """Constroi o de-para emissor -> conglomerado e escreve o CSV. Retorna o path."""
-    csv_path = Path(csv_path)
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    engine = create_engine(db_url)
-    try:
-        with engine.connect() as conn:
-            # Mantem apenas produtos cobertos pelo FGC: o tipo e o primeiro token
-            # de `investimento` (ex.: 'CDB BANCO ...'). Debentures ('DEB ...')
-            # e demais tipos ficam de fora.
-            result = conn.execute(
-                text(
-                    "SELECT DISTINCT emissor "
-                    "FROM intermediate.int_renda_fixa "
-                    "WHERE emissor IS NOT NULL AND emissor <> '' "
-                    "AND split_part(upper(investimento), ' ', 1) "
-                    "IN ('CDB', 'LCA', 'LCI', 'LC') "
-                    "ORDER BY emissor"
-                )
-            )
-            emissores = [row[0] for row in result]
-    finally:
-        engine.dispose()
-
+    emissores = PostgresClient(log=logger).read_sql(_SQL_EMISSORES)["emissor"].tolist()
     logger.info("Emissores distintos lidos de int_renda_fixa: %d", len(emissores))
 
     inst = pd.read_csv(csv_path)
@@ -117,8 +104,11 @@ def build_depara(
 
     df = pd.DataFrame(rows)
     df.columns = df.columns.map(normalize_string)
+    return write_csv(df, output_dir, OUTPUT_NAME, sep=",")  # seed do dbt: ","
 
-    output_path = output_dir / OUTPUT_NAME
-    df.to_csv(output_path, index=False)
-    logger.info("De-para escrito: %s (%d linhas)", output_path, len(df))
-    return str(output_path)
+
+if __name__ == "__main__":
+    setup_logger()
+    cfg = PipelineConfig.from_yaml(_CONFIG_FILE, "fgc")
+    build_depara(cfg.landing_filepath, settings.seeds_root)
+    # uv run python -m pipelines.financas.investimentos.investimentos_fgc

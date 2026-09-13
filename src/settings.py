@@ -89,8 +89,10 @@ class Settings(BaseSettings):
     apsystems_user: str | None = None
     apsystems_password: str | None = None
 
-    # Pipeline financas/google_finance
+    # Pipeline financas/investimentos (google): service account e URLs das
+    # planilhas, uma por chave do YAML (URL_FINANCE__<CHAVE>=...)
     google_credentials_file: Path | None = None
+    url_finance: dict[str, str] = {}
 
     # Pipeline clima/openweather — chave da API One Call 3.0
     openweather_api_key: str | None = None

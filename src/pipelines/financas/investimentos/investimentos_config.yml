@@ -1,0 +1,48 @@
+# Investimentos: quatro origens heterogêneas, um schema por fonte.
+# load: files -> cada CSV do bronze vira a tabela de mesmo nome (raw_<fonte>.<arquivo>).
+# b3 e avenue não têm extract: os Excel/PDF são colocados manualmente no landing.
+load: files
+
+environments:
+  local:
+    base_raw: "${LAKE_ROOT}/raw/investments"
+    base_bronze: "${LAKE_ROOT}/bronze/investments"
+  airflow:
+    base_raw: "/usr/local/airflow/mylake/raw/investments"
+    base_bronze: "/usr/local/airflow/mylake/bronze/investments"
+
+sources:
+  b3:                       # raw/investments/b3/<pessoa>/*.xlsx -> uma tabela por aba
+    subpath: "b3"
+    db_schema: "raw_b3"
+
+  avenue:                   # raw/investments/avenue/<pessoa>/<layout>/*.pdf (pdftotext)
+    subpath: "avenue"
+    db_schema: "raw_avenue"
+
+  google:                   # Google Sheets via service account -> landing JSON -> bronze CSV
+    subpath: "google"
+    db_schema: "raw_google"
+    landing_file: "{workbook}_{sheet}.json"
+    options:
+      # Abas por planilha. A URL de cada planilha vem de URL_FINANCE__<CHAVE> no .env.
+      # header_row: índice 0-based da linha de cabeçalho em get_all_values().
+      # A PRIMEIRA planilha é a primária (abas viram <aba>.csv -> raw_google.<aba>);
+      # as demais sufixam a chave (<aba>_<chave>.csv -> raw_google.<aba>_<chave>).
+      sheets:
+        lucas_jessica:
+          - {name: LUC-Consolidado, header_row: 3}
+          - {name: JSC-Consolidado, header_row: 3}
+          - {name: LUC-Contas, header_row: 4}
+          - {name: JSC-Contas, header_row: 4}
+          - {name: Luz, header_row: 0}
+          - {name: Patrimonio, header_row: 5}
+          - {name: Carteira-Classificacao, header_row: 0}
+          - {name: Ajuste, header_row: 34}
+        deusa:
+          - {name: Patrimonio, header_row: 0}
+
+  fgc:                      # exceção: lê intermediate.* do DW e grava seed em SEEDS_ROOT
+    subpath: "instituicoes"
+    landing_file: "instituicoes_conglomerado_prudencial.csv"
+    load: none
