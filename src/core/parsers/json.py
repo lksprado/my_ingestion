@@ -2,6 +2,7 @@
 
 import json
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
 import pandas as pd
@@ -22,3 +23,15 @@ def normalize_json_object(filepath: Path | str, key: str | None = None) -> pd.Da
     except Exception as e:
         logger.error(f"Erro ao normalizar JSON {filepath}: {e}")
         return pd.DataFrame()
+
+
+def flatten_children(
+    records: Sequence[dict], parent_cols: Sequence[str], child_key: str
+) -> list[dict]:
+    """Uma linha por filho, com as colunas do pai repetidas (``{**pai, **filho}``)."""
+    rows = []
+    for rec in records:
+        parent = {k: rec.get(k) for k in parent_cols}
+        for child in rec.get(child_key) or []:
+            rows.append({**parent, **child})
+    return rows

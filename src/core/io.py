@@ -54,6 +54,30 @@ def concat_files_to_df(
     return pd.concat(dfs, ignore_index=True)
 
 
+def concat_landing(
+    cfg: PipelineConfig,
+    parse_fn: Callable[[Path], pd.DataFrame | None],
+    pattern: str = "*.json",
+) -> pd.DataFrame:
+    """Aplica ``parse_fn`` a cada arquivo do landing e concatena.
+
+    Exceção num arquivo é logada e o arquivo pulado; ``None``/vazio é ignorado.
+    Sem nenhum dado, devolve DataFrame vazio.
+    """
+    frames = []
+    for f in sorted(cfg.landing_dir.glob(pattern)):
+        try:
+            df = parse_fn(f)
+        except Exception:
+            logger.error(f"❌ Erro ao transformar {f}", exc_info=True)
+            continue
+        if df is not None and not df.empty:
+            frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
 def write_csv(
     df: pd.DataFrame, output_dir: Path | str, filename: str, sep: str = ";"
 ) -> Path:
@@ -70,6 +94,20 @@ def write_csv(
 
 def _prepare(df: pd.DataFrame) -> pd.DataFrame:
     return strip_newlines(sanitize_columns(df))
+
+
+def reset_bronze(cfg: PipelineConfig) -> None:
+    """Apaga os CSVs de ``cfg.bronze_dir`` antes de regravar.
+
+    Para ``load: files``, em que cada arquivo do diretório vira uma tabela: o
+    bronze é inteiramente derivado do landing (full refresh), então um CSV
+    antigo que sobrasse viraria uma tabela fantasma.
+    """
+    old = list(cfg.bronze_dir.glob("*.csv"))
+    for f in old:
+        f.unlink()
+    if old:
+        logger.info(f"🧹 {len(old)} CSV(s) antigo(s) removido(s) de {cfg.bronze_dir}")
 
 
 def write_bronze(cfg: PipelineConfig, df: pd.DataFrame | None) -> Path | None:

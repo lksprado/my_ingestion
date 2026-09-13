@@ -5,15 +5,23 @@ dados vão e devolve as datas faltantes, gravando-as num CSV de controle.
 
 Por ID (legislativo): compara três conjuntos — todos os IDs, os já baixados e
 os que a API nunca respondeu (CSV "sem dados") — e devolve só os pendentes.
+``extract_by_ids`` monta o loop inteiro a partir do YAML: ``base_url`` e
+``landing_file`` com o placeholder ``{id}``, ``parameter_file`` com os IDs e, em
+``options``, ``no_data_file``, ``parameter_column`` (default ``id``) e
+``blacklist_on_error`` (default ``true``).
 """
 
 import csv
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import pandas as pd
+
+from core.config import PipelineConfig
 from core.db import PostgresClient
+from core.http import HttpClient
 
 logger = logging.getLogger(__name__)
 
@@ -142,3 +150,49 @@ def mark_no_data(no_data_path: Path | str, id_: str) -> None:
         if write_header:
             f.write("id\n")
         f.write(f"{id_}\n")
+
+
+def read_ids(path: Path | str, column: str) -> list[str]:
+    """IDs únicos de uma coluna de CSV, como str (sem ``.0`` de float)."""
+    s = pd.read_csv(path)[column].dropna()
+    if pd.api.types.is_numeric_dtype(s):
+        s = s.astype("int64")
+    return s.astype(str).drop_duplicates().tolist()
+
+
+def landing_ids(landing_dir: Path, suffix: str) -> set[str]:
+    """IDs já baixados: stems dos ``.json`` do landing sem o sufixo."""
+    return {f.stem.removesuffix(suffix) for f in landing_dir.glob("*.json")}
+
+
+def extract_by_ids(
+    cfg: PipelineConfig,
+    has_data: Callable[[object], bool] = bool,
+    http: HttpClient | None = None,
+) -> None:
+    """Requisita ``cfg.url_base.format(id=...)`` para cada ID pendente.
+
+    Pendente = ``parameter_file`` menos os já no landing e os do ``no_data_file``.
+    Resposta em que ``has_data`` é falso vai para o ``no_data_file``; erro/timeout
+    também, salvo ``options.blacklist_on_error: false``.
+    """
+    opts = cfg.options
+    no_data = cfg.parameter_dir / opts["no_data_file"]
+    # "{id}_votos.json" -> "_votos", para recuperar o id do nome do arquivo
+    suffix = Path(cfg.landing_file.replace("{id}", "")).stem
+    ids = read_ids(cfg.parameter_filepath, opts.get("parameter_column", "id"))
+    todo = pending_ids(ids, landing_ids(cfg.landing_dir, suffix), no_data)
+    blacklist_on_error = bool(opts.get("blacklist_on_error", True))
+    http = http or HttpClient(logger)
+
+    for id_ in todo:
+        data = http.get_json(cfg.url_base.format(id=id_))
+        if data is not None and has_data(data):
+            http.save_json(data, cfg.landing_dir, cfg.landing_file.format(id=id_))
+        elif data is None:
+            logger.warning(f"⚠️ Erro/timeout para {id_}.")
+            if blacklist_on_error:
+                mark_no_data(no_data, id_)
+        else:
+            logger.warning(f"⚠️ Sem dados para {id_}; registrado em {no_data.name}.")
+            mark_no_data(no_data, id_)

@@ -5,7 +5,7 @@ import pytest
 
 import core.etl as etl_module
 from core.config import PipelineConfig
-from core.etl import GenericETL, run_cli
+from core.etl import Etl, GenericETL, build_etl, run_source
 
 
 def _cfg(tmp_path: Path, **kw) -> PipelineConfig:
@@ -192,13 +192,81 @@ def test_load_jsonb_passes_options(monkeypatch, tmp_path):
     }
 
 
-def test_run_cli_parses_steps(tmp_path):
-    seen = []
-    etl = GenericETL(
-        _cfg(tmp_path),
-        extract_fn=lambda c: seen.append("e"),
-        transform_fn=lambda c: seen.append("t"),
-        load_fn=lambda c: seen.append("l"),
+YAML = """
+db_schema: raw_teste
+environments:
+  local:
+    base_raw: "{root}/raw"
+    base_bronze: "{root}/bronze"
+sources:
+  a:
+    subpath: a
+  b:
+    subpath: b
+    load: none
+"""
+
+
+@pytest.fixture
+def yml(tmp_path: Path) -> Path:
+    p = tmp_path / "teste_config.yml"
+    p.write_text(YAML.format(root=tmp_path))
+    return p
+
+
+def _recording(seen: list, name: str) -> Etl:
+    return Etl(
+        extract=lambda c: seen.append(f"{name}.e"),
+        transform=lambda c: seen.append(f"{name}.t"),
+        load=lambda c: seen.append(f"{name}.l"),
     )
-    run_cli(lambda: etl, argv=["--steps", "transform,load"])
-    assert seen == ["t", "l"]
+
+
+def test_build_etl_wires_yaml_and_functions(yml):
+    etl = Etl(transform=lambda c: None)
+    built = build_etl(yml, "b", etl)
+    assert built.cfg.load == "none"
+    assert built.cfg.db_schema == "raw_teste"
+    assert built.extract_fn is None
+    assert built.transform_fn is etl.transform
+
+
+def test_run_source_runs_all_in_order_by_default(yml):
+    seen = []
+    etls = {"b": _recording(seen, "b"), "a": _recording(seen, "a")}
+    run_source(yml, etls, argv=["--steps", "transform,load"])
+    assert seen == ["b.t", "b.l", "a.t", "a.l"]
+
+
+def test_run_source_only_selected_entities(yml):
+    seen = []
+    etls = {"a": _recording(seen, "a"), "b": _recording(seen, "b")}
+    run_source(yml, etls, argv=["b", "--steps", "extract"])
+    assert seen == ["b.e"]
+
+
+@pytest.mark.parametrize("argv", [["zzz"], ["--steps", "tranform"]])
+def test_run_source_rejects_unknown_entity_or_step(yml, argv):
+    with pytest.raises(SystemExit):
+        run_source(yml, {"a": Etl()}, argv=argv)
+
+
+def test_run_source_isolates_failures_and_exits_1(yml):
+    seen = []
+
+    def boom(cfg):
+        raise RuntimeError("falhou")
+
+    etls = {"a": Etl(extract=boom), "b": _recording(seen, "b")}
+    with pytest.raises(SystemExit) as exc:
+        run_source(yml, etls, argv=["--steps", "extract"])
+    assert exc.value.code == 1
+    assert seen == ["b.e"]
+
+
+def test_run_source_single_entity_propagates_error(yml):
+    def boom(cfg):
+        raise RuntimeError("falhou")
+
+    with pytest.raises(RuntimeError):
+        run_source(yml, {"a": Etl(extract=boom)}, argv=["a", "--steps", "extract"])

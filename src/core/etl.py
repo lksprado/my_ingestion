@@ -11,12 +11,16 @@
   ``load_fn`` sobrescreve o modo.
 
 Cada etapa lê e escreve disco, para rodar como task separada no Airflow.
+
+Uma fonte = um ``<fonte>_etl.py`` com ``ETLS = {"<entidade>": Etl(...)}`` (ordem =
+ordem de execução) e ``run_source(CONFIG_FILE, ETLS)`` no ``__main__``.
 """
 
 import argparse
 import logging
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -140,6 +144,82 @@ class GenericETL:
             array_key=cfg.options.get("array_key"),
             overwrite=bool(cfg.options.get("overwrite", False)),
         )
+
+
+@dataclass(frozen=True)
+class Etl:
+    """Funções de uma entidade; ``None`` usa o default do ``GenericETL``."""
+
+    extract: Callable[[PipelineConfig], object] | None = None
+    transform: Callable[[PipelineConfig], object] | None = None
+    load: Callable[[PipelineConfig], object] | None = None
+
+
+def build_etl(config_file: Path | str, source: str, etl: Etl) -> GenericETL:
+    """``GenericETL`` do ``source`` do YAML com as funções de ``etl``."""
+    cfg = PipelineConfig.from_yaml(config_file, source)
+    fonte = Path(config_file).stem.removesuffix("_config")
+    return GenericETL(
+        cfg,
+        extract_fn=etl.extract,
+        transform_fn=etl.transform,
+        load_fn=etl.load,
+        log=logging.getLogger(f"{fonte}.{source}"),
+    )
+
+
+def run_source(
+    config_file: Path | str,
+    etls: dict[str, Etl],
+    argv: Sequence[str] | None = None,
+) -> None:
+    """Entrypoint de um ``<fonte>_etl.py``: ``[entidade ...] [--steps ...]``.
+
+    Sem entidades, roda todas na ordem de ``etls``. Com mais de uma, a falha de
+    uma não aborta as demais e o processo termina com ``sys.exit(1)``.
+    """
+    parser = argparse.ArgumentParser(
+        description=f"ETL de {Path(config_file).stem.removesuffix('_config')}"
+    )
+    parser.add_argument(
+        "entidades",
+        nargs="*",
+        metavar="entidade",
+        help=f"default: todas, nesta ordem: {' '.join(etls)}",
+    )
+    parser.add_argument(
+        "--steps",
+        default=",".join(ALL_STEPS),
+        help="etapas a executar, separadas por vírgula (default: todas)",
+    )
+    args = parser.parse_args(argv)
+    unknown = [e for e in args.entidades if e not in etls]
+    if unknown:
+        parser.error(f"entidade(s) desconhecida(s) {unknown}; opções: {list(etls)}")
+    steps = [s.strip() for s in args.steps.split(",") if s.strip()]
+    invalid = [s for s in steps if s not in ALL_STEPS]
+    if invalid:
+        parser.error(f"etapa(s) inválida(s) {invalid}; opções: {list(ALL_STEPS)}")
+
+    log = setup_logger()
+    names = args.entidades or list(etls)
+    if len(names) == 1:
+        build_etl(config_file, names[0], etls[names[0]]).run(steps)
+        return
+
+    failures = []
+    for name in names:
+        try:
+            log.info(f"=== Iniciando: {name} ===")
+            build_etl(config_file, name, etls[name]).run(steps)
+            log.info(f"=== Concluido: {name} ===")
+        except Exception:
+            log.exception(f"'{name}' falhou")
+            failures.append(name)
+    if failures:
+        log.error(f"Concluido com falhas em: {', '.join(failures)}")
+        sys.exit(1)
+    log.info("Todas as entidades concluidas com sucesso")
 
 
 def run_cli(build: Callable[[], GenericETL], argv: Sequence[str] | None = None) -> None:

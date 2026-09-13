@@ -1,15 +1,21 @@
+import json
 from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 import pytest
 
+from core.config import PipelineConfig
 from core.incremental import (
+    extract_by_ids,
+    landing_ids,
     mark_no_data,
     max_date,
     missing_dates,
     missing_dates_from_db,
     pending_ids,
     read_dates_csv,
+    read_ids,
     write_dates_csv,
 )
 
@@ -95,3 +101,78 @@ def test_pending_ids_preserves_order_and_skips(tmp_path):
 def test_pending_ids_without_no_data_file(tmp_path):
     assert pending_ids(["a", "b"], [], tmp_path / "nao_existe.csv") == ["a", "b"]
     assert pending_ids(["a", "b"], ["a"], None) == ["b"]
+
+
+def test_read_ids_coerces_floats_and_dedups(tmp_path):
+    csv = tmp_path / "ids.csv"
+    csv.write_text("idprocesso\n123.0\n123.0\n\n456.0\n")
+    assert read_ids(csv, "idprocesso") == ["123", "456"]
+
+
+def test_landing_ids_strips_suffix(tmp_path):
+    (tmp_path / "10_votos_deputados.json").write_text("{}")
+    (tmp_path / "20_votos_deputados.json").write_text("{}")
+    (tmp_path / "ignorar.csv").write_text("")
+    assert landing_ids(tmp_path, "_votos_deputados") == {"10", "20"}
+
+
+class FakeHttp:
+    def __init__(self, responses: dict):
+        self.responses = responses
+        self.saved = []
+
+    def get_json(self, url):
+        return self.responses[url]
+
+    def save_json(self, data, output_dir, filename):
+        self.saved.append(filename)
+        (Path(output_dir) / filename).write_text(json.dumps(data))
+
+
+def _ids_cfg(tmp_path, **options) -> PipelineConfig:
+    return PipelineConfig(
+        landing_dir=tmp_path / "landing",
+        parameter_dir=tmp_path / "params",
+        url_base="http://api/{id}/votos",
+        landing_file="{id}_votos.json",
+        parameter_file="ids.csv",
+        options={"no_data_file": "sem_dados.csv", **options},
+    )
+
+
+def test_extract_by_ids_skips_done_and_blacklists(tmp_path):
+    cfg = _ids_cfg(tmp_path)
+    cfg.parameter_filepath.write_text("id\n1\n2\n3\n4\n")
+    (cfg.landing_dir / "1_votos.json").write_text("{}")  # já baixado
+    http = FakeHttp(
+        {
+            "http://api/2/votos": [{"x": 1}],
+            "http://api/3/votos": [],  # sem dados
+            "http://api/4/votos": None,  # timeout
+        }
+    )
+    extract_by_ids(cfg, http=http)
+
+    assert http.saved == ["2_votos.json"]
+    no_data = (cfg.parameter_dir / "sem_dados.csv").read_text().split()
+    assert no_data == ["id", "3", "4"]
+
+    # Segunda rodada: nada pendente, nenhuma requisição.
+    http2 = FakeHttp({})
+    extract_by_ids(cfg, http=http2)
+    assert http2.saved == []
+
+
+def test_extract_by_ids_without_blacklist_on_error(tmp_path):
+    cfg = _ids_cfg(tmp_path, blacklist_on_error=False)
+    cfg.parameter_filepath.write_text("id\n4\n")
+    extract_by_ids(cfg, http=FakeHttp({"http://api/4/votos": None}))
+    assert not (cfg.parameter_dir / "sem_dados.csv").exists()
+
+
+def test_extract_by_ids_custom_has_data(tmp_path):
+    cfg = _ids_cfg(tmp_path)
+    cfg.parameter_filepath.write_text("id\n7\n")
+    http = FakeHttp({"http://api/7/votos": {"dados": []}})
+    extract_by_ids(cfg, has_data=lambda d: bool(d.get("dados")), http=http)
+    assert http.saved == []

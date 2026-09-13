@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from core.config import PipelineConfig
-from core.io import write_bronze, write_bronze_streaming
+from core.io import concat_landing, reset_bronze, write_bronze, write_bronze_streaming
 
 
 @pytest.fixture
@@ -81,3 +81,27 @@ def test_streaming_without_data_preserves_previous(cfg, tmp_path):
     assert write_bronze_streaming(cfg, _files(tmp_path, 2), lambda f: None) is None
     assert cfg.bronze_filepath.read_text() == "x;y\n1;2\n"
     assert not list(cfg.bronze_dir.glob(".b_*.tmp"))
+
+
+def test_concat_landing_skips_errors_and_empty(tmp_path):
+    cfg = PipelineConfig(landing_dir=tmp_path)
+    for name in ("a", "b", "c"):
+        (tmp_path / f"{name}.json").write_text("{}")
+
+    def parse(f):
+        if f.stem == "a":
+            raise ValueError("boom")
+        if f.stem == "b":
+            return pd.DataFrame()
+        return pd.DataFrame({"x": [1]})
+
+    assert concat_landing(cfg, parse)["x"].tolist() == [1]
+    assert concat_landing(cfg, lambda f: None).empty
+
+
+def test_reset_bronze_removes_only_csvs(tmp_path):
+    cfg = PipelineConfig(landing_dir=tmp_path / "ld", bronze_dir=tmp_path)
+    (tmp_path / "velha.csv").write_text("a\n1\n")
+    (tmp_path / "manter.txt").write_text("x")
+    reset_bronze(cfg)
+    assert sorted(f.name for f in tmp_path.iterdir() if f.is_file()) == ["manter.txt"]
