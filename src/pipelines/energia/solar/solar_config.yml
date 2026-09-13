@@ -1,0 +1,40 @@
+# Fonte: portal apsystemsema.com (login via Selenium, relatório horário via AJAX).
+# Landing e bronze ficam no mesmo staging: um JSON por dia + daily_energy.csv e
+# hourly_energy.csv com "," — o Airflow lê os CSVs e faz o upsert em
+# raw_solar.solar_daily_energy / solar_hourly_energy (por isso load: none).
+# ``{day}`` em landing_file é resolvido pelo pipeline (data requisitada).
+#
+# Ordem: solar_daily_energy (extract + transform) e depois solar_hourly_energy
+# (só transform, lê o mesmo landing).
+db_schema: "raw_solar"
+load: none
+bronze_sep: ","
+options:
+  control_file: "missing_dates.csv"
+  # tabelas do high-water mark e sua coluna de data: o extract parte do menor MAX
+  watermarks:
+    solar_daily_energy: "date"
+    solar_hourly_energy: "datetime"
+  equipment_id: "216200001531"
+  login_url: "https://apsystemsema.com/ema/index.action"
+  report_url: "https://apsystemsema.com/ema/ajax/getReportApiAjax/getHourlyEnergyOnCurrentDayAjax"
+  headless: false
+
+environments:
+  local:
+    base_raw: "${LAKE_ROOT}/staging/solar_project"
+    base_bronze: "${LAKE_ROOT}/staging/solar_project"
+  airflow:
+    base_raw: "/usr/local/airflow/mylake/staging/solar_project"
+    base_bronze: "/usr/local/airflow/mylake/staging/solar_project"
+
+sources:
+  daily_energy:
+    landing_file: "hourly24_production_{day}.json"
+    bronze_file: "daily_energy.csv"
+    db_table: "solar_daily_energy"
+
+  hourly_energy:                       # sem extract: usa o landing de daily_energy
+    landing_file: "hourly24_production_{day}.json"
+    bronze_file: "hourly_energy.csv"
+    db_table: "solar_hourly_energy"

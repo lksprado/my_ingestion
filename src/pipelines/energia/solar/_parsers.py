@@ -1,78 +1,54 @@
+"""JSONs horários do APsystems -> DataFrames diário e horário."""
+
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
 
+from core import PipelineConfig
+
 logger = logging.getLogger(__name__)
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def parsing_json_to_dataframe(staging_dir: Path) -> str:
-    """_summary_
-
-    Args:
-        staging_dir (Path): Local dos jsons
-
-    Returns:
-        str: Path do arquivo
-    """
-
-    logger.info("Iniciando parser...")
-    staging_dir = Path(staging_dir)
-    data = []
-    for file in staging_dir.iterdir():
-        if file.suffix == ".json":
-            try:
-                df = pd.read_json(file)
-                df = df.reset_index().rename(columns={"index": "hour"})
-                df["filename"] = file.name
-                df["date"] = file.name[20:30]
-                data.append(df)
-            except Exception as e:
-                logger.warning(f"Json vazio ou inválido {file} -- {e}")
-    all_dfs = pd.concat(data, ignore_index=True)
-    file_dest = staging_dir / "all_dfs.csv"
-    all_dfs.to_csv(file_dest, index=False)
-    logger.info(f"Dados consolidados em: {file_dest}")
-    return str(file_dest.absolute())
+def parse_hourly_json(path: Path) -> pd.DataFrame:
+    """Um arquivo (um dia): uma linha por hora, com ``date`` vinda do nome."""
+    df = pd.read_json(path).reset_index().rename(columns={"index": "hour"})
+    df["filename"] = path.name
+    df["date"] = _DATE_RE.search(path.name).group(0)
+    return df
 
 
-def make_daily_summary_df(csv_file: Path) -> str:
-    """_summary_
+def load_landing(cfg: PipelineConfig) -> pd.DataFrame:
+    """Concatena todos os JSONs do landing (arquivo inválido é pulado)."""
+    frames = []
+    for f in sorted(cfg.landing_dir.glob(cfg.landing_file.format(day="*"))):
+        try:
+            frames.append(parse_hourly_json(f))
+        except Exception as e:
+            logger.warning(f"JSON vazio ou inválido {f} -- {e}")
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-    Args:
-        csv_file (Path): Path do arquivo
 
-    Returns:
-        str: Path do arquivo
-    """
-    csv_file = Path(csv_file)
-    logger.info("Consolidando dados diarios...")
-    df = pd.read_csv(csv_file)
-    summary_df = df[["date", "duration", "total", "co2", "max"]].drop_duplicates(
+def daily_summary(df: pd.DataFrame) -> pd.DataFrame:
+    """Uma linha por dia: duração, total, CO2 e pico."""
+    if df.empty:
+        return df
+    out = df[["date", "duration", "total", "co2", "max"]].drop_duplicates(
         subset=["date"]
     )
-    summary_df["date"] = pd.to_datetime(summary_df["date"]).dt.date
-    file_dest = csv_file.parent / "daily_energy.csv"
-    summary_df.to_csv(file_dest, index=False)
-    logger.info(f"Arquivo para carga salvo em: {file_dest.absolute()}")
-    return str(file_dest.absolute())
+    out = out.copy()
+    out["date"] = pd.to_datetime(out["date"]).dt.date
+    return out
 
 
-def make_hourly_df(csv_file: Path) -> str:
-    """_summary_
-
-    Args:
-        csv_file (Path): Path do arquivo
-
-    Returns:
-        str: Path do arquivo
-    """
-    csv_file = Path(csv_file)
-    logger.info("Consolidando dados para data-hora...")
-    df = pd.read_csv(csv_file)
-    df["datetime"] = pd.to_datetime(df["date"]) + pd.to_timedelta(df["hour"], unit="h")
-    hourly_df = df[["datetime", "energy"]].drop_duplicates(subset=["datetime"])
-    file_dest = csv_file.parent / "hourly_energy.csv"
-    hourly_df.to_csv(file_dest, index=False)
-    logger.info(f"Arquivo para carga salvo em: {file_dest.absolute()}")
-    return str(file_dest.absolute())
+def hourly(df: pd.DataFrame) -> pd.DataFrame:
+    """Uma linha por data-hora com a energia gerada."""
+    if df.empty:
+        return df
+    out = df.copy()
+    out["datetime"] = pd.to_datetime(out["date"]) + pd.to_timedelta(
+        out["hour"], unit="h"
+    )
+    return out[["datetime", "energy"]].drop_duplicates(subset=["datetime"])
