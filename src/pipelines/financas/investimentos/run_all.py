@@ -30,12 +30,17 @@ RAW_BASE = settings.lake_root / "raw" / "investments"
 BRONZE_BASE = settings.lake_root / "bronze" / "investments"
 CONFIG_PATH = Path(__file__).parent / "config.yml"
 
+# Um schema por fonte; a tabela vem do nome do arquivo bronze (modo stem).
+SCHEMA_B3 = "raw_b3"
+SCHEMA_AVENUE = "raw_avenue"
+SCHEMA_GOOGLE = "raw_google"
+
 
 def run_b3() -> None:
     output_dir = BRONZE_BASE / "b3"
     run_consolidation(input_dir=RAW_BASE / "b3", output_dir=output_dir)
     PostgresClient(log=logger).load_files_to_table(
-        output_dir, strip_prefix="consolidado_"
+        output_dir, schema=SCHEMA_B3, strip_prefix="consolidado_"
     )
 
 
@@ -44,7 +49,7 @@ def run_avenue() -> None:
     output_dir = BRONZE_BASE / "avenue"
     run_avenue_etl(input_dir=input_dir, output_dir=output_dir)
     run_avenue_dividends_etl(input_dir=input_dir, output_dir=output_dir)
-    PostgresClient(log=logger).load_files_to_table(output_dir)
+    PostgresClient(log=logger).load_files_to_table(output_dir, schema=SCHEMA_AVENUE)
 
 
 def run_google() -> None:
@@ -55,7 +60,7 @@ def run_google() -> None:
         config_path=CONFIG_PATH,
     )
     PostgresClient(log=logger).load_files_to_table(
-        output_dir, pattern="google_*.csv", strip_prefix="google_"
+        output_dir, schema=SCHEMA_GOOGLE, pattern="google_*.csv", strip_prefix="google_"
     )
 
 

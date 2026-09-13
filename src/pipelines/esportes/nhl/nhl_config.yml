@@ -1,7 +1,8 @@
 # Fonte: APIs públicas da NHL (api-web.nhle.com e api.nhle.com/stats).
-# Subpaths, nomes de arquivo e tabelas preservam os do repo nhl-extraction:
+# Subpaths, nomes de arquivo e nomes de TABELA preservam os do repo nhl-extraction:
 # o lake já tem os JSONs nesses diretórios e o dbt my_datawarehouse referencia
-# as tabelas nhl_raw_* em _sources.yml.
+# as tabelas nhl_raw_* em _sources.yml. Só o schema segue o padrão raw_<fonte>
+# (raw_nhl); o prefixo redundante nos nomes das tabelas fica por compatibilidade.
 #
 # Não há bronze: os JSONs vão direto para tabelas JSONB (payload, source_filename).
 # ``options`` é lido por _common.py:
@@ -13,6 +14,8 @@
 #   param_filter   - coluna booleana: só linhas com ela FALSE (ainda não sincronizadas)
 #   season_subdir  - grava/lê em subpasta <season_id>/ (carrega só a mais recente)
 #   workers        - threads de extração (1 = sequencial)
+
+db_schema: "raw_nhl"
 
 environments:
   local:

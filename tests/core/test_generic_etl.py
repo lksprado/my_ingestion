@@ -80,15 +80,19 @@ def test_generic_loader_uses_default_postgres_client(monkeypatch, tmp_path: Path
     sent = {}
 
     class FakePg:
-        def send_df_to_db(self, df, table_name, filename, how):
+        def __init__(self, log=None):
+            pass
+
+        def send_df_to_db(self, df, table_name, schema, filename, how):
             sent["table_name"] = table_name
+            sent["schema"] = schema
             sent["filename"] = filename
             sent["how"] = how
             sent["rows"] = len(df)
 
     import core.etl as etl_module
 
-    monkeypatch.setattr(etl_module, "PostgresClient", lambda: FakePg())
+    monkeypatch.setattr(etl_module, "PostgresClient", FakePg)
 
     bronze = tmp_path / "brz"
     bronze.mkdir()
@@ -100,16 +104,38 @@ def test_generic_loader_uses_default_postgres_client(monkeypatch, tmp_path: Path
         bronze_dir=bronze,
         bronze_file="file.csv",
         db_table="my_table",
+        db_schema="raw_teste",
     )
     etl = GenericETL(cfg=cfg)
     etl.generic_loader()
 
     assert sent == {
         "table_name": "my_table",
+        "schema": "raw_teste",
         "filename": "file.csv",
         "how": "replace",
         "rows": 3,
     }
+
+
+def test_generic_loader_requires_raw_schema(monkeypatch, tmp_path: Path):
+    import core.etl as etl_module
+
+    monkeypatch.setattr(
+        etl_module, "PostgresClient", lambda **_: pytest.fail("não deveria conectar")
+    )
+    cfg = PipelineConfig(
+        landing_dir=tmp_path / "ld",
+        bronze_dir=tmp_path / "brz",
+        bronze_file="file.csv",
+        db_table="my_table",
+    )
+    with pytest.raises(ValueError, match="raw_<fonte>"):
+        GenericETL(cfg=cfg).generic_loader()
+
+    cfg.db_schema = "raw"
+    with pytest.raises(ValueError, match="raw_<fonte>"):
+        GenericETL(cfg=cfg).generic_loader()
 
 
 def test_load_uses_custom_load_fn(tmp_path: Path):

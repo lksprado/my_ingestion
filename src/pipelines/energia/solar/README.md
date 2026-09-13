@@ -10,7 +10,7 @@ autenticar e, a partir dos cookies da sessão, chamar essa API diretamente.
 ## Fluxo
 
 1. **Identificar lacunas** — `missing_raw.py` consulta o maior `date`/`datetime` já
-   carregado em `raw.solar_daily_energy` e `raw.solar_hourly_energy` e gera a lista
+   carregado em `raw_solar.solar_daily_energy` e `raw_solar.solar_hourly_energy` e gera a lista
    de datas faltantes até ontem (ou até hoje, se já passou das 20h).
 2. **Extrair** — `extraction.py` faz login com Selenium, navega até o relatório e
    requisita o JSON de produção por data, salvando no staging.
@@ -41,7 +41,7 @@ No `.env` da raiz:
 ```
 APSYSTEMS_USER=
 APSYSTEMS_PASSWORD=
-DW_DB_NAME=    # banco onde estão raw.solar_*; o DB_NAME é o do legislativo
+# banco: perfil DB__<ENV>__* do .env (analytics_dev em local); raw_solar.* precisa existir lá
 ```
 
 Saídas em `${LAKE_ROOT}/staging/solar_project/`, incluindo o arquivo de controle

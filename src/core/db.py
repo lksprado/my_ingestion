@@ -1,47 +1,67 @@
 """Cliente Postgres único do monorepo (ex-PostgreSQLManager de demodados).
 
 Absorve também ``load_csvs_to_raw`` (investments) e ``load_data`` (books)
-como ``load_files_to_table``. Credenciais vêm de ``settings``
-(com fallback para env vars, útil em testes com engine/conexão injetada).
+como ``load_files_to_table``. A conexão vem de ``settings.db_target`` (perfil
+``DB__<ENV>__*`` do .env) ou de um ``DbTarget``/``connection``/``engine``
+injetado — assim a ``core`` importa sem .env (testes, Airflow com hook).
+
+Toda escrita exige ``schema`` explícito começando com ``raw_`` (``raw_<fonte>``);
+``validate_raw_schema`` centraliza a regra.
 """
 
 import logging
-import os
+import re
 from datetime import datetime
 from logging import NullHandler
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 import psycopg2
 from sqlalchemy import create_engine, text
 
+if TYPE_CHECKING:
+    from settings import DbTarget
+
 logger = logging.getLogger(__name__)
 logger.addHandler(NullHandler())
 
+RAW_SCHEMA_PREFIX = "raw_"
+# O schema é interpolado em SQL (JsonbLoader, CREATE SCHEMA): só identificador simples.
+_IDENT = re.compile(r"^[a-z][a-z0-9_]*$")
 
-def _settings_value(field: str) -> str | None:
-    """Busca um campo no settings central; cai para os.getenv se indisponível."""
-    try:
-        from settings import settings
 
-        return getattr(settings, field, None)
-    except Exception:
-        from dotenv import load_dotenv
+def validate_raw_schema(schema: str | None) -> str:
+    """Garante que toda escrita da ingestão vai para um schema ``raw_<fonte>``.
 
-        load_dotenv()
-        return os.getenv(field.upper())
+    Levanta ``ValueError`` para ``None``, prefixo diferente de ``raw_`` ou nome
+    que não seja um identificador minúsculo simples.
+    """
+    if (
+        not schema
+        or not schema.startswith(RAW_SCHEMA_PREFIX)
+        or not _IDENT.match(schema)
+    ):
+        raise ValueError(
+            f"Schema de escrita inválido: {schema!r}. "
+            "Use 'raw_<fonte>' (ex.: raw_camara)."
+        )
+    return schema
+
+
+def _default_target() -> "DbTarget":
+    # Import adiado: a core precisa importar sem .env quando recebe conexão injetada.
+    from settings import settings
+
+    return settings.db_target
 
 
 class PostgresClient:
     def __init__(
         self,
-        db_name=None,
-        db_user=None,
-        db_password=None,
-        db_host=None,
-        db_port=None,
-        connection=None,  # conexão externa (psycopg2)
+        target: "DbTarget | None" = None,
+        *,
+        connection=None,  # conexão externa (psycopg2 / PostgresHook.get_conn())
         engine=None,  # engine externa (sqlalchemy)
         log: logging.Logger | None = None,
     ):
@@ -50,18 +70,9 @@ class PostgresClient:
         self.engine = engine
         self.logger = log or logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
-        self.db_name = db_name or _settings_value("db_name")
-        self.db_user = db_user or _settings_value("db_user")
-        self.db_password = db_password or _settings_value("db_password")
-        self.db_host = db_host or _settings_value("db_host")
-        self.db_port = db_port or _settings_value("db_port")
-
-        if (
-            not self.external_connection
-            and not self.external_engine
-            and not all([self.db_name, self.db_user, self.db_password, self.db_host])
-        ):
-            raise ValueError("CREDENCIAIS DO BANCO NAO FORNECIDAS.")
+        if target is None and not connection and not engine:
+            target = _default_target()
+        self.target = target
 
     def _connect(self):
         if self.external_connection:
@@ -69,11 +80,11 @@ class PostgresClient:
             return self.external_connection
         try:
             connection = psycopg2.connect(
-                dbname=self.db_name,
-                user=self.db_user,
-                password=self.db_password,
-                host=self.db_host,
-                port=self.db_port,
+                dbname=self.target.name,
+                user=self.target.user,
+                password=self.target.password,
+                host=self.target.host,
+                port=self.target.port,
             )
             self.logger.debug("Conexao ok.")
             return connection
@@ -96,27 +107,34 @@ class PostgresClient:
         if self.external_engine:
             self.logger.debug("Usando engine externa (injetada)")
             return self.external_engine
-        self.engine = create_engine(
-            f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
-            f"@{self.db_host}:{self.db_port}/{self.db_name}"
-        )
+        if self.engine is None:
+            self.engine = create_engine(self.target.url)
         return self.engine
+
+    def _ensure_schema(self, schema: str) -> None:
+        """``to_sql`` não cria schema; garante ``raw_<fonte>`` antes da carga."""
+        # begin(): SQLAlchemy 2.0 não faz autocommit em connect().
+        with self.alchemy().begin() as conn:
+            conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
 
     def send_df_to_db(
         self,
         df: pd.DataFrame,
         table_name: str,
+        *,
+        schema: str,
         how: str = "replace",
         filename: str | None = None,
-        schema: str = "raw",
     ):
         """Envia um DataFrame para ``schema.table_name``, com colunas de rastreio."""
+        schema = validate_raw_schema(schema)
         if filename:
             df["arquivo_origem"] = filename
         df["data_carga"] = datetime.now()
 
         engine = self.alchemy()
         try:
+            self._ensure_schema(schema)
             df.to_sql(
                 name=table_name, con=engine, schema=schema, if_exists=how, index=False
             )
@@ -129,11 +147,12 @@ class PostgresClient:
         self,
         csv_path,
         table_name: str,
+        *,
+        schema: str,
         filename: str | None = None,
         sep: str = ";",
         chunksize: int = 50_000,
         how: str = "replace",
-        schema: str = "raw",
     ):
         """Carrega um CSV grande para ``schema.table_name`` em blocos (streaming).
 
@@ -141,10 +160,12 @@ class PostgresClient:
         o arquivo inteiro em memoria, evitando OOM com bronzes grandes. O primeiro
         bloco usa ``how`` (replace por padrao) e os demais fazem append.
         """
+        schema = validate_raw_schema(schema)
         engine = self.alchemy()
         total = 0
         first = True
         try:
+            self._ensure_schema(schema)
             for chunk in pd.read_csv(csv_path, sep=sep, chunksize=chunksize):
                 if filename:
                     chunk["arquivo_origem"] = filename
@@ -185,16 +206,17 @@ class PostgresClient:
     def load_files_to_table(
         self,
         input_dir: Path | str,
+        *,
+        schema: str,
         table_name: str | None = None,
         file_extension: Literal["csv", "json"] = "csv",
         pattern: str | None = None,
         strip_prefix: str = "",
         how: str = "replace",
-        schema: str = "raw",
         source_column: str = "arquivo_origem",
         sep: str = ",",
     ) -> None:
-        """Carrega arquivos de um diretório para o banco.
+        """Carrega arquivos de um diretório para ``schema.*``.
 
         Dois modos:
         - ``table_name`` definido: concatena todos os arquivos numa única tabela,
@@ -202,6 +224,7 @@ class PostgresClient:
         - ``table_name=None``: cada arquivo vira uma tabela nomeada pelo stem,
           removendo ``strip_prefix`` (ex-load_csvs_to_raw).
         """
+        schema = validate_raw_schema(schema)
         input_dir = Path(input_dir)
         pattern = pattern or f"*.{file_extension}"
         files = sorted(input_dir.glob(pattern))
@@ -221,23 +244,24 @@ class PostgresClient:
                 df[source_column] = file.name
                 dfs.append(df)
             self.send_df_to_db(
-                pd.concat(dfs, ignore_index=True), table_name, how=how, schema=schema
+                pd.concat(dfs, ignore_index=True), table_name, schema=schema, how=how
             )
         else:
             for file in files:
                 self.send_df_to_db(
                     _read(file),
                     file.stem.removeprefix(strip_prefix),
+                    schema=schema,
                     how=how,
                     filename=file.name,
-                    schema=schema,
                 )
         self.logger.info(f"✅ Load concluido: {len(files)} arquivo(s)")
 
     def execute_query(self, query: str):
         try:
             if self.engine:
-                with self.engine.connect() as conn:
+                # begin(): garante commit (SQLAlchemy 2.0 não faz autocommit).
+                with self.engine.begin() as conn:
                     conn.execute(text(query))
                     self.logger.info("✅ Query executada com sucesso")
             else:

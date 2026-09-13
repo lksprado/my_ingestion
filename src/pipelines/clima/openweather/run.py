@@ -1,7 +1,8 @@
 """Pipeline de clima (ex-projeto openweather).
 
-Descobre datas faltantes em raw.openweather_daily (high-water mark), extrai o
-day_summary da OpenWeather para cada uma e consolida os JSONs em CSV no staging.
+Descobre datas faltantes em raw_openweather.openweather_daily (high-water mark),
+extrai o day_summary da OpenWeather para cada uma e consolida os JSONs em CSV
+no staging.
 Sem carga: o orquestrador faz o upsert (mesmo desenho do energia/solar).
 """
 
@@ -22,7 +23,7 @@ _CONFIG_FILE = Path(__file__).parent / "openweather_config.yml"
 def run_pipeline(cfg: PipelineConfig) -> None:
     control = cfg.landing_dir / cfg.options["control_file"]
 
-    db_con = PostgresClient(db_name=settings.dw_db, log=logger).connect()
+    db_con = PostgresClient(log=logger).connect()
     try:
         dates = identify_and_write_missing_dates(db=db_con, output_filepath=control)
     finally:

@@ -7,13 +7,13 @@ Configuração em `camara_config.yml`.
 
 | Script | Source (YAML) | Fonte | Tabela destino |
 |---|---|---|---|
-| `camara_legislaturas.py` | `legislatura` | Lista de legislaturas | `raw_camara_legislaturas` |
-| `camara_deputados.py` | `deputados` | Perfil de cada deputado | `raw_camara_deputados` |
-| `camara_votacoes.py` | `votacoes` | Votações em plenário | `raw_camara_votacoes` |
-| `camara_votos_deputados.py` | `votos_deputados` | Como cada deputado votou | `raw_camara_votos_deputados` |
-| `camara_votos_orientacao.py` | `votos_orientacao` | Orientação de bancada por votação | `raw_camara_votos_orientacao` |
-| `camara_proposicoes.py` | `proposicao` | Detalhe das proposições votadas | `raw_camara_proposicao` |
-| `camara_proposicao_tema.py` | `proposicao_tema` | Temas de cada proposição | `raw_camara_proposicao_tema` |
+| `camara_legislaturas.py` | `legislatura` | Lista de legislaturas | `raw_camara.legislaturas` |
+| `camara_deputados.py` | `deputados` | Perfil de cada deputado | `raw_camara.deputados` |
+| `camara_votacoes.py` | `votacoes` | Votações em plenário | `raw_camara.votacoes` |
+| `camara_votos_deputados.py` | `votos_deputados` | Como cada deputado votou | `raw_camara.votos_deputados` |
+| `camara_votos_orientacao.py` | `votos_orientacao` | Orientação de bancada por votação | `raw_camara.votos_orientacao` |
+| `camara_proposicoes.py` | `proposicao` | Detalhe das proposições votadas | `raw_camara.proposicao` |
+| `camara_proposicao_tema.py` | `proposicao_tema` | Temas de cada proposição | `raw_camara.proposicao_tema` |
 
 ## Dependências entre pipelines
 
@@ -51,4 +51,4 @@ uv run python -m pipelines.legislativo.camara.camara_proposicao_tema
 - Os pipelines por ID (`votos_*`, `proposicao*`) são **incrementais**: comparam os IDs
   pendentes com o que já existe no landing e mantêm um arquivo de IDs "sem dados"
   para não repetir chamadas que a API não responde.
-- Carga é full refresh (`replace`) na tabela `raw.*`.
+- Carga é full refresh (`replace`) na tabela `raw_camara.*`.

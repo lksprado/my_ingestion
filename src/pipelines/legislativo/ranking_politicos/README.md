@@ -8,8 +8,8 @@ privilégios. Configuração em `ranking_politicos_config.yml`.
 
 | Script | Source (YAML) | Fonte | Tabela destino |
 |---|---|---|---|
-| `ranking_deputados.py` | `deputados` | Ranking e score dos deputados | `raw_ranking_deputados` |
-| `ranking_senadores.py` | `senadores` | Ranking e score dos senadores | `raw_ranking_senadores` |
+| `ranking_deputados.py` | `deputados` | Ranking e score dos deputados | `raw_ranking_politicos.deputados` |
+| `ranking_senadores.py` | `senadores` | Ranking e score dos senadores | `raw_ranking_politicos.senadores` |
 
 ## Como executar
 

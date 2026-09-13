@@ -22,6 +22,8 @@ from settings import settings
 
 logger = setup_logger(__name__)
 
+SCHEMA = "raw_vide_editorial"
+
 _CONFIG_FILE = Path(__file__).parent / "config.yml"
 URL_BASE = "https://videeditorial.com.br/"
 
@@ -91,9 +93,10 @@ def extract_categories_content(
     logger.info("Extraction complete!")
 
 
-def load(input_dir: Path, table_name: str) -> None:
+def load(input_dir: Path, table_name: str, schema: str = SCHEMA) -> None:
     PostgresClient(log=logger).load_files_to_table(
         input_dir,
+        schema=schema,
         table_name=table_name,
         file_extension="json",
         source_column="source_filename",
@@ -103,5 +106,5 @@ def load(input_dir: Path, table_name: str) -> None:
 if __name__ == "__main__":
     raw_dir = settings.lake_root / "raw" / "vide"
     extraction_featured_books(raw_dir)
-    load(raw_dir, "vide_raw_livros_em_destaque")
+    load(raw_dir, "livros_em_destaque")
     # python -m pipelines.livros.vide_editorial.run

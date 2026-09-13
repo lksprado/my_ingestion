@@ -1,4 +1,6 @@
-"""High-water mark do clima: datas ainda não carregadas em raw.openweather_daily.
+"""High-water mark do clima: datas ainda não carregadas no Postgres.
+
+Lê ``raw_openweather.openweather_daily`` (carregada pelo Airflow, não por este repo).
 
 ``identify_missing_dates(db)`` aceita conexão psycopg2 ou PostgresHook (Airflow).
 """
@@ -9,14 +11,15 @@ from core.incremental import get_max_date, missing_dates, write_dates_csv
 
 logger = logging.getLogger(__name__)
 
-_QUERY_DAILY = "SELECT MAX(date) :: DATE AS DT FROM raw.openweather_daily"
+SCHEMA = "raw_openweather"
+_QUERY_DAILY = f"SELECT MAX(date) :: DATE AS DT FROM {SCHEMA}.openweather_daily"
 
 
 def identify_missing_dates(db) -> list[str]:
     logger.info("Obtendo data maxima no DW")
     max_date = get_max_date(db, _QUERY_DAILY)
     if max_date is None:
-        raise ValueError("raw.openweather_daily vazia: sem high-water mark.")
+        raise ValueError(f"{SCHEMA}.openweather_daily vazia: sem high-water mark.")
     logger.info(f"Data inicial encontrada: {max_date}")
 
     dates = missing_dates(max_date)

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from core.jsonb import json_file_to_ndjson_buffer
+from core.jsonb import JsonbLoader, json_file_to_ndjson_buffer
 
 
 def _write(tmp_path: Path, obj, name="f.json") -> Path:
@@ -60,3 +60,11 @@ def test_missing_array_key_raises(tmp_path):
     p = _write(tmp_path, {"data": {"not": "a list"}})
     with pytest.raises(ValueError, match="array_key"):
         json_file_to_ndjson_buffer(p, array_key="data")
+
+
+def test_jsonb_loader_requires_raw_schema():
+    with pytest.raises(ValueError, match="raw_<fonte>"):
+        JsonbLoader(db=object(), schema="raw")
+
+    loader = JsonbLoader(db=object(), schema="raw_nhl", control_table="ctl")
+    assert (loader.schema, loader.control_table) == ("raw_nhl", "ctl")

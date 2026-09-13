@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Monorepo de ingestão de dados pessoais: APIs públicas, scraping e planilhas → data lake local (CSV/JSON em `${LAKE_ROOT}`) e Postgres (schema `raw`). A transformação (dbt) vive **fora** deste repo (`~/workspace/demodados/demodadosdw` e `~/workspace/the_dw`). Código, comentários, docs e mensagens de commit são em **português**.
+Monorepo de ingestão de dados pessoais: APIs públicas, scraping e planilhas → data lake local (CSV/JSON em `${LAKE_ROOT}`) e Postgres (schemas `raw_<fonte>` no banco do ambiente: `analytics_dev` em local). A transformação (dbt) vive **fora** deste repo (`~/workspace/demodados/demodadosdw` e `~/workspace/the_dw`). Código, comentários, docs e mensagens de commit são em **português**.
 
 Documentação autoritativa (leia antes de mexer no que ela cobre):
 
@@ -16,7 +16,7 @@ Documentação autoritativa (leia antes de mexer no que ela cobre):
 
 ```bash
 uv sync                                  # Python 3.12 (pinado <3.13), instala src/ em modo editável
-cp .env.example .env                     # obrigatório: settings.py falha na importação sem LAKE_ROOT/SEEDS_ROOT/DB_*
+cp .env.example .env                     # obrigatório: settings.py falha na importação sem LAKE_ROOT/SEEDS_ROOT/DB__LOCAL__*
 uv run pre-commit install                # ruff + gitleaks + check-yaml nos commits
 
 uv run task test                         # pytest -v -m 'not integration'
@@ -42,24 +42,24 @@ uv run python -c "import pipelines.<domínio>.<fonte>.<script>"   # checa que o 
 
 **`PipelineConfig`** (`core/config.py`) normaliza `landing_dir`/`bronze_dir`/`parameter_dir` para `Path`, resolve `${VAR}` e `~`, cria os diretórios (`criar_dirs=True`; em testes use `criar_dirs=False`), e substitui **apenas** o placeholder `{date}` em `landing_file`/`bronze_file`. Outros placeholders (`{game_id}`, `{day}`) são preservados para o script resolver com `str.format`. Chaves que a `core` não interpreta vão no bloco `options:` do YAML e chegam em `cfg.options`.
 
-**`GenericETL`** (`core/etl.py`) encadeia `extract → transform → load`. Defaults: extract baixa `cfg.url_base` para `cfg.landing_filepath` via `HttpClient`; **transform não tem default** (obrigatório); load lê o bronze com `sep=";"` e faz `PostgresClient().send_df_to_db(..., how="replace")` em `raw.<db_table>`. `load_fn=None` significa "use o loader padrão", não "não carregue". Bronze é sempre CSV com `;`.
+**`GenericETL`** (`core/etl.py`) encadeia `extract → transform → load`. Defaults: extract baixa `cfg.url_base` para `cfg.landing_filepath` via `HttpClient`; **transform não tem default** (obrigatório); load lê o bronze com `sep=";"` e faz `PostgresClient().send_df_to_db(..., schema=cfg.db_schema, how="replace")` em `<db_schema>.<db_table>`; sem `db_schema` no YAML levanta `ValueError`. `load_fn=None` significa "use o loader padrão", não "não carregue". Bronze é sempre CSV com `;`.
 
 **Encadeamento por parâmetros.** Um pipeline produtor declara `output_param_file` (`{arquivo: coluna}`) e chama `cfg.write_output_params(df)`; o consumidor declara `parameter_file`. Isso define a ordem de execução, documentada no README da fonte. Extração incremental por IDs compara três conjuntos: todos os IDs, os já baixados no `landing_dir`, e um CSV de "sem dados" no `parameter_dir` (para não martelar a API com IDs que nunca voltam).
 
-**Pipelines que não usam `GenericETL`** (por design, não por dívida): `precos/atacadao` (saída é CSV para seed do dbt, sem banco), `financas/fundos_imobiliarios` (CLI mensal com `--month/--force`), `financas/investimentos` (`run_all.py` isola falhas por fonte), `esportes/nhl` (JSON bruto → tabela JSONB via `JsonbLoader`, IDs vêm de views `staging.vw_stg_request_*` do dbt, lógica em `_common.py`), `energia/solar` e `clima/openweather` (incremental por data com high-water mark via `core.incremental`). Critério: `GenericETL` quando o fluxo é landing → bronze → `raw.*`; fora disso, monte o seu mas continue usando `HttpClient`, `PostgresClient`, `core.io`, `setup_logger`.
+**Pipelines que não usam `GenericETL`** (por design, não por dívida): `precos/atacadao` (saída é CSV para seed do dbt, sem banco), `financas/fundos_imobiliarios` (CLI mensal com `--month/--force`), `financas/investimentos` (`run_all.py` isola falhas por fonte), `esportes/nhl` (JSON bruto → tabela JSONB via `JsonbLoader`, IDs vêm de views `staging.vw_stg_request_*` do dbt, lógica em `_common.py`), `energia/solar` e `clima/openweather` (incremental por data com high-water mark via `core.incremental`). Critério: `GenericETL` quando o fluxo é landing → bronze → `raw_<fonte>.*`; fora disso, monte o seu mas continue usando `HttpClient`, `PostgresClient`, `core.io`, `setup_logger`.
 
-**Dois bancos na mesma instância Postgres.** `settings.db_name` (`DB_NAME`, legislativo) e `settings.dw_db` (`DW_DB_NAME`, o `my_datawarehouse`; Airflow o chama de `postgres_dw`). NHL, clima e solar usam `PostgresClient(db_name=settings.dw_db)`. Investimentos e vide carregam hoje no `DB_NAME` enquanto o Airflow os carrega no `postgres` — pendência conhecida, não "corrija" de um lado só.
+**Um banco por ambiente, um schema por fonte.** `ENV` escolhe o perfil de conexão `DB__<ENV>__*` do `.env` (`settings.db_target`); `PostgresClient()` sem argumentos usa esse perfil. Em `ENV=local` o banco é obrigatoriamente `analytics_dev` (validator em `settings.py`); `ENV=airflow` é a produção em outro host. Não existe mais `DB_NAME`/`DW_DB_NAME`/`settings.dw_db` — nunca passe `db_name=` para desviar de banco. Toda escrita exige `schema=` explícito começando com `raw_` (`core.db.validate_raw_schema`; `send_df_to_db`, `send_csv_to_db`, `load_files_to_table`, `JsonbLoader` não têm default). O schema de uma fonte é declarado uma vez, na chave `db_schema` do topo do `<fonte>_config.yml`, e chega em `cfg.db_schema`. Leituras (`staging.*`, `intermediate.*`) não são restringidas.
 
 **`HttpClient` devolve `None` em erro** em vez de levantar exceção. Trate o item, logue e siga; um ID quebrado não pode derrubar uma extração longa.
 
-**Nomes preservados por compatibilidade com dados existentes e com o dbt:** tabelas `raw.nhl_raw_*`, `raw.openweather_daily`, pastas `raw/nhl/*`, `staging/weather_project`, tabela de controle `nhl_ingestion_control`. Não renomeie.
+**Nomes de tabela preservados por compatibilidade com o dbt:** `raw_nhl.nhl_raw_*`, `raw_nhl.nhl_ingestion_control`, `raw_openweather.openweather_daily`, `raw_solar.solar_daily_energy|solar_hourly_energy` (só o schema seguiu o padrão `raw_<fonte>`), e as pastas do lake `raw/nhl/*`, `staging/weather_project`. Não renomeie.
 
 ## Convenções que importam ao editar
 
-- Credencial nova: `.env` **e** `.env.example` (valor vazio) **e** campo em `settings.py`. Nunca `os.getenv` espalhado. Campo obrigatório em `Settings` não leva default. Arquivo de credencial mora em `~/.secrets/`, o `.env` guarda só o caminho.
+- Credencial nova: `.env` **e** `.env.example` (valor vazio) **e** campo em `settings.py`. Conexão de banco só via perfil `DB__<ENV>__*` (`DbTarget`). Nunca `os.getenv` espalhado. Campo obrigatório em `Settings` não leva default. Arquivo de credencial mora em `~/.secrets/`, o `.env` guarda só o caminho.
 - Nunca caminho absoluto em YAML ou código; use `${LAKE_ROOT}`/`${SEEDS_ROOT}`. Exceção consciente e única: `legislativo/_params/dbt_seed_maker.py`.
 - Nomes de coluna sempre via `ColumnSanitizer(df).sanitize_columns_names().df`.
-- Cascata de nomes: pasta `<fonte>/`, script `<fonte>_<entidade>.py`, source YAML `<entidade>`, tabela `raw_<fonte>_<entidade>`. Deixe no fim do `__main__` o comentário com o comando `uv run python -m ...`.
+- Cascata de nomes: pasta `<fonte>/`, script `<fonte>_<entidade>.py`, source YAML `<entidade>`, schema `raw_<fonte>` (chave `db_schema` no topo do YAML), tabela `<entidade>` (ex.: `raw_camara.deputados`). Deixe no fim do `__main__` o comentário com o comando `uv run python -m ...`.
 - Logger em código novo: `setup_logger(__name__)` da `core`. Os pipelines do `legislativo` usam `logging.getLogger` + `basicConfig` por herança da migração; não copie.
 - Testes em `tests/<domínio>/`, priorizando parsers. Marque com `@pytest.mark.integration` o que precisa de Postgres/rede.
 - `ruff` com `E,F,I,N,W,UP,B`, linha 88. `E501` ignorado só em `pipelines/legislativo/**` e no `dividend_report.py`.

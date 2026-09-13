@@ -2,7 +2,7 @@
 
 Extrai estatísticas de hóquei das APIs públicas da NHL (`api-web.nhle.com` e
 `api.nhle.com/stats`) e carrega os JSONs **sem transformação** em tabelas JSONB
-(`payload`, `source_filename`) no schema `raw`. A normalização acontece no dbt
+(`payload`, `source_filename`) no schema `raw_nhl`. A normalização acontece no dbt
 [`my_datawarehouse`](https://github.com/lksprado/my_datawarehouse) (seletor `nhl`).
 
 Migrado do repo `nhl-extraction` (submódulo `include/nhl_extraction` do airflow3).
@@ -11,19 +11,20 @@ Migrado do repo `nhl-extraction` (submódulo `include/nhl_extraction` do airflow
 
 | Script | Source | Tabela | Carga |
 |---|---|---|---|
-| `nhl_seasons.py` | `seasons` | `raw.nhl_raw_all_seasons_id` | full (anual) |
-| `nhl_teams.py` | `teams` | `raw.nhl_raw_all_teams_id` | full (anual) |
-| `nhl_games_summary.py` | `games_summary` | `raw.nhl_raw_all_games_summary` | full (diário) |
-| `nhl_games_details.py` | `games_details` | `raw.nhl_raw_all_games_details` | incremental |
-| `nhl_games_summary_details.py` | `games_summary_details` | `raw.nhl_raw_all_games_summary_details` | incremental |
-| `nhl_play_by_play.py` | `play_by_play` | `raw.nhl_raw_all_play_by_play` | incremental |
-| `nhl_club_stats.py` | `club_stats` | `raw.nhl_raw_all_club_stats` | full |
-| `nhl_players.py` | `players` | `raw.nhl_raw_all_players` | full |
-| `nhl_player_game_log.py` | `player_game_log` | `raw.nhl_raw_all_player_game_log` | full (temporada mais recente) |
+| `nhl_seasons.py` | `seasons` | `raw_nhl.nhl_raw_all_seasons_id` | full (anual) |
+| `nhl_teams.py` | `teams` | `raw_nhl.nhl_raw_all_teams_id` | full (anual) |
+| `nhl_games_summary.py` | `games_summary` | `raw_nhl.nhl_raw_all_games_summary` | full (diário) |
+| `nhl_games_details.py` | `games_details` | `raw_nhl.nhl_raw_all_games_details` | incremental |
+| `nhl_games_summary_details.py` | `games_summary_details` | `raw_nhl.nhl_raw_all_games_summary_details` | incremental |
+| `nhl_play_by_play.py` | `play_by_play` | `raw_nhl.nhl_raw_all_play_by_play` | incremental |
+| `nhl_club_stats.py` | `club_stats` | `raw_nhl.nhl_raw_all_club_stats` | full |
+| `nhl_players.py` | `players` | `raw_nhl.nhl_raw_all_players` | full |
+| `nhl_player_game_log.py` | `player_game_log` | `raw_nhl.nhl_raw_all_player_game_log` | full (temporada mais recente) |
 
 Os nomes de tabela e de pasta (`raw/nhl/single`, `raw/nhl/raw_all_games_details`…)
-**fogem do padrão** `raw_<fonte>_<entidade>` do monorepo de propósito: o dbt os
-referencia em `_sources.yml` e o lake já tem ~170 mil JSONs nesses diretórios.
+**fogem do padrão** `raw_<fonte>.<entidade>` do monorepo de propósito: o dbt os
+referencia em `_sources.yml` e o lake já tem ~170 mil JSONs nesses diretórios. Só
+o schema segue o padrão (`raw_nhl`, chave `db_schema` do YAML).
 
 ## Dependências entre pipelines (ordem de execução)
 
@@ -49,14 +50,15 @@ extrair e carregar (documentado no cabeçalho do YAML): `param_view`/`param_colu
 `param_filter` (de onde vêm os IDs), `overwrite`, `array_key`, `file_pattern`,
 `season_subdir` e `workers` (threads; default 1, seja gentil com a API).
 
-Credenciais: só o Postgres do `.env` da raiz — as tabelas `nhl_raw_*` e as views
-ficam no banco do `my_datawarehouse`, apontado por `DW_DB_NAME` (`postgres`), não no
-`DB_NAME` (`demodados`). A API não exige token.
+Credenciais: só o Postgres do `.env` da raiz (perfil `DB__<ENV>__*`). As tabelas
+`raw_nhl.nhl_raw_*` e as views `staging.vw_stg_request_*` ficam no banco do
+ambiente (`analytics_dev` em local); o dbt `my_datawarehouse` precisa rodar contra
+ele antes dos pipelines dinâmicos. A API não exige token.
 
 ## Idempotência
 
 `core.jsonb.JsonbLoader` registra cada arquivo carregado em
-`raw.nhl_ingestion_control` (nome preservado do repo original — o banco já tem o
+`raw_nhl.nhl_ingestion_control` (nome preservado do repo original — o banco já tem o
 histórico). Pipelines com `overwrite: false` só inserem arquivos que não constam lá;
 os com `overwrite: true` truncam a tabela e limpam o controle antes de recarregar.
 

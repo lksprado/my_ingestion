@@ -8,7 +8,7 @@ no Postgres.
 
 1. `HttpClient` (de `core`) faz a requisição com retry/backoff.
 2. `parsers.py` transforma o HTML numa lista de produtos.
-3. `run.py` salva os JSONs no lake e carrega em `raw.*` via `PostgresClient`.
+3. `run.py` salva os JSONs no lake e carrega em `raw_vide_editorial.*` via `PostgresClient`.
 
 ## Arquivos
 
@@ -45,7 +45,7 @@ extract_categories_content(settings.lake_root / 'raw/vide/categorias', only='fil
 uv run python -c "
 from pipelines.livros.vide_editorial.run import load
 from settings import settings
-load(settings.lake_root / 'raw/vide/categorias', 'vide_raw_categorias')"
+load(settings.lake_root / 'raw/vide/categorias', 'categorias')"
 ```
 
 Saída dos arquivos: `vide_livros_em_destaque_{data}.json` para a home e
@@ -72,8 +72,9 @@ primeira página. Entre requisições há um `sleep` de ~1s para não martelar o
 - A carga usa `PostgresClient.load_files_to_table`, que concatena todos os JSONs do
   diretório numa tabela só e acrescenta `source_filename`, `arquivo_origem` e
   `data_carga`. É full refresh (`replace`).
-- Credenciais do banco vêm do `.env` da raiz (`DB_*`) — a variável antiga `DB_PW`
-  foi padronizada para `DB_PASSWORD`.
+- Credenciais do banco vêm do `.env` da raiz (perfil `DB__<ENV>__*`); o schema
+  `raw_vide_editorial` é a constante `SCHEMA` de `run.py`, tabela padrão
+  `livros_em_destaque`.
 - `parsers.get_routes(input_html, output_dir)` é um utilitário manual: recebe um
   HTML salvo pelo DevTools e extrai todos os links do site, útil para descobrir
   novas categorias para o `config.yml`.

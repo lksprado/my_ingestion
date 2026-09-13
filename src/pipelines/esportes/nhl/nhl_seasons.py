@@ -1,6 +1,6 @@
 """NHL — Temporadas (ids) — anual.
 
-Fonte estática: uma requisição, full refresh de ``raw.nhl_raw_*``.
+Fonte estática: uma requisição, full refresh de ``raw_nhl.nhl_raw_*``.
 """
 
 from core import setup_logger

@@ -109,3 +109,35 @@ def test_load_source_config_passes_options(tmp_path: Path):
 
     cfg = PipelineConfig(**load_source_config(yml, "t", env="local"), criar_dirs=False)
     assert cfg.options == {}
+
+
+def test_load_source_config_propagates_db_schema(tmp_path: Path):
+    from core.config import load_source_config
+
+    yml = tmp_path / "cfg.yml"
+    yml.write_text(
+        "db_schema: raw_fonte\n"
+        "environments:\n  local:\n    base_raw: /tmp/x\n"
+        "sources:\n  s:\n    db_table: entidade\n"
+        "  t:\n    db_table: outra\n    db_schema: raw_override\n",
+        encoding="utf-8",
+    )
+    cfg = PipelineConfig(**load_source_config(yml, "s", env="local"), criar_dirs=False)
+    assert (cfg.db_schema, cfg.db_table) == ("raw_fonte", "entidade")
+
+    # O source pode sobrescrever o schema do arquivo.
+    cfg = PipelineConfig(**load_source_config(yml, "t", env="local"), criar_dirs=False)
+    assert cfg.db_schema == "raw_override"
+
+
+def test_load_source_config_without_db_schema(tmp_path: Path):
+    from core.config import load_source_config
+
+    yml = tmp_path / "cfg.yml"
+    yml.write_text(
+        "environments:\n  local:\n    base_raw: /tmp/x\n"
+        "sources:\n  s:\n    db_table: e\n",
+        encoding="utf-8",
+    )
+    cfg = PipelineConfig(**load_source_config(yml, "s", env="local"), criar_dirs=False)
+    assert cfg.db_schema is None

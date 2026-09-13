@@ -119,7 +119,8 @@ Dataclass com todos os caminhos e nomes de um pipeline. Campos:
 |---|---|
 | `landing_dir` | **obrigatório** — diretório do dado bruto (JSON/HTML) |
 | `bronze_dir` | diretório do dado pós-transformação (CSV) |
-| `db_table` | tabela destino em `raw.*` |
+| `db_table` | tabela destino (só a entidade: `deputados`) |
+| `db_schema` | schema destino, obrigatoriamente `raw_<fonte>` (vem da chave de topo do YAML) |
 | `url_base` | URL da fonte |
 | `subpath` | subpasta aplicada a landing/bronze/error |
 | `error_dir` | diretório de fallback |
@@ -150,6 +151,7 @@ Lê o YAML da fonte e devolve um dict pronto para `PipelineConfig(**cfg)`. O `en
 default vem de `settings.env` (variável `ENV` do `.env`). Formato esperado:
 
 ```yaml
+db_schema: "raw_camara"          # schema de todas as tabelas do arquivo
 environments:
   local:
     base_raw: "${LAKE_ROOT}/raw/demodados/camara"
@@ -164,9 +166,12 @@ sources:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados/"
     subpath: "deputados"
     bronze_file: "parlamento_deputados.csv"
-    db_table: "raw_camara_deputados"
+    db_table: "deputados"          # -> raw_camara.deputados
     parameter_file: "id_deputados.csv"
 ```
+
+`db_schema` no topo vale para todos os sources; um source pode sobrescrever com a
+mesma chave, mas o normal é um schema por arquivo.
 
 ---
 
@@ -213,20 +218,26 @@ http.fetch_and_save_many(tasks, cfg.landing_dir, workers=8)
 
 ## `db.py` — `PostgresClient`
 
-Credenciais vêm do `settings` (`.env` da raiz); dá para sobrescrever por argumento
-ou injetar `connection`/`engine` prontos (útil em teste). Levanta `ValueError` na
-construção se não houver credencial nenhuma. O schema default é `raw`.
+A conexão vem de `settings.db_target` — o perfil `DB__<ENV>__*` do `.env` — ou de
+um `DbTarget`, `connection` ou `engine` injetado (`PostgresClient(target=...)`,
+`PostgresClient(engine=...)`; útil em teste e no Airflow com `PostgresHook`). Com
+injeção a `core` nem importa o `settings`.
+
+**Schema é obrigatório em toda escrita** e precisa ser `raw_<fonte>`:
+`validate_raw_schema(schema)` levanta `ValueError` para `None`, `raw`, `staging` ou
+qualquer coisa que não seja um identificador minúsculo com prefixo `raw_`. O
+`CREATE SCHEMA IF NOT EXISTS` é feito antes da carga (`to_sql` não cria schema).
 
 Todo carregamento acrescenta as colunas de rastreio **`arquivo_origem`** (quando
 você passa `filename`) e **`data_carga`**.
 
 | Método | Para quê |
 |---|---|
-| `send_df_to_db(df, table_name, how="replace", filename=None, schema="raw")` | Grava um DataFrame |
-| `send_csv_to_db(csv_path, table_name, sep=";", chunksize=50_000, how="replace")` | CSV grande em streaming; respeita o limite de 65535 parâmetros do Postgres e cria a tabela mesmo se o CSV só tiver cabeçalho |
-| `load_files_to_table(input_dir, table_name=None, file_extension="csv", pattern=None, strip_prefix="", source_column="arquivo_origem", sep=",")` | Carrega um diretório inteiro (ver os dois modos abaixo) |
+| `send_df_to_db(df, table_name, *, schema, how="replace", filename=None)` | Grava um DataFrame |
+| `send_csv_to_db(csv_path, table_name, *, schema, filename=None, sep=";", chunksize=50_000, how="replace")` | CSV grande em streaming; respeita o limite de 65535 parâmetros do Postgres e cria a tabela mesmo se o CSV só tiver cabeçalho |
+| `load_files_to_table(input_dir, *, schema, table_name=None, file_extension="csv", pattern=None, strip_prefix="", how="replace", source_column="arquivo_origem", sep=",")` | Carrega um diretório inteiro (ver os dois modos abaixo) |
 | `connect()` | Conexão psycopg2 crua, para `copy_expert`/transação explícita (levanta se falhar) |
-| `execute_query(sql)` | Executa DDL/DML |
+| `execute_query(sql)` | Executa DDL/DML (com commit) |
 | `fetchone(sql)` | Uma linha (ex.: high-water mark) |
 | `fetchall(sql)` | Resultado completo como DataFrame |
 | `alchemy()` | Engine SQLAlchemy, se precisar de algo fora da API |
@@ -237,11 +248,16 @@ você passa `filename`) e **`data_carga`**.
 db = PostgresClient(log=logger)
 
 # 1) todos os arquivos numa tabela só, rastreados por source_column
-db.load_files_to_table(raw_dir, table_name="vide_raw_destaques", file_extension="json")
+db.load_files_to_table(
+    raw_dir,
+    schema="raw_vide_editorial",
+    table_name="livros_em_destaque",
+    file_extension="json",
+)
 
 # 2) table_name=None -> cada arquivo vira uma tabela, nomeada pelo stem do arquivo
-#    (consolidado_acoes.csv -> raw.acoes)
-db.load_files_to_table(bronze_dir, strip_prefix="consolidado_")
+#    (consolidado_acoes.csv -> raw_b3.acoes)
+db.load_files_to_table(bronze_dir, schema="raw_b3", strip_prefix="consolidado_")
 ```
 
 > Cargas são **full refresh** (`how="replace"`) por padrão: os volumes são pequenos
@@ -255,13 +271,17 @@ Carga de JSON bruto em tabela `(payload JSONB, source_filename TEXT)` via `COPY`
 para fontes cuja normalização fica no dbt (precedente: `esportes/nhl`).
 
 ```python
-loader = JsonbLoader(PostgresClient(log=logger), control_table="nhl_ingestion_control")
+loader = JsonbLoader(
+    PostgresClient(log=logger), schema="raw_nhl", control_table="nhl_ingestion_control"
+)
 loader.load_file(path, "nhl_raw_all_teams_id", array_key="data", overwrite=True)
 loader.load_files(landing_dir.glob("raw_*.json"), "nhl_raw_all_play_by_play")
 ```
 
+- `schema` é obrigatório e validado (`raw_<fonte>`); o loader cria o schema e as
+  tabelas se não existirem.
 - `overwrite=True`: `TRUNCATE` + recarga; `False`: só arquivos ausentes da tabela
-  de controle `raw.<control_table>` (`table_schema, table_name, filename, ingested_at`).
+  de controle `<schema>.<control_table>` (`table_schema, table_name, filename, ingested_at`).
 - `array_key` aponta a lista dentro de um dict (`{"data": [...]}`); lista no topo
   vira um registro por item; dict sem chave vira um registro só.
 - `json_file_to_ndjson_buffer(path, array_key, source_filename)` é a função pura
@@ -301,7 +321,8 @@ GenericETL(cfg, extract_fn=None, transform_fn=None, load_fn=None, log=None)
 - `transform()` — **não tem default**: sem `transform_fn` levanta
   `NotImplementedError`. É sempre específico da fonte.
 - `load()` — sem `load_fn`, lê `cfg.bronze_filepath` (CSV `;`) e manda para
-  `raw.<cfg.db_table>` com `replace`.
+  `<cfg.db_schema>.<cfg.db_table>` com `replace`. Sem `db_schema` (ou com um que
+  não seja `raw_<fonte>`) levanta `ValueError` antes de conectar.
 
 `run()` chama as três em ordem. Você também pode chamar etapas isoladas — vários
 pipelines fazem só `etl.transform()` + `etl.load()` porque a extração é paginada e

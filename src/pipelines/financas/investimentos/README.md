@@ -1,8 +1,8 @@
 # Pipeline: Investimentos
 
 Ingestão das posições de investimento pessoais a partir de quatro fontes de formatos
-bem diferentes (Excel, PDF, Google Sheets e o próprio DW), landando CSVs no schema
-`raw` do Postgres. Aqui é **só ingestão**: a categorização e a análise vivem no dbt.
+bem diferentes (Excel, PDF, Google Sheets e o próprio DW), landando CSVs nos schemas
+`raw_b3`, `raw_avenue` e `raw_google` do Postgres. Aqui é **só ingestão**: a categorização e a análise vivem no dbt.
 
 A intervenção nos dados é mínima — o suficiente para torná-los tabulares com nomes
 de coluna limpos. Por isso as cargas são **full refresh**: o volume é pequeno e a
@@ -12,9 +12,9 @@ idempotência vem de recarregar tudo, o que também tolera mudança de schema na
 
 | Módulo | Origem | Entrada | Tabelas destino |
 |---|---|---|---|
-| `b3_etl.py` | B3 | Excel mensal, uma aba por classe de ativo | `raw.<aba>` (prefixo `consolidado_` removido) |
-| `avenue_etl.py` | Avenue | PDF de Account Statement | `raw.assets`, `raw.dividends_interest` |
-| `google_finance_etl.py` | Google Sheets | Planilhas declaradas em `config.yml` | `raw.<aba>` (e `raw.<aba>_<workbook>` nas secundárias) |
+| `b3_etl.py` | B3 | Excel mensal, uma aba por classe de ativo | `raw_b3.<aba>` (prefixo `consolidado_` removido) |
+| `avenue_etl.py` | Avenue | PDF de Account Statement | `raw_avenue.assets`, `raw_avenue.dividends_interest` |
+| `google_finance_etl.py` | Google Sheets | Planilhas declaradas em `config.yml` | `raw_google.<aba>` (e `raw_google.<aba>_<workbook>` nas secundárias) |
 | `fgc_etl.py` | DW + CSV do Bacen | `intermediate.int_renda_fixa` | `de_para_instituicoes_fgc.csv` (seed do dbt) |
 
 ## Como executar
@@ -66,8 +66,8 @@ acima de US$ 0,05 — vale olhar esses warnings antes de confiar na carga.
 **Google Sheets** — `config.yml` mapeia workbook → lista de abas, cada aba com seu
 `header_row` (índice 0-based da linha de cabeçalho). Adicionar uma aba é mudança de
 uma linha no config. O **primeiro** workbook do config é o primário e mantém nomes
-"limpos" (`raw.patrimonio`); os demais recebem o sufixo da chave
-(`raw.patrimonio_deusa`) — é assim que duas abas homônimas convivem.
+"limpos" (`raw_google.patrimonio`); os demais recebem o sufixo da chave
+(`raw_google.patrimonio_deusa`) — é assim que duas abas homônimas convivem.
 
 **FGC** — lê os emissores distintos de `intermediate.int_renda_fixa` (só produtos
 cobertos pelo FGC: CDB/LCA/LCI/LC), faz fuzzy match com `rapidfuzz` contra a lista

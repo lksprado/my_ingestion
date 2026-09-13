@@ -2,6 +2,7 @@
 
 Os YAMLs de fonte seguem a estrutura::
 
+    db_schema: raw_<fonte>      # schema destino de todas as tabelas do arquivo
     environments:
       local:
         base_raw: ${LAKE_ROOT}/raw/...
@@ -59,11 +60,13 @@ class PipelineConfig:
         error_dir: diretorio fallback se houver
         parameter_file: arquivo para parametrizar
         db_table: nome tabela banco de dados
+        db_schema: schema destino, obrigatoriamente ``raw_<fonte>``
     """
 
     landing_dir: Path | str
     bronze_dir: Path | str | None = None
     db_table: str | None = None
+    db_schema: str | None = None
     url_base: str | None = None
     subpath: str = None
     error_dir: Path | str = None
@@ -226,6 +229,8 @@ def load_source_config(config_path: str, source: str, env: str | None = None) ->
         "landing_file": src_cfg.get("landing_file"),
         "subpath": src_cfg.get("subpath"),
         "db_table": src_cfg.get("db_table"),
+        # Schema é propriedade da fonte (topo do YAML); source pode sobrescrever.
+        "db_schema": src_cfg.get("db_schema", cfg.get("db_schema")),
         "parameter_file": src_cfg.get("parameter_file"),
         "output_param_dir": env_cfg.get("base_parameters"),
         "output_param_file": src_cfg.get("output_param_file"),

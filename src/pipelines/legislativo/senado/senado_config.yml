@@ -1,3 +1,6 @@
+# Schema destino de todas as tabelas deste arquivo (tabela = entidade)
+db_schema: "raw_senado"
+
 environments:
   local:
     base_raw: "${LAKE_ROOT}/raw/demodados/senado"
@@ -16,13 +19,13 @@ sources:
     subpath: "legislatura"
     landing_file: "senadores_legislaturas.json"
     bronze_file: "senadores_legislaturas.csv"
-    db_table: "raw_senado_legislaturas"
+    db_table: "legislaturas"
 
   votacoes:
     base_url: "https://legis.senado.leg.br/dadosabertos/votacao"
     subpath: "votacoes"
     bronze_file: "senado_votacoes.csv"
-    db_table: "raw_senado_votacoes"
+    db_table: "votacoes"
     output_param_file:
       id_votacoes.csv: "codigosessaovotacao"
       id_processo.csv: "idprocesso"
@@ -30,31 +33,31 @@ sources:
   votos_senadores:
     subpath: "votos_senadores"
     bronze_file: "senado_votos_senadores.csv"
-    db_table: "raw_senado_votos_senadores"
+    db_table: "votos_senadores"
 
   votos_orientacao:
     base_url: "https://legis.senado.leg.br/dadosabertos/plenario/votacao/orientacaoBancada/"
     subpath: "votos_orientacao"
     bronze_file: "senado_votos_orientacao.csv"
-    db_table: "raw_senado_votos_orientacao"
+    db_table: "votos_orientacao"
 
   senadores:
     base_url: "https://legis.senado.leg.br/dadosabertos/senador/lista/atual?v=4"
     subpath: "senadores"
     landing_file: "senado_senadores.json"
     bronze_file: "senado_senadores.csv"
-    db_table: "raw_senado_senadores"
+    db_table: "senadores"
 
   status:
     base_url: "https://legis.senado.leg.br/dadosabertos/processo"
     subpath: "status"
     bronze_file: "senado_status_consolidado.csv"
-    db_table: "raw_senado_status"
+    db_table: "status"
     parameter_file: "ecidadania_paginas_consolidado.csv"
 
   processo:
     base_url: "https://legis.senado.leg.br/dadosabertos/processo"
     subpath: "processo"
     bronze_file: "senado_processo_consolidado.csv"
-    db_table: "raw_senado_processo"
+    db_table: "processo"
     parameter_file: "id_processo.csv"

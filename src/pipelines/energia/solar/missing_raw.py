@@ -10,8 +10,9 @@ from core.incremental import get_max_date, missing_dates, write_dates_csv
 
 logger = logging.getLogger(__name__)
 
-_QUERY_DAILY = "SELECT MAX(date) :: DATE AS DT FROM raw.solar_daily_energy"
-_QUERY_HOURLY = "SELECT MAX(datetime) :: DATE AS DT FROM raw.solar_hourly_energy"
+SCHEMA = "raw_solar"
+_QUERY_DAILY = f"SELECT MAX(date) :: DATE AS DT FROM {SCHEMA}.solar_daily_energy"
+_QUERY_HOURLY = f"SELECT MAX(datetime) :: DATE AS DT FROM {SCHEMA}.solar_hourly_energy"
 
 
 def identify_missing_dates(db) -> list[str]:
@@ -20,7 +21,7 @@ def identify_missing_dates(db) -> list[str]:
     max_daily = get_max_date(db, _QUERY_DAILY)
     max_hourly = get_max_date(db, _QUERY_HOURLY)
     if max_daily is None or max_hourly is None:
-        raise ValueError("Tabelas raw.solar_* vazias: sem high-water mark.")
+        raise ValueError(f"Tabelas {SCHEMA}.solar_* vazias: sem high-water mark.")
 
     start_date = min(max_daily, max_hourly)
     logger.info(f"Data inicial encontrada: {start_date}")

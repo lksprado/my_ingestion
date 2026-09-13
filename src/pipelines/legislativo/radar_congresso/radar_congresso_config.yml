@@ -1,3 +1,6 @@
+# Schema destino de todas as tabelas deste arquivo (tabela = entidade)
+db_schema: "raw_radar_congresso"
+
 environments:
   local:
     base_raw: "${LAKE_ROOT}/raw/demodados/radar_congresso"
@@ -12,18 +15,18 @@ sources:
     subpath: "governismo"
     landing_file: "radar_governismo_deputados.json"
     bronze_file: "radar_governismo_deputados.csv"
-    db_table: "raw_radar_governismo_deputados"
+    db_table: "governismo_deputados"
 
   governismo_senadores:
     base_url: "https://radar.congressoemfoco.com.br/api/governismo?casa=senado"
     subpath: "governismo"
     landing_file: "radar_governismo_senadores.json"
     bronze_file: "radar_governismo_senadores.csv"
-    db_table: "raw_radar_governismo_senadores"
+    db_table: "governismo_senadores"
 
   parlamentares:
     base_url: "https://radar.congressoemfoco.com.br/api/busca-parlamentar"
     subpath: "parlamentares"
     landing_file: "radar_parlamentares.json"
     bronze_file: "radar_parlamentares.csv"
-    db_table: "raw_radar_parlamentares"
+    db_table: "parlamentares"

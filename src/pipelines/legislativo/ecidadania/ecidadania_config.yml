@@ -1,3 +1,6 @@
+# Schema destino de todas as tabelas deste arquivo (tabela = entidade)
+db_schema: "raw_ecidadania"
+
 environments:
   local:
     base_raw: "${LAKE_ROOT}/raw/demodados/ecidadania"
@@ -11,16 +14,16 @@ sources:
     base_url: "https://www12.senado.leg.br/ecidadania/principalmateria"
     subpath: "big_numbers"
     bronze_file: "ecidadania_bignumbers_consolidado.csv"
-    db_table: "raw_ecidadania_bignumbers"
+    db_table: "bignumbers"
 
   mais_votados:
     base_url: "https://www12.senado.leg.br/ecidadania/principalmateria"
     subpath: "mais_votados"
     bronze_file: "ecidadania_mais_votados_consolidado.csv"
-    db_table: "raw_ecidadania_mais_votados"
+    db_table: "mais_votados"
 
   paginas:
     base_url: "https://www12.senado.leg.br/ecidadania/principalmateria?p="
     subpath: "paginas"
     bronze_file: "ecidadania_paginas_consolidado.csv"
-    db_table: "raw_ecidadania_paginas"
+    db_table: "paginas"

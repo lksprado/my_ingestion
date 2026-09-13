@@ -34,8 +34,7 @@ if __name__ == "__main__":
     control = staging / "missing_dates.csv"
     staging.mkdir(parents=True, exist_ok=True)
 
-    # raw.solar_* vive no banco do my_datawarehouse (DW_DB_NAME), não no DB_NAME
-    db_con = PostgresClient(db_name=settings.dw_db, log=logger).connect()
+    db_con = PostgresClient(log=logger).connect()
     try:
         identify_and_write_missing_dates(db=db_con, output_filepath=control)
     finally:

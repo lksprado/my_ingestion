@@ -10,7 +10,7 @@ Migrado do repo `openweather` (submódulo `include/openweather` do airflow3).
 ## Fluxo
 
 1. **Identificar lacunas** — `missing_raw.py` lê `MAX(date)` de
-   `raw.openweather_daily` e gera as datas faltantes até ontem (ou até hoje se já
+   `raw_openweather.openweather_daily` e gera as datas faltantes até ontem (ou até hoje se já
    passou das 20h), gravando `missing_dates.csv` no staging.
 2. **Extrair** — `extraction.py` requisita o `day_summary` de cada data e grava
    `day_summary_YYYY-MM-DD.json`.
@@ -37,8 +37,9 @@ Sem datas faltantes, encerra com `No missing dates to process.`
 
 ## Configuração
 
-No `.env` da raiz: `OPENWEATHER_API_KEY=` (era `MY_API` no repo antigo) e
-`DW_DB_NAME=` (banco onde está `raw.openweather_daily`; o `DB_NAME` é o do legislativo).
+No `.env` da raiz: `OPENWEATHER_API_KEY=` (era `MY_API` no repo antigo). O banco
+é o do ambiente (`DB__<ENV>__*`, `analytics_dev` em local); a tabela
+`raw_openweather.openweather_daily` precisa existir lá para o high-water mark.
 Latitude/longitude ficam em `options` no YAML. Saídas em
 `${LAKE_ROOT}/staging/weather_project/`.
 
@@ -46,7 +47,7 @@ Latitude/longitude ficam em `options` no YAML. Saídas em
 
 - **Não há etapa de load.** O orquestrador (Airflow, `dag_weather_etl`) carrega o
   CSV numa tabela staging, faz `INSERT ... ON CONFLICT (date)` em
-  `raw.openweather_daily` e move os JSONs para `bronze/weather_project`.
+  `raw_openweather.openweather_daily` e move os JSONs para `bronze/weather_project`.
 - O token vai na query string; por isso a URL **não** é logada.
 - `day_summary` exige o plano One Call 3.0 (1000 chamadas/dia grátis). Uma lacuna
   longa consome uma chamada por dia faltante.

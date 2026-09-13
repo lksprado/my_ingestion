@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from logging import NullHandler
 from pathlib import Path
 
-from core.db import PostgresClient
+from core.db import PostgresClient, validate_raw_schema
 
 logger = logging.getLogger(__name__)
 logger.addHandler(NullHandler())
@@ -71,19 +71,21 @@ def json_file_to_ndjson_buffer(
 class JsonbLoader:
     """Carrega JSONs brutos em ``schema.table (payload JSONB, source_filename)``.
 
-    ``control_table`` guarda os arquivos já ingeridos por tabela; cargas com
-    ``overwrite=False`` só inserem os que ainda não constam lá.
+    ``schema`` é obrigatório e precisa ser ``raw_<fonte>`` (``validate_raw_schema``).
+    ``<schema>.<control_table>`` guarda os arquivos já ingeridos por tabela; cargas
+    com ``overwrite=False`` só inserem os que ainda não constam lá.
     """
 
     def __init__(
         self,
         db: PostgresClient,
+        *,
+        schema: str,
         control_table: str = "ingestion_control",
-        schema: str = "raw",
         log: logging.Logger | None = None,
     ):
         self.db = db
-        self.schema = schema
+        self.schema = validate_raw_schema(schema)
         self.control_table = control_table
         self.logger = log or logger
 

@@ -1,7 +1,8 @@
 """Orquestrador genérico de pipelines (ex-GenericETL de demodados).
 
 Cada etapa aceita uma função custom; sem ela, cai no comportamento padrão:
-extract via HttpClient, load via PostgresClient (bronze CSV -> raw.<db_table>).
+extract via HttpClient, load via PostgresClient
+(bronze CSV -> <db_schema>.<db_table>, com db_schema = raw_<fonte>).
 """
 
 import logging
@@ -11,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 from core.config import PipelineConfig
-from core.db import PostgresClient
+from core.db import PostgresClient, validate_raw_schema
 from core.http import HttpClient
 
 
@@ -60,13 +61,16 @@ class GenericETL:
 
     # --- LOAD ---
     def generic_loader(self) -> None:
+        # Erro claro se o YAML da fonte esqueceu ``db_schema``.
+        schema = validate_raw_schema(self.cfg.db_schema)
         self.logger.info(
-            f"📤 Carregando {self.cfg.bronze_filepath} -> {self.cfg.db_table}"
+            f"📤 Carregando {self.cfg.bronze_filepath} -> {schema}.{self.cfg.db_table}"
         )
         df = pd.read_csv(self.cfg.bronze_filepath, sep=";", low_memory=False)
-        PostgresClient().send_df_to_db(
+        PostgresClient(log=self.logger).send_df_to_db(
             df=df,
             table_name=self.cfg.db_table,
+            schema=schema,
             filename=self.cfg.bronze_filepath.name,
             how="replace",
         )

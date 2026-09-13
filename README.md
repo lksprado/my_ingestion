@@ -1,7 +1,7 @@
 # my_ingestion
 
 Monorepo de ingestão de dados pessoais: APIs públicas, scraping e planilhas →
-data lake local (CSV/JSON) e Postgres (schema `raw`). Unifica os antigos repos
+data lake local (CSV/JSON) e Postgres (schemas `raw_<fonte>` no banco do ambiente). Unifica os antigos repos
 `demodados` (local_setup), `finance/investments`, `Solar`, `fundos-imobiliarios`,
 `webscraping-inflation`, `webscraping-bookstore`, `nhl-extraction` e `openweather`
 num único ambiente — todos os submódulos de código do `airflow3` vivem aqui.
@@ -101,16 +101,24 @@ precisam ser trocados nos serviços:
 - Convenções de env: `DB_PASSWORD` (não mais `DB_PW`), `APSYSTEMS_USER`/
   `APSYSTEMS_PASSWORD` (não mais `LOGIN`/`PW`), `GOOGLE_CREDENTIALS_FILE`
   (não mais `CREDENTIALS`), `OPENWEATHER_API_KEY` (não mais `MY_API`).
-- `DW_DB_NAME`: a instância Postgres tem **dois bancos** — `DB_NAME` (`demodados`,
-  legislativo) e o do `my_datawarehouse` (`postgres`, alvo do `postgres_dw` no
-  Airflow). NHL, clima e solar usam `settings.dw_db`. Atenção: investimentos e
-  vide hoje carregam no `DB_NAME`, enquanto o Airflow os carrega no `postgres` —
-  pendência a decidir.
+- **Destino no Postgres (2026-09-13)**: um banco por ambiente e um schema por
+  fonte. `ENV` escolhe o perfil `DB__<ENV>__*` do `.env` (`DB__LOCAL__HOST`,
+  `DB__LOCAL__NAME=analytics_dev`...); em `local` o banco tem que ser
+  `analytics_dev` (validado na importação), `airflow` é a produção em outro host.
+  Toda carga vai para `raw_<fonte>.<entidade>` (`raw_camara.deputados`,
+  `raw_b3.acoes`). Os antigos `DB_NAME` (`demodados`) e `DW_DB_NAME` (`postgres`)
+  deixaram de existir; os dados desses bancos **não migram sozinhos** — as cargas
+  são full refresh e recriam as tabelas no `analytics_dev`. Os projetos dbt
+  (`demodadosdw`, `my_datawarehouse`) precisam reapontar `profiles.yml` e os
+  `_sources.yml`.
 - **2026-09-13**: chegaram `esportes/nhl` e `clima/openweather`, os dois últimos
-  submódulos de código do `airflow3`. Nomes de tabela (`raw.nhl_raw_*`,
-  `raw.openweather_daily`) e pastas do lake (`raw/nhl/*`, `staging/weather_project`)
-  foram preservados porque o dbt `my_datawarehouse` e os dados existentes dependem
-  deles. O NHL lê os IDs a requisitar de views do dbt (`staging.vw_stg_request_*`).
+  submódulos de código do `airflow3`. Nomes de **tabela** (`nhl_raw_*`,
+  `openweather_daily`, `solar_*`) e pastas do lake (`raw/nhl/*`,
+  `staging/weather_project`) foram preservados porque o dbt `my_datawarehouse` e os
+  dados existentes dependem deles; só o schema virou `raw_nhl`/`raw_openweather`/
+  `raw_solar`. O NHL lê os IDs a requisitar de views do dbt
+  (`staging.vw_stg_request_*`), que precisam existir no banco do ambiente. As
+  tabelas de solar e openweather são carregadas pelo Airflow, não por este repo.
 - Também em 2026-09-13: o scraper do Atacadão ganhou a paginação (2 páginas) e o
   parsing defensivo que estavam só no working tree do submódulo `inflation`.
 - Dados gerados saíram do repo. Entradas que viviam dentro dos repos antigos

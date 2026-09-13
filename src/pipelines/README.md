@@ -30,7 +30,8 @@ Convenções de nome, na cascata:
 | Pasta | `<fonte>` | `camara/` |
 | Script | `<fonte>_<entidade>.py` | `camara_votos_deputados.py` |
 | Source no YAML | `<entidade>` | `votos_deputados` |
-| Tabela | `raw_<fonte>_<entidade>` | `raw_camara_votos_deputados` |
+| Schema | `raw_<fonte>` (chave `db_schema` no topo do YAML) | `raw_camara` |
+| Tabela | `<entidade>` | `raw_camara.votos_deputados` |
 
 Um script por tabela destino. Resista à tentação de fazer um script que carrega
 cinco tabelas: a granularidade é o que permite reexecutar só o que falhou.
@@ -43,6 +44,8 @@ Ele força as decisões antes do código e é o que mantém o pipeline livre de 
 hardcoded:
 
 ```yaml
+db_schema: "raw_<fonte>"               # schema de todas as tabelas deste arquivo
+
 environments:
   local:
     base_raw: "${LAKE_ROOT}/raw/<fonte>"
@@ -58,7 +61,7 @@ sources:
     base_url: "https://api.exemplo/v1/<entidade>"
     subpath: "<entidade>"              # separa esta entidade dentro do raw/bronze
     bronze_file: "<fonte>_<entidade>.csv"
-    db_table: "raw_<fonte>_<entidade>"
+    db_table: "<entidade>"             # -> raw_<fonte>.<entidade>
 ```
 
 Regras:
@@ -136,7 +139,7 @@ as pessoas copiam.
 |---|---|---|
 | `extract` | Baixa `cfg.url_base` para `cfg.landing_filepath` | Paginação, parametrização por IDs, Selenium, POST/GraphQL — quase sempre |
 | `transform` | **Não tem default** | Sempre. É o que difere uma fonte da outra |
-| `load` | Lê o bronze (`;`) e grava em `raw.<db_table>` | Raro: só se o destino não for uma tabela (CSV, seed do dbt) |
+| `load` | Lê o bronze (`;`) e grava em `<db_schema>.<db_table>` | Raro: só se o destino não for uma tabela (CSV, seed do dbt) |
 
 Passar `load_fn=None` é o caso comum e significa "use o loader padrão" — não
 significa "não carregue".
@@ -203,7 +206,7 @@ e forçar o encaixe piora o código. Precedentes no repositório:
   (high-water mark no Postgres via `core.incremental`), sem carga: o orquestrador
   faz o upsert.
 
-O critério: **use o `GenericETL` quando o fluxo for landing → bronze → `raw.*`.**
+O critério: **use o `GenericETL` quando o fluxo for landing → bronze → `raw_<fonte>.*`.**
 Fora disso, monte o seu, mas continue usando `HttpClient`, `PostgresClient`,
 `core.io` e `setup_logger` — a padronização que importa é a da biblioteca, não a do
 orquestrador.
@@ -218,6 +221,10 @@ orquestrador.
   que criar diretórios errados com valor vazio.
 - Arquivo de credencial (chave de service account, por exemplo) mora **fora do
   repo**, em `~/.secrets/`, e o `.env` guarda só o caminho.
+- Banco: nunca escolha o destino no código. `PostgresClient()` usa o perfil
+  `DB__<ENV>__*` do ambiente ativo (`settings.db_target`); em `local` é sempre
+  `analytics_dev`. O schema vem do YAML (`db_schema: raw_<fonte>`) e toda escrita
+  exige `schema=` explícito — a `core` recusa qualquer coisa sem o prefixo `raw_`.
 
 ---
 
@@ -231,7 +238,7 @@ orquestrador.
 - [ ] `uv run task lint` e `uv run task test` limpos.
 - [ ] O módulo importa isolado:
       `uv run python -c "import pipelines.<domínio>.<fonte>.<script>"`.
-- [ ] Rodou de verdade uma vez e conferiu a tabela em `raw.*`.
+- [ ] Rodou de verdade uma vez e conferiu a tabela em `raw_<fonte>.*` do `analytics_dev`.
 - [ ] Nenhum caminho absoluto e nenhum segredo no diff (o `pre-commit` roda o
       gitleaks, mas confira).
 

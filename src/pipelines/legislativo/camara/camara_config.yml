@@ -1,3 +1,6 @@
+# Schema destino de todas as tabelas deste arquivo (tabela = entidade)
+db_schema: "raw_camara"
+
 environments:
   local:
     base_raw: "${LAKE_ROOT}/raw/demodados/camara"
@@ -15,20 +18,20 @@ sources:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados/"
     subpath: "legislatura"
     bronze_file: "legislaturas_deputados.csv"
-    db_table: "raw_camara_legislaturas"
+    db_table: "legislaturas"
 
   deputados:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados/"
     subpath: "deputados"
     bronze_file: "parlamento_deputados.csv"
-    db_table: "raw_camara_deputados"
+    db_table: "deputados"
     parameter_file: "id_deputados.csv"
 
   votacoes:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes"
     subpath: "votacoes"
     bronze_file: "camara_votacoes.csv"
-    db_table: "raw_camara_votacoes"
+    db_table: "votacoes"
     output_param_file:
       id_votacoes.csv: "id"
       id_proposicao.csv: "id_proposicao"
@@ -37,26 +40,26 @@ sources:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes/"
     subpath: "votos_deputados"
     bronze_file: "camara_votos_deputados.csv"
-    db_table: "raw_camara_votos_deputados"
+    db_table: "votos_deputados"
     parameter_file: "id_votacoes.csv"
 
   votos_orientacao:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes/"
     subpath: "votos_orientacao"
     bronze_file: "camara_votos_orientacao.csv"
-    db_table: "raw_camara_votos_orientacao"
+    db_table: "votos_orientacao"
     parameter_file: "id_votacoes.csv"
 
   proposicao_tema:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/proposicoes/"
     subpath: "proposicao_tema"
     bronze_file: "camara_proposicao_tema.csv"
-    db_table: "raw_camara_proposicao_tema"
+    db_table: "proposicao_tema"
     parameter_file: "id_proposicao.csv"
 
   proposicao:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/proposicoes/"
     subpath: "proposicao"
     bronze_file: "camara_proposicao.csv"
-    db_table: "raw_camara_proposicao"
+    db_table: "proposicao"
     parameter_file: "id_proposicao.csv"

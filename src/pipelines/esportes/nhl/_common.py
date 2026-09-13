@@ -15,17 +15,16 @@ from core import (
     PostgresClient,
     load_source_config,
 )
-from settings import settings
 
 CONFIG_FILE = Path(__file__).parent / "nhl_config.yml"
 # Preservado do repo original: o banco já tem o histórico de ingestão aqui.
 CONTROL_TABLE = "nhl_ingestion_control"
+# Views de parâmetro do dbt (leitura), no mesmo banco do ENV ativo.
 PARAM_SCHEMA = "staging"
 
 
 def _db(logger: logging.Logger) -> PostgresClient:
-    # As tabelas nhl_raw_* e as views vivem no banco do my_datawarehouse.
-    return PostgresClient(db_name=settings.dw_db, log=logger)
+    return PostgresClient(log=logger)
 
 
 def make_config(source: str) -> PipelineConfig:
@@ -106,12 +105,14 @@ def _landing_files(cfg: PipelineConfig) -> list[Path]:
 
 
 def load(cfg: PipelineConfig, logger: logging.Logger) -> None:
-    """Carrega os JSONs do landing em ``raw.<db_table>`` (JSONB)."""
+    """Carrega os JSONs do landing em ``<db_schema>.<db_table>`` (JSONB)."""
     files = _landing_files(cfg)
     if not files:
         logger.warning(f"⚠️ Nenhum arquivo em {cfg.landing_dir}")
         return
-    loader = JsonbLoader(_db(logger), control_table=CONTROL_TABLE, log=logger)
+    loader = JsonbLoader(
+        _db(logger), schema=cfg.db_schema, control_table=CONTROL_TABLE, log=logger
+    )
     loader.load_files(
         files,
         cfg.db_table,

@@ -9,9 +9,9 @@ Configuração em `ecidadania_config.yml`.
 
 | Script | Source (YAML) | Fonte | Tabela destino |
 |---|---|---|---|
-| `ecidadania_big_numbers.py` | `big_numbers` | Totais gerais de apoios e proposições | `raw_ecidadania_bignumbers` |
-| `ecidadania_mais_votados.py` | `mais_votados` | Proposições com mais apoios | `raw_ecidadania_mais_votados` |
-| `ecidadania_paginas.py` | `paginas` | Lista paginada de todas as proposições | `raw_ecidadania_paginas` |
+| `ecidadania_big_numbers.py` | `big_numbers` | Totais gerais de apoios e proposições | `raw_ecidadania.bignumbers` |
+| `ecidadania_mais_votados.py` | `mais_votados` | Proposições com mais apoios | `raw_ecidadania.mais_votados` |
+| `ecidadania_paginas.py` | `paginas` | Lista paginada de todas as proposições | `raw_ecidadania.paginas` |
 
 ## Dependência a jusante
 

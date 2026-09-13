@@ -6,7 +6,7 @@ from core.config import (
     load_source_config,
     load_yaml,
 )
-from core.db import PostgresClient
+from core.db import PostgresClient, validate_raw_schema
 from core.etl import GenericETL
 from core.http import HttpClient
 from core.incremental import missing_dates
@@ -30,5 +30,6 @@ __all__ = [
     "missing_dates",
     "normalize_string",
     "setup_logger",
+    "validate_raw_schema",
     "write_csv",
 ]

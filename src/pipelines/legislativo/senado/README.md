@@ -7,13 +7,13 @@ Configuração em `senado_config.yml`.
 
 | Script | Source (YAML) | Fonte | Tabela destino |
 |---|---|---|---|
-| `senado_legislatura.py` | `legislatura` | Legislaturas e senadores por legislatura | `raw_senado_legislaturas` |
-| `senado_senadores.py` | `senadores` | Perfil dos senadores em exercício | `raw_senado_senadores` |
-| `senado_votacoes.py` | `votacoes` | Votações em plenário | `raw_senado_votacoes` |
-| `senado_votos_senadores.py` | `votos_senadores` | Como cada senador votou | `raw_senado_votos_senadores` |
-| `senado_votos_orientacao.py` | `votos_orientacao` | Orientação de bancada por votação | `raw_senado_votos_orientacao` |
-| `senado_status.py` | `status` | Tramitação das proposições do e-Cidadania | `raw_senado_status` |
-| `senado_processos.py` | `processo` | Detalhe dos processos das votações | `raw_senado_processo` |
+| `senado_legislatura.py` | `legislatura` | Legislaturas e senadores por legislatura | `raw_senado.legislaturas` |
+| `senado_senadores.py` | `senadores` | Perfil dos senadores em exercício | `raw_senado.senadores` |
+| `senado_votacoes.py` | `votacoes` | Votações em plenário | `raw_senado.votacoes` |
+| `senado_votos_senadores.py` | `votos_senadores` | Como cada senador votou | `raw_senado.votos_senadores` |
+| `senado_votos_orientacao.py` | `votos_orientacao` | Orientação de bancada por votação | `raw_senado.votos_orientacao` |
+| `senado_status.py` | `status` | Tramitação das proposições do e-Cidadania | `raw_senado.status` |
+| `senado_processos.py` | `processo` | Detalhe dos processos das votações | `raw_senado.processo` |
 
 ## Dependências entre pipelines
 
@@ -47,4 +47,4 @@ uv run python -m pipelines.legislativo.senado.senado_status          # depois do
 
 - `senado_votacoes` limpa quebras de linha embutidas em colunas de texto antes de
   gravar o CSV, senão o `read_csv` seguinte quebra com `ParserError`.
-- Carga é full refresh (`replace`) na tabela `raw.*`.
+- Carga é full refresh (`replace`) na tabela `raw_senado.*`.
