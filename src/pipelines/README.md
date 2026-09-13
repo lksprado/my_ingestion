@@ -19,7 +19,7 @@ pipelines/<domínio>/<fonte>/
 ```
 
 O **domínio** é o assunto, não a origem técnica: `legislativo`, `financas`,
-`precos`, `energia`, `livros`. Se a fonte nova não cabe em nenhum, crie um domínio
+`precos`, `energia`, `clima`, `esportes`, `livros`. Se a fonte nova não cabe em nenhum, crie um domínio
 novo — é uma pasta com `__init__.py`. A **fonte** é o sistema de origem (`camara`,
 `atacadao`, `vide_editorial`), não a entidade.
 
@@ -68,6 +68,11 @@ Regras:
   máquina e no orquestrador. O ativo vem de `ENV` no `.env`.
 - `subpath` evita que entidades da mesma fonte se misturem no mesmo diretório.
 - `landing_file` e `bronze_file` aceitam `{date}`, substituído pela data de hoje.
+  É o **único** placeholder que a core resolve; outros (`{game_id}`, `{day}`) são
+  preservados para o script resolver com `cfg.landing_file.format(...)`.
+- Chaves que só a sua fonte entende (`array_key`, `overwrite`, `lat`/`lon`...) vão
+  num bloco `options:` e chegam em `cfg.options` como dict. Documente-as no
+  cabeçalho do YAML.
 
 ---
 
@@ -190,6 +195,13 @@ e forçar o encaixe piora o código. Precedentes no repositório:
   consolidação idempotente e relatório HTML. Fluxo mensal, não ETL linear.
 - **`financas/investimentos`** — quatro fontes heterogêneas (Excel, PDF, Sheets, DW)
   com um orquestrador `run_all.py` que isola falhas por fonte.
+- **`esportes/nhl`** — não há transform: o JSON bruto vai para uma tabela JSONB via
+  `core.jsonb.JsonbLoader`, e os IDs a requisitar vêm de **views do dbt**, não de
+  `parameter_file`. Um `_common.py` na pasta concentra a lógica; os nove scripts
+  são de duas linhas.
+- **`energia/solar` e `clima/openweather`** — extração incremental **por data**
+  (high-water mark no Postgres via `core.incremental`), sem carga: o orquestrador
+  faz o upsert.
 
 O critério: **use o `GenericETL` quando o fluxo for landing → bronze → `raw.*`.**
 Fora disso, monte o seu, mas continue usando `HttpClient`, `PostgresClient`,
