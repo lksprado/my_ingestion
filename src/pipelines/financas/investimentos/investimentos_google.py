@@ -14,6 +14,7 @@ import gspread as gp
 import pandas as pd
 
 from core import GenericETL, PipelineConfig, normalize_string, run_cli, write_csv
+from pipelines.financas.investimentos._common import reset_bronze
 from settings import settings
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,7 @@ def sheet_to_df(values: list[list], header_row: int) -> pd.DataFrame:
 
 
 def transform(cfg: PipelineConfig) -> None:
+    reset_bronze(cfg)
     for wb in _workbooks(cfg):
         for sheet in wb["sheets"]:
             path = cfg.landing_dir / cfg.landing_file.format(

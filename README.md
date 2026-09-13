@@ -110,8 +110,7 @@ precisam ser trocados nos serviços:
   `vide_editorial_livros_em_destaque`, `investimentos_b3|avenue|google|fgc`).
   Mudanças que afetam o Airflow: `missing_raw.identify_missing_dates` removido
   (use `core.missing_dates_from_db` ou `--steps`), módulos renomeados, NHL
-  `--load-only` → `--steps load`. Limpeza única: apagar
-  `bronze/investments/b3/consolidado_*.csv` e `bronze/investments/google/google_*.csv`.
+  `--load-only` → `--steps load`.
   `.env`: `URL_FINANCE_<CHAVE>` virou `URL_FINANCE__<CHAVE>`.
 
 - Convenções de env: `DB_PASSWORD` (não mais `DB_PW`), `APSYSTEMS_USER`/

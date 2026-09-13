@@ -18,6 +18,7 @@ from core import (
     run_cli,
     write_csv,
 )
+from pipelines.financas.investimentos._common import reset_bronze
 
 logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "investimentos_config.yml"
@@ -35,6 +36,7 @@ def _read_sheet(file: Path, sheet: str) -> pd.DataFrame:
 
 def transform(cfg: PipelineConfig) -> None:
     """Explode as abas de todas as planilhas e grava um CSV por aba no bronze."""
+    reset_bronze(cfg)
     files = [
         f for f in list_files(cfg.landing_dir) if f.suffix.lower() in (".xlsx", ".xls")
     ]

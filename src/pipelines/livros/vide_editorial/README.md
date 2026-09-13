@@ -20,8 +20,8 @@ uv run python -m pipelines.livros.vide_editorial.vide_editorial_livros_em_destaq
 uv run python -m pipelines.livros.vide_editorial.vide_editorial_categorias      # extract-only
 ```
 
-Saída dos arquivos: `raw/vide/vide_livros_em_destaque_{data}.json` para a home e
-`raw/vide/categorias/{categoria}_page_{n}_{data}.json` para as categorias. O bronze
+Saída dos arquivos: `raw/vide/destaques/vide_livros_em_destaque_{data}.json` para a
+home e `raw/vide/paginas/{categoria}_page_{n}_{data}.json` para as categorias. O bronze
 da home concatena **todos** os JSONs do landing (`options.file_pattern`) com a
 coluna `source_filename`; a carga é full refresh.
 

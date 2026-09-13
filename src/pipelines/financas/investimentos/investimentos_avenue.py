@@ -13,6 +13,7 @@ from pathlib import Path
 import pandas as pd
 
 from core import GenericETL, PipelineConfig, list_files, run_cli, write_csv
+from pipelines.financas.investimentos._common import reset_bronze
 
 logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "investimentos_config.yml"
@@ -385,6 +386,7 @@ def _validate(fname: str, validation: dict, rows: list[dict]) -> int:
 
 
 def transform(cfg: PipelineConfig) -> None:
+    reset_bronze(cfg)
     files = _pdfs(cfg.landing_dir)
     logger.info(f"Avenue: {len(files)} PDF(s) em {cfg.landing_dir}")
 

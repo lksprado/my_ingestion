@@ -1,5 +1,5 @@
 # Fonte: scraping da Vide Editorial (HTML -> lista de produtos em JSON no landing).
-# O diretório raw/vide preserva o histórico de JSONs do repo antigo.
+# Os subpaths raw/vide/destaques e raw/vide/paginas preservam o histórico de JSONs.
 db_schema: "raw_vide_editorial"
 
 environments:
@@ -13,6 +13,7 @@ environments:
 sources:
   livros_em_destaque:
     base_url: "https://videeditorial.com.br/"
+    subpath: "destaques"
     landing_file: "vide_livros_em_destaque_{date}.json"
     bronze_file: "vide_livros_em_destaque.csv"
     db_table: "livros_em_destaque"
@@ -22,7 +23,7 @@ sources:
   # Páginas de categoria: extract-only (load: none), sem consumidor no momento.
   categorias:
     base_url: "https://videeditorial.com.br/"
-    subpath: "categorias"
+    subpath: "paginas"
     landing_file: "{name}_page_{page}_{date}.json"
     load: none
     options:

@@ -13,17 +13,28 @@ Tudo que um pipeline usa é reexportado no pacote:
 
 ```python
 from core import (
-    GenericETL, run_cli, run_many,                      # etl.py
-    PipelineConfig, load_yaml,                          # config.py
-    HttpClient,                                         # http.py
-    PostgresClient, validate_raw_schema,                # db.py
-    JsonbLoader,                                        # jsonb.py
-    write_bronze, write_bronze_streaming,               # io.py
-    list_files, concat_files_to_df, write_csv,          # io.py
-    missing_dates, missing_dates_from_db,               # incremental.py (por data)
-    pending_ids, mark_no_data,                          # incremental.py (por ID)
-    sanitize_columns, sanitize_values, normalize_string,  # text.py
-    setup_logger,                                       # logging.py
+    GenericETL,
+    run_cli,
+    run_many,  # etl.py
+    PipelineConfig,
+    load_yaml,  # config.py
+    HttpClient,  # http.py
+    PostgresClient,
+    validate_raw_schema,  # db.py
+    JsonbLoader,  # jsonb.py
+    write_bronze,
+    write_bronze_streaming,  # io.py
+    list_files,
+    concat_files_to_df,
+    write_csv,  # io.py
+    missing_dates,
+    missing_dates_from_db,  # incremental.py (por data)
+    pending_ids,
+    mark_no_data,  # incremental.py (por ID)
+    sanitize_columns,
+    sanitize_values,
+    normalize_string,  # text.py
+    setup_logger,  # logging.py
 )
 ```
 
@@ -53,8 +64,8 @@ logger = logging.getLogger(__name__)
 _CONFIG_FILE = Path(__file__).parent / "camara_config.yml"
 
 
-def extract(cfg: PipelineConfig) -> None: ...      # arquivos em cfg.landing_dir
-def transform(cfg: PipelineConfig) -> None:        # termina em write_bronze
+def extract(cfg: PipelineConfig) -> None: ...  # arquivos em cfg.landing_dir
+def transform(cfg: PipelineConfig) -> None:  # termina em write_bronze
     write_bronze(cfg, df)
 
 

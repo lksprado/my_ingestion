@@ -53,9 +53,8 @@ ${LAKE_ROOT}/raw/investments/instituicoes/instituicoes_conglomerado_prudencial.c
 
 O bronze é gravado em `${LAKE_ROOT}/bronze/investments/<fonte>/<tabela>.csv` (`;`).
 
-⚠️ **Limpeza única após a padronização:** apague os arquivos antigos
-`bronze/investments/b3/consolidado_*.csv` e `bronze/investments/google/google_*.csv`
-— com `load: files` eles virariam tabelas `consolidado_*`/`google_*`.
+O transform **apaga os CSVs do bronze antes de regravar** (`_common.reset_bronze`):
+com `load: files` qualquer arquivo que sobrasse viraria uma tabela fantasma.
 
 ## Detalhes por fonte
 
