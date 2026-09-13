@@ -1,0 +1,120 @@
+# Fonte: APIs públicas da NHL (api-web.nhle.com e api.nhle.com/stats).
+# Subpaths, nomes de arquivo e tabelas preservam os do repo nhl-extraction:
+# o lake já tem os JSONs nesses diretórios e o dbt my_datawarehouse referencia
+# as tabelas nhl_raw_* em _sources.yml.
+#
+# Não há bronze: os JSONs vão direto para tabelas JSONB (payload, source_filename).
+# ``options`` é lido por _common.py:
+#   array_key      - chave do JSON que contém a lista de registros (estáticos)
+#   overwrite      - true: TRUNCATE + recarga total; false: só arquivos novos
+#   file_pattern   - glob dos arquivos a carregar no landing_dir (dinâmicos)
+#   param_view     - view dbt (schema staging) com os IDs a requisitar
+#   param_columns  - colunas da view que preenchem os placeholders da URL
+#   param_filter   - coluna booleana: só linhas com ela FALSE (ainda não sincronizadas)
+#   season_subdir  - grava/lê em subpasta <season_id>/ (carrega só a mais recente)
+#   workers        - threads de extração (1 = sequencial)
+
+environments:
+  local:
+    base_raw: "${LAKE_ROOT}/raw/nhl"
+  airflow:
+    base_raw: "/usr/local/airflow/mylake/raw/nhl"
+
+sources:
+  # ---------- estáticos: 1 request, full refresh ----------
+  seasons:
+    base_url: "https://api-web.nhle.com/v1/season"
+    subpath: "single"
+    landing_file: "all_season_ids.json"
+    db_table: "nhl_raw_all_seasons_id"
+    options:
+      overwrite: true
+
+  teams:
+    base_url: "https://api.nhle.com/stats/rest/en/team"
+    subpath: "single"
+    landing_file: "all_teams_ids.json"
+    db_table: "nhl_raw_all_teams_id"
+    options:
+      overwrite: true
+      array_key: "data"
+
+  games_summary:
+    base_url: "https://api.nhle.com/stats/rest/en/game"
+    subpath: "single"
+    landing_file: "all_games_summary.json"
+    db_table: "nhl_raw_all_games_summary"
+    options:
+      overwrite: true
+      array_key: "data"
+
+  # ---------- dinâmicos: IDs vindos das views dbt ----------
+  games_details:              # boxscore: detalhes do jogo com jogadores
+    base_url: "https://api-web.nhle.com/v1/gamecenter/{game_id}/boxscore"
+    subpath: "raw_all_games_details"
+    landing_file: "raw_{game_id}_details.json"
+    db_table: "nhl_raw_all_games_details"
+    options:
+      overwrite: false
+      file_pattern: "raw_*_details.json"
+      param_view: "vw_stg_request_games_id"
+      param_columns: [game_id]
+      param_filter: "has_games_details"
+
+  games_summary_details:      # right-rail: estatísticas do jogo
+    base_url: "https://api-web.nhle.com/v1/gamecenter/{game_id}/right-rail"
+    subpath: "raw_all_games_summary_details"
+    landing_file: "raw_{game_id}_summary_details.json"
+    db_table: "nhl_raw_all_games_summary_details"
+    options:
+      overwrite: false
+      file_pattern: "raw_*_summary_details.json"
+      param_view: "vw_stg_request_games_id"
+      param_columns: [game_id]
+      param_filter: "has_games_summary_details"
+
+  play_by_play:               # todos os eventos de um jogo
+    base_url: "https://api-web.nhle.com/v1/gamecenter/{game_id}/play-by-play"
+    subpath: "raw_play_by_play"
+    landing_file: "raw_{game_id}.json"
+    db_table: "nhl_raw_all_play_by_play"
+    options:
+      overwrite: false
+      file_pattern: "raw_*.json"
+      param_view: "vw_stg_request_games_id"
+      param_columns: [game_id]
+      param_filter: "has_play_by_play"
+
+  club_stats:                 # estatísticas dos jogadores por time/temporada/tipo
+    base_url: "https://api-web.nhle.com/v1/club-stats/{team_id}/{season_id}/{game_type_id}"
+    subpath: "raw_club_stats"
+    landing_file: "raw_stats_club_{team_id}_{season_id}_{game_type_id}.json"
+    db_table: "nhl_raw_all_club_stats"
+    options:
+      overwrite: true
+      file_pattern: "raw_stats_club_*_*_*.json"
+      param_view: "vw_stg_request_teams_seasons_gametypes_id"
+      param_columns: [team_id, season_id, game_type_id]
+
+  players:                    # ficha do jogador
+    base_url: "https://api-web.nhle.com/v1/player/{player_id}/landing"
+    subpath: "raw_player_info"
+    landing_file: "player_{player_id}_info.json"
+    db_table: "nhl_raw_all_players"
+    options:
+      overwrite: true
+      file_pattern: "player_*_info.json"
+      param_view: "vw_stg_request_players_id"
+      param_columns: [player_id]
+
+  player_game_log:            # jogo a jogo do jogador na temporada
+    base_url: "https://api-web.nhle.com/v1/player/{player_id}/game-log/{season_id}/{game_type_id}"
+    subpath: "raw_game_log"
+    landing_file: "{player_id}_{season_id}_{game_type_id}.json"
+    db_table: "nhl_raw_all_player_game_log"
+    options:
+      overwrite: true
+      file_pattern: "*_*_*.json"
+      season_subdir: true
+      param_view: "vw_stg_request_players_seasons_gametypes_id"
+      param_columns: [player_id, season_id, game_type_id]
