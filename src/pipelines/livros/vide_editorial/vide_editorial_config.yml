@@ -1,6 +1,6 @@
 # Fonte: scraping da Vide Editorial (HTML -> lista de produtos em JSON no landing).
 # Os subpaths raw/vide/destaques e raw/vide/paginas preservam o histórico de JSONs.
-# Schema e tabela (raw_vide_editora.vide_raw_home_featured) preservam os que o the_dw lê.
+# Schema e tabela (raw_vide_editora.vide_raw_home_featured) preservam os que o my_analytics lê.
 db_schema: "raw_vide_editora"
 
 environments:

@@ -27,7 +27,7 @@ uv run python -m pipelines.legislativo._params.dbt_seed_maker raw_senado_tipos_e
 
 ⚠️ O destino é um **caminho absoluto hardcoded** apontando para o repo
 `demodadosdw` (`/home/lucas/workspace/demodados/demodadosdw/seeds/`). Não usa
-`SEEDS_ROOT`, porque essa variável aponta para outro data warehouse (`the_dw`).
+`SEEDS_ROOT`, porque essa variável aponta para outro data warehouse (`my_analytics`).
 Se o repo dbt mudar de lugar, edite `SEEDS_DIR`.
 
 Grava com `sep=","` e `index=False` — o dbt exige esse formato para seeds.

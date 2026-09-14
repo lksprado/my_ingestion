@@ -1,5 +1,5 @@
 # Schema destino de todas as tabelas deste arquivo. Os nomes de tabela (db_table)
-# preservam os que o the_dw lê em _sources.yml; não renomeie.
+# preservam os que o my_analytics lê em _sources.yml; não renomeie.
 # Sources por ID: base_url e landing_file usam o placeholder {id}; o CSV de
 # parâmetros vem de parameter_file (coluna options.parameter_column, default id)
 # e os IDs sem resposta ficam em options.no_data_file (ver legislativo/_common.py).

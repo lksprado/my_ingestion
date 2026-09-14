@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # dev = execução local; prod = Airflow
     env: Literal["dev", "prod"] = "dev"
 
-    # Data lake local e seeds do dbt (repo externo the_dw)
+    # Data lake local e seeds do dbt (repo externo my_analytics)
     lake_root: Path
     seeds_root: Path
 

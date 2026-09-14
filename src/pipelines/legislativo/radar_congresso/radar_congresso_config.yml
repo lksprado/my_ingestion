@@ -1,5 +1,5 @@
 # Schema destino de todas as tabelas deste arquivo. Os nomes de tabela (db_table)
-# preservam os que o the_dw lê em _sources.yml; não renomeie.
+# preservam os que o my_analytics lê em _sources.yml; não renomeie.
 db_schema: "raw_radar_congresso"
 
 environments:

@@ -1,6 +1,6 @@
 # Fonte: APIs públicas da NHL (api-web.nhle.com e api.nhle.com/stats).
 # Subpaths, nomes de arquivo e nomes de TABELA preservam os do repo nhl-extraction:
-# o lake já tem os JSONs nesses diretórios e o dbt my_datawarehouse referencia
+# o lake já tem os JSONs nesses diretórios e o dbt my_analytics referencia
 # as tabelas nhl_raw_* em _sources.yml. Só o schema segue o padrão raw_<fonte>
 # (raw_nhl); o prefixo redundante nos nomes das tabelas fica por compatibilidade.
 #

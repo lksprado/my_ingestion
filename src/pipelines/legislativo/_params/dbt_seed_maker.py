@@ -1,7 +1,7 @@
 """Tabelas de domínio do Senado como seeds do dbt (demodadosdw).
 
 Exceção consciente: grava em caminho absoluto porque o destino é o repo do dbt
-legislativo, que não é o ``SEEDS_ROOT`` (esse aponta para the_dw).
+legislativo, que não é o ``SEEDS_ROOT`` (esse aponta para my_analytics).
 """
 
 import logging

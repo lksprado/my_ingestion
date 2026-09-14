@@ -1,5 +1,5 @@
 # Schema destino de todas as tabelas deste arquivo. Os nomes de tabela (db_table)
-# preservam os que o the_dw lê em _sources.yml; não renomeie.
+# preservam os que o my_analytics lê em _sources.yml; não renomeie.
 # Sources por ID: base_url e landing_file usam o placeholder {id} (ver
 # legislativo/_common.py). ``status`` consome como parâmetro o BRONZE do
 # e-Cidadania (ecidadania_paginas_consolidado.csv), que precisa ser copiado para

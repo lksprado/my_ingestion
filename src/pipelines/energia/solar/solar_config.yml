@@ -2,7 +2,7 @@
 # Landing e bronze ficam no mesmo staging: um JSON por dia + daily_energy.csv e
 # hourly_energy.csv com "," — o Airflow lê os CSVs e faz o upsert em
 # raw_apsystem.solar_daily_energy / solar_hourly_energy (por isso load: none).
-# Schema raw_apsystem preservado: é o que o the_dw lê.
+# Schema raw_apsystem preservado: é o que o my_analytics lê.
 # ``{day}`` em landing_file é resolvido pelo pipeline (data requisitada).
 #
 # Ordem: solar_daily_energy (extract + transform) e depois solar_hourly_energy

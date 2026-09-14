@@ -3,7 +3,7 @@
 Extrai estatísticas de hóquei das APIs públicas da NHL (`api-web.nhle.com` e
 `api.nhle.com/stats`) e carrega os JSONs **sem transformação** em tabelas JSONB
 (`payload`, `source_filename`) no schema `raw_nhl` (`load: jsonb` no YAML). A
-normalização acontece no dbt [`my_datawarehouse`](https://github.com/lksprado/my_datawarehouse)
+normalização acontece no dbt [`my_analytics`](https://github.com/lksprado/my_analytics)
 (seletor `nhl`).
 
 Migrado do repo `nhl-extraction` (submódulo `include/nhl_extraction` do airflow3).
@@ -45,7 +45,7 @@ Logo a sequência é a do `dag_nhl_master` do airflow3:
 
 ```bash
 uv run python -m pipelines.esportes.nhl.nhl_etl games_summary   # 1) base dos IDs
-dbt build --selector nhl          # 2) no my_datawarehouse: (re)constrói as views
+dbt build --selector nhl          # 2) no my_analytics: (re)constrói as views
 uv run python -m pipelines.esportes.nhl.nhl_etl \
     games_summary_details games_details play_by_play club_stats player_game_log players   # 3) os seis dinâmicos
 dbt build --selector nhl          # 4) staging/intermediate/marts com os dados novos
@@ -67,7 +67,7 @@ gentil com a API).
 
 Credenciais: só o Postgres do `.env` da raiz (perfil `DB__<ENV>__*`). As tabelas
 `raw_nhl.nhl_raw_*` e as views `staging.vw_stg_request_*` ficam no banco do
-ambiente (`analytics_dev` em dev); o dbt `my_datawarehouse` precisa rodar contra
+ambiente (`analytics_dev` em dev); o dbt `my_analytics` precisa rodar contra
 ele antes dos pipelines dinâmicos. A API não exige token.
 
 ## Idempotência
@@ -79,7 +79,7 @@ os com `overwrite: true` truncam a tabela e limpam o controle antes de recarrega
 
 ## Armadilhas
 
-- **As views precisam existir.** O `my_datawarehouse` está com `staging.nhl`
+- **As views precisam existir.** O `my_analytics` está com `staging.nhl`
   `+enabled: false` no `dbt_project.yml`; sem habilitar e construir o seletor `nhl`,
   os dinâmicos falham no `fetch_params`.
 - `all_games_summary.json` tem ~33 MB e é serializado em memória antes do COPY.

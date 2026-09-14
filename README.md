@@ -49,7 +49,7 @@ Cada pasta de fonte tem ainda seu próprio README com tabelas, dependências e
 armadilhas específicas.
 
 A transformação (dbt) vive **fora** deste monorepo, em repositórios próprios:
-`~/workspace/demodados/demodadosdw` (dados legislativos) e `~/workspace/the_dw`
+`~/workspace/demodados/demodadosdw` (dados legislativos) e `~/workspace/my_analytics`
 (finanças e inflação, alvo do `SEEDS_ROOT`).
 
 ## Setup
@@ -124,12 +124,12 @@ precisam ser trocados nos serviços:
   `raw_b3.acoes`). Os antigos `DB_NAME` (`demodados`) e `DW_DB_NAME` (`postgres`)
   deixaram de existir; os dados desses bancos **não migram sozinhos** — as cargas
   são full refresh e recriam as tabelas no `analytics_dev`. Os projetos dbt
-  (`demodadosdw`, `my_datawarehouse`) precisam reapontar `profiles.yml` e os
+  (`demodadosdw`, `my_analytics`) precisam reapontar `profiles.yml` e os
   `_sources.yml`.
 - **2026-09-13**: chegaram `esportes/nhl` e `clima/openweather`, os dois últimos
   submódulos de código do `airflow3`. Nomes de **tabela** (`nhl_raw_*`,
   `openweather_daily`, `solar_*`) e pastas do lake (`raw/nhl/*`,
-  `staging/weather_project`) foram preservados porque o dbt `my_datawarehouse` e os
+  `staging/weather_project`) foram preservados porque o dbt `my_analytics` e os
   dados existentes dependem deles; só o schema virou `raw_nhl`/`raw_openweather`/
   `raw_solar`. O NHL lê os IDs a requisitar de views do dbt
   (`staging.vw_stg_request_*`), que precisam existir no banco do ambiente. As

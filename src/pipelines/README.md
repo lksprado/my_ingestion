@@ -34,7 +34,7 @@ Convenções de nome, na cascata:
 | Schema | `raw_<fonte>` (chave `db_schema` no topo do YAML) | `raw_camara` |
 | Tabela | `<entidade>` | `raw_camara.votos_deputados` |
 
-Schema e tabela são o padrão para fonte **nova**. Se o `the_dw` já lê uma tabela
+Schema e tabela são o padrão para fonte **nova**. Se o `my_analytics` já lê uma tabela
 equivalente (ver `models/staging/_sources.yml`), aponte `db_schema`/`db_table` para ela
 (ex.: `raw_camara.raw_camara_votos_deputados`) em vez de criar outra e mudar o source do dbt.
 

@@ -1,4 +1,4 @@
-"""Consolida os CSVs mensais de inflação num seed do dbt (repo the_dw).
+"""Consolida os CSVs mensais de inflação num seed do dbt (repo my_analytics).
 
 Entrada: ``${LAKE_ROOT}/bronze/inflation/months`` — saída: ``${SEEDS_ROOT}``.
 """

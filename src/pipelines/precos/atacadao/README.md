@@ -36,11 +36,11 @@ uv run python -m pipelines.precos.atacadao.historic   # consolida para o seed do
 O `historic.py` concatena os CSVs mensais de
 `${LAKE_ROOT}/bronze/inflation/months/` e grava `minha_inflacao.csv` em
 `${SEEDS_ROOT}` — ou seja, entrega direto como seed do data warehouse
-[`the_dw`](https://github.com/lksprado/the_dw), onde a modelagem acontece.
+[`my_analytics`](https://github.com/lksprado/my_analytics), onde a modelagem acontece.
 
 ## Notas
 
-- Não há carga em banco aqui: a saída é CSV, e o dbt do `the_dw` assume daí. Por
+- Não há carga em banco aqui: a saída é CSV, e o dbt do `my_analytics` assume daí. Por
   isso é exceção consciente ao `GenericETL` (usa `HttpClient`, `load_yaml`,
   `concat_files_to_df`, `write_csv` e `setup_logger` da `core`).
 - ⚠️ Nada neste repo produz `bronze/inflation/months/` (entrada do `historic.py`),
