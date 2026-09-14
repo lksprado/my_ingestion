@@ -104,7 +104,10 @@ def extract(cfg: PipelineConfig) -> None:
         logger.info("Nenhuma data faltando.")
         return
 
-    driver = setup_driver(headless=bool(opts.get("headless", True)))
+    driver = setup_driver(
+        headless=bool(opts.get("headless", True)),
+        remote_url=settings.selenium_remote_url,
+    )
     try:
         login(
             driver,

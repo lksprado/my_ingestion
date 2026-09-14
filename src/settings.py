@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     # Pipeline clima/openweather — chave da API One Call 3.0
     openweather_api_key: str | None = None
 
+    # Selenium remoto (container selenium/standalone-chrome). Sem valor, os
+    # pipelines com navegador (solar, fundos_imobiliarios) abrem Chrome local.
+    selenium_remote_url: str | None = None
+
     @property
     def db_target(self) -> DbTarget:
         """Perfil de conexão do ambiente ativo."""

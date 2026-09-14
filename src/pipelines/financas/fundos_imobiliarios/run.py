@@ -61,7 +61,12 @@ def investidor_10_details(tickers: list, year: str, month: str) -> tuple[int, in
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
-    driver = webdriver.Chrome(options=options)
+    if settings.selenium_remote_url:
+        driver = webdriver.Remote(
+            command_executor=settings.selenium_remote_url, options=options
+        )
+    else:
+        driver = webdriver.Chrome(options=options)
 
     success, failed = 0, 0
     try:
