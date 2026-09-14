@@ -72,7 +72,16 @@ def navigate_to_report(driver: webdriver.Chrome) -> None:
     for element_id in ("report_head", "systemDataCustomer", "ecuData"):
         el = wait.until(ec.presence_of_element_located((By.ID, element_id)))
         driver.execute_script("arguments[0].click();", el)
-    wait.until(ec.frame_to_be_available_and_switch_to_it((By.ID, "configuration_body")))
+    # O portal passou a abrir a aba ECU Data num iframe próprio (tab_iframe_<n>,
+    # identificado pelo src); o configuration_body ficou só no layout antigo.
+    wait.until(
+        ec.frame_to_be_available_and_switch_to_it(
+            (
+                By.CSS_SELECTOR,
+                "iframe[src*='intoSysAndECULevel'], iframe#configuration_body",
+            )
+        )
+    )
     Select(
         wait.until(ec.presence_of_element_located((By.ID, "chart")))
     ).select_by_value("2")
