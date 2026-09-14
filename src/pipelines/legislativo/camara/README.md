@@ -7,13 +7,13 @@ ETL em `camara_etl.py` (todas as entidades); configuração em `camara_config.ym
 
 | Entidade | Fonte | Tabela destino |
 |---|---|---|
-| `legislaturas` | Deputados da legislatura atual | `raw_camara.legislaturas` |
-| `deputados` | Perfil de cada deputado | `raw_camara.deputados` |
-| `votacoes` | Votações em plenário (trimestre corrente) | `raw_camara.votacoes` |
-| `votos_deputados` | Como cada deputado votou | `raw_camara.votos_deputados` |
-| `votos_orientacao` | Orientação de bancada por votação | `raw_camara.votos_orientacao` |
-| `proposicao_tema` | Temas de cada proposição | `raw_camara.proposicao_tema` |
-| `proposicao` | Detalhe das proposições votadas | `raw_camara.proposicao` |
+| `legislaturas` | Deputados da legislatura atual | `raw_camara.raw_camara_legislaturas` |
+| `deputados` | Perfil de cada deputado | `raw_camara.raw_camara_deputados` |
+| `votacoes` | Votações em plenário (trimestre corrente) | `raw_camara.raw_camara_votacoes` |
+| `votos_deputados` | Como cada deputado votou | `raw_camara.raw_camara_votos_deputados` |
+| `votos_orientacao` | Orientação de bancada por votação | `raw_camara.raw_camara_raw_camara_votacoes_orientacao` |
+| `proposicao_tema` | Temas de cada proposição | `raw_camara.raw_camara_proposicao_tema` |
+| `proposicao` | Detalhe das proposições votadas | `raw_camara.raw_camara_proposicao` |
 
 ## Dependências entre pipelines
 

@@ -2,7 +2,7 @@
 
 Ingestão das posições de investimento pessoais a partir de quatro fontes de formatos
 bem diferentes (Excel, PDF, Google Sheets e o próprio DW), landando CSVs nos schemas
-`raw_b3`, `raw_avenue` e `raw_google` do Postgres. Aqui é **só ingestão**: a
+`raw_b3`, `raw_avenue` e `raw_google_sheets` do Postgres. Aqui é **só ingestão**: a
 categorização e a análise vivem no dbt. Configuração em `investimentos_config.yml`
 (`load: files`: cada CSV do bronze vira a tabela de mesmo nome).
 
@@ -20,7 +20,7 @@ idempotência vem de recarregar tudo, o que também tolera mudança de schema na
 |---|---|---|---|---|
 | `investimentos_b3.py` | `b3` | B3 | Excel mensal (uma aba por classe de ativo), já no landing | `raw_b3.<aba>` |
 | `investimentos_avenue.py` | `avenue` | Avenue | PDF de Account Statement, já no landing | `raw_avenue.assets`, `raw_avenue.dividends_interest` |
-| `investimentos_google.py` | `google` | Google Sheets | Abas declaradas em `options.sheets` | `raw_google.<aba>` (e `raw_google.<aba>_<workbook>` nas secundárias) |
+| `investimentos_google.py` | `google` | Google Sheets | Abas declaradas em `options.sheets` | `raw_google_sheets.<aba>` (e `raw_google_sheets.<aba>_<workbook>` nas secundárias) |
 | `investimentos_fgc.py` | `fgc` | DW + CSV do Bacen | `intermediate.int_renda_fixa` | `de_para_instituicoes_fgc.csv` (seed do dbt) — **exceção**, sem GenericETL |
 
 ## Como executar
@@ -77,8 +77,8 @@ acima de US$ 0,05 — vale olhar esses warnings antes de confiar na carga.
 landing; o transform aplica `header_row` (índice 0-based da linha de cabeçalho),
 normaliza o cabeçalho e grava o bronze. Adicionar uma aba é uma linha em
 `options.sheets`. O **primeiro** workbook é o primário e mantém nomes "limpos"
-(`raw_google.patrimonio`); os demais recebem o sufixo da chave
-(`raw_google.patrimonio_deusa`).
+(`raw_google_sheets.patrimonio`); os demais recebem o sufixo da chave
+(`raw_google_sheets.patrimonio_deusa`).
 
 **FGC** — lê os emissores distintos de `intermediate.int_renda_fixa` (só produtos
 cobertos pelo FGC: CDB/LCA/LCI/LC) via `PostgresClient.read_sql`, faz fuzzy match

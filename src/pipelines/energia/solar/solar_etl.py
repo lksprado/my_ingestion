@@ -1,4 +1,5 @@
-"""ETL da energia solar (portal APsystems) -> CSVs que o Airflow carrega em raw_solar.
+"""ETL da energia solar (portal APsystems) -> CSVs que o Airflow carrega em
+raw_apsystem (schema preservado do the_dw).
 
 extract: high-water mark no Postgres -> datas faltantes -> login Selenium -> um
 JSON horário por dia no landing. ``daily_energy`` e ``hourly_energy`` leem o mesmo

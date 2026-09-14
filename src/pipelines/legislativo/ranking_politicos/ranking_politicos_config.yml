@@ -1,4 +1,5 @@
-# Schema destino de todas as tabelas deste arquivo (tabela = entidade).
+# Schema destino de todas as tabelas deste arquivo. Os nomes de tabela (db_table)
+# preservam os que o the_dw lê em _sources.yml; não renomeie.
 # landing_file usa {year}: um JSON por ano, todos concatenados no bronze.
 db_schema: "raw_ranking_politicos"
 
@@ -16,10 +17,10 @@ sources:
     subpath: "deputados"
     landing_file: "ranking_deputados_{year}.json"
     bronze_file: "ranking_deputados.csv"
-    db_table: "deputados"
+    db_table: "raw_ranking_deputados"
   senadores:
     base_url: "https://ranking.org.br/api/filter-items-ranking?page=1&per_page=1000000&current_tab=0&cargo_id=2&ordem=desc&ordenar_por=pontuacao"
     subpath: "senadores"
     landing_file: "ranking_senadores_{year}.json"
     bronze_file: "ranking_senadores.csv"
-    db_table: "senadores"
+    db_table: "raw_ranking_senadores"

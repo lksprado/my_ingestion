@@ -1,6 +1,7 @@
 # Fonte: scraping da Vide Editorial (HTML -> lista de produtos em JSON no landing).
 # Os subpaths raw/vide/destaques e raw/vide/paginas preservam o histórico de JSONs.
-db_schema: "raw_vide_editorial"
+# Schema e tabela (raw_vide_editora.vide_raw_home_featured) preservam os que o the_dw lê.
+db_schema: "raw_vide_editora"
 
 environments:
   dev:
@@ -16,7 +17,7 @@ sources:
     subpath: "destaques"
     landing_file: "vide_livros_em_destaque_{date}.json"
     bronze_file: "vide_livros_em_destaque.csv"
-    db_table: "livros_em_destaque"
+    db_table: "vide_raw_home_featured"
     options:
       file_pattern: "vide_livros_em_destaque_*.json"   # só os JSONs desta entidade
 

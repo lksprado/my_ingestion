@@ -17,7 +17,7 @@ ETL em `solar_etl.py` (Selenium e parsers inclusos); configuração em `solar_co
 
 O **daily vem primeiro** (ordem de `ETLS`): é ele que faz a extração (um JSON por dia,
 `hourly24_production_YYYY-MM-DD.json`). Sem load (`load: none`): o Airflow carrega em
-`raw_solar.solar_daily_energy` / `solar_hourly_energy`.
+`raw_apsystem.solar_daily_energy` / `solar_hourly_energy`.
 
 ## Fluxo
 
@@ -43,7 +43,7 @@ Sem datas faltantes, o extract encerra com `Nenhuma data faltando.`
 ## Configuração
 
 No `.env` da raiz: `APSYSTEMS_USER=` e `APSYSTEMS_PASSWORD=`; banco pelo perfil
-`DB__<ENV>__*` (`raw_solar.*` precisa existir lá). ID do equipamento, URLs do
+`DB__<ENV>__*` (`raw_apsystem.*` precisa existir lá). ID do equipamento, URLs do
 portal, `headless` e arquivo de controle ficam em `options` no YAML. Saídas em
 `${LAKE_ROOT}/staging/solar_project/`.
 

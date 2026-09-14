@@ -9,9 +9,9 @@ ETL em `ecidadania_etl.py` (parsers inclusos); configuração em `ecidadania_con
 
 | Entidade | Fonte | Tabela destino |
 |---|---|---|
-| `bignumbers` | Totais gerais de apoios e proposições | `raw_ecidadania.bignumbers` |
-| `mais_votados` | Proposições com mais apoios | `raw_ecidadania.mais_votados` |
-| `paginas` | Lista paginada de todas as proposições | `raw_ecidadania.paginas` |
+| `bignumbers` | Totais gerais de apoios e proposições | `raw_ecidadania.raw_ecidadania_bignumbers` |
+| `mais_votados` | Proposições com mais apoios | `raw_ecidadania.raw_ecidadania_mais_votados` |
+| `paginas` | Lista paginada de todas as proposições | `raw_ecidadania.raw_ecidadania_paginas` |
 
 ## Dependência a jusante
 

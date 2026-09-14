@@ -1,4 +1,4 @@
-"""ETL da Vide Editorial (scraping) -> ``raw_vide_editorial.<entidade>``.
+"""ETL da Vide Editorial (scraping) -> ``raw_vide_editora.vide_raw_home_featured``.
 
 O extract parseia o HTML e grava no landing a lista de produtos em JSON.
 ``livros_em_destaque`` (home) vai até o banco; ``categorias`` é extract-only

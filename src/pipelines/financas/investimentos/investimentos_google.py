@@ -3,7 +3,8 @@
 extract: ``get_all_values()`` de cada aba de ``options.sheets`` gravado como JSON
 (``{workbook}_{sheet}.json``). transform: aplica ``header_row``, normaliza o
 cabeçalho e grava ``<aba>.csv`` (ou ``<aba>_<workbook>.csv`` fora da planilha
-primária). load: files -> ``raw_google.<aba>``. Registrado em ``investimentos_etl.py``.
+primária). load: files -> ``raw_google_sheets.<aba>``. Registrado em
+``investimentos_etl.py``.
 """
 
 import json

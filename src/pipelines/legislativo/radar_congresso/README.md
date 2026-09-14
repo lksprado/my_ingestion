@@ -9,9 +9,9 @@ governismo de deputados e senadores compartilha o mesmo transform (wide trimestr
 
 | Entidade | Fonte | Tabela destino |
 |---|---|---|
-| `governismo_deputados` | Índice de governismo dos deputados | `raw_radar_congresso.governismo_deputados` |
-| `governismo_senadores` | Índice de governismo dos senadores | `raw_radar_congresso.governismo_senadores` |
-| `parlamentares` | Cadastro de parlamentares | `raw_radar_congresso.parlamentares` |
+| `governismo_deputados` | Índice de governismo dos deputados | `raw_radar_congresso.raw_radar_governismo_deputados` |
+| `governismo_senadores` | Índice de governismo dos senadores | `raw_radar_congresso.raw_radar_governismo_senadores` |
+| `parlamentares` | Cadastro de parlamentares | `raw_radar_congresso.raw_radar_parlamentares` |
 
 Os três usam o extract padrão da `core` (uma requisição a `base_url`).
 

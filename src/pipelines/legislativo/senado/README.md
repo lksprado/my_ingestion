@@ -7,13 +7,13 @@ ETL em `senado_etl.py` (todas as entidades); configuração em `senado_config.ym
 
 | Entidade | Fonte | Tabela destino |
 |---|---|---|
-| `legislaturas` | Senadores da legislatura atual | `raw_senado.legislaturas` |
-| `senadores` | Perfil dos senadores em exercício | `raw_senado.senadores` |
-| `votacoes` | Votações em plenário (2001..) | `raw_senado.votacoes` |
-| `votos_senadores` | Como cada senador votou | `raw_senado.votos_senadores` |
-| `votos_orientacao` | Orientação de bancada por votação | `raw_senado.votos_orientacao` |
-| `processo` | Detalhe dos processos das votações | `raw_senado.processo` |
-| `status` | Tramitação das proposições do e-Cidadania | `raw_senado.status` |
+| `legislaturas` | Senadores da legislatura atual | `raw_senado.raw_senado_legislaturas` |
+| `senadores` | Perfil dos senadores em exercício | `raw_senado.raw_senado_senadores` |
+| `votacoes` | Votações em plenário (2001..) | `raw_senado.raw_senado_votacoes` |
+| `votos_senadores` | Como cada senador votou | `raw_senado.raw_senado_votos_senadores` |
+| `votos_orientacao` | Orientação de bancada por votação | `raw_senado.raw_senado_votos_orientacao` |
+| `processo` | Detalhe dos processos das votações | `raw_senado.raw_senado_processo` |
+| `status` | Tramitação das proposições do e-Cidadania | `raw_senado.raw_senado_status` |
 
 ## Dependências entre pipelines
 

@@ -34,6 +34,10 @@ Convenções de nome, na cascata:
 | Schema | `raw_<fonte>` (chave `db_schema` no topo do YAML) | `raw_camara` |
 | Tabela | `<entidade>` | `raw_camara.votos_deputados` |
 
+Schema e tabela são o padrão para fonte **nova**. Se o `the_dw` já lê uma tabela
+equivalente (ver `models/staging/_sources.yml`), aponte `db_schema`/`db_table` para ela
+(ex.: `raw_camara.raw_camara_votos_deputados`) em vez de criar outra e mudar o source do dbt.
+
 **Um script de ETL por fonte.** As entidades de uma mesma origem compartilham
 cliente, envelope de resposta e parsers; espalhá-las em um script por tabela
 duplica o esqueleto e empurra o que é comum para arquivos `_common.py`. Parsers e

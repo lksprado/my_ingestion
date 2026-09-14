@@ -9,7 +9,7 @@ no Postgres. ETL em `vide_editorial_etl.py` (parsers inclusos); configuração e
 
 | Entidade | Fluxo | Destino |
 |---|---|---|
-| `livros_em_destaque` | HTML da home → JSON por dia no landing → bronze CSV → tabela | `raw_vide_editorial.livros_em_destaque` |
+| `livros_em_destaque` | HTML da home → JSON por dia no landing → bronze CSV → tabela | `raw_vide_editora.vide_raw_home_featured` |
 | `categorias` | Páginas de categoria (`options.hrefs`) → JSON por página | só landing (`load: none`), **sem consumidor hoje** |
 
 `parse_products_page` e `get_last_page_number` concentram os seletores BeautifulSoup e a descoberta de paginação.

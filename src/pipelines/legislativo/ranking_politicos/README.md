@@ -9,8 +9,8 @@ extract/transform); configuração em `ranking_politicos_config.yml`.
 
 | Entidade | Fonte | Tabela destino |
 |---|---|---|
-| `deputados` | Ranking e score dos deputados | `raw_ranking_politicos.deputados` |
-| `senadores` | Ranking e score dos senadores | `raw_ranking_politicos.senadores` |
+| `deputados` | Ranking e score dos deputados | `raw_ranking_politicos.raw_ranking_deputados` |
+| `senadores` | Ranking e score dos senadores | `raw_ranking_politicos.raw_ranking_senadores` |
 
 ## Como executar
 

@@ -1,5 +1,6 @@
 # Investimentos: quatro origens heterogêneas, um schema por fonte.
 # load: files -> cada CSV do bronze vira a tabela de mesmo nome (raw_<fonte>.<arquivo>).
+# google carrega em raw_google_sheets (schema que o the_dw lê), não raw_google.
 # b3 e avenue não têm extract: os Excel/PDF são colocados manualmente no landing.
 load: files
 
@@ -22,7 +23,7 @@ sources:
 
   google:                   # Google Sheets via service account -> landing JSON -> bronze CSV
     subpath: "google"
-    db_schema: "raw_google"
+    db_schema: "raw_google_sheets"
     landing_file: "{workbook}_{sheet}.json"
     options:
       # Abas por planilha. A URL de cada planilha vem de URL_FINANCE__<CHAVE> no .env.

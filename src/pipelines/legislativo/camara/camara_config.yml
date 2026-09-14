@@ -1,4 +1,5 @@
-# Schema destino de todas as tabelas deste arquivo (tabela = entidade).
+# Schema destino de todas as tabelas deste arquivo. Os nomes de tabela (db_table)
+# preservam os que o the_dw lê em _sources.yml; não renomeie.
 # Sources por ID: base_url e landing_file usam o placeholder {id}; o CSV de
 # parâmetros vem de parameter_file (coluna options.parameter_column, default id)
 # e os IDs sem resposta ficam em options.no_data_file (ver legislativo/_common.py).
@@ -20,14 +21,14 @@ sources:
     subpath: "legislatura"
     landing_file: "57_deputados_legislatura.json"
     bronze_file: "legislaturas_deputados.csv"
-    db_table: "legislaturas"
+    db_table: "raw_camara_legislaturas"
 
   deputados:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados/{id}"
     subpath: "deputados"
     landing_file: "{id}_deputado.json"
     bronze_file: "parlamento_deputados.csv"
-    db_table: "deputados"
+    db_table: "raw_camara_deputados"
     parameter_file: "id_deputados.csv"
     options:
       workers: 4
@@ -36,7 +37,7 @@ sources:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes"
     subpath: "votacoes"
     bronze_file: "camara_votacoes.csv"
-    db_table: "votacoes"
+    db_table: "raw_camara_votacoes"
     output_param_file:
       id_votacoes.csv: "id"
       id_proposicao.csv: "id_proposicao"
@@ -46,7 +47,7 @@ sources:
     subpath: "votos_deputados"
     landing_file: "{id}_votos_deputados.json"
     bronze_file: "camara_votos_deputados.csv"
-    db_table: "votos_deputados"
+    db_table: "raw_camara_votos_deputados"
     parameter_file: "id_votacoes.csv"
     options:
       no_data_file: "sem_dados_id_votacao.csv"
@@ -56,7 +57,7 @@ sources:
     subpath: "votos_orientacao"
     landing_file: "{id}_votacoes_orientacao.json"
     bronze_file: "camara_votos_orientacao.csv"
-    db_table: "votos_orientacao"
+    db_table: "raw_camara_votacoes_orientacao"
     parameter_file: "id_votacoes.csv"
     options:
       no_data_file: "sem_dados_id_votacao_orientacao.csv"
@@ -67,7 +68,7 @@ sources:
     subpath: "proposicao_tema"
     landing_file: "{id}_proposicao_tema.json"
     bronze_file: "camara_proposicao_tema.csv"
-    db_table: "proposicao_tema"
+    db_table: "raw_camara_proposicao_tema"
     parameter_file: "id_proposicao.csv"
     options:
       parameter_column: "id_proposicao"
@@ -78,7 +79,7 @@ sources:
     subpath: "proposicao"
     landing_file: "{id}_proposicao.json"
     bronze_file: "camara_proposicao.csv"
-    db_table: "proposicao"
+    db_table: "raw_camara_proposicao"
     parameter_file: "id_proposicao.csv"
     options:
       parameter_column: "id_proposicao"
