@@ -61,6 +61,9 @@ def investidor_10_details(tickers: list, year: str, month: str) -> tuple[int, in
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
+    # /dev/shm do container Selenium costuma ter 64 MB: sem isto a aba cai
+    # ("tab crashed") depois da primeira página.
+    options.add_argument("--disable-dev-shm-usage")
     if settings.selenium_remote_url:
         driver = webdriver.Remote(
             command_executor=settings.selenium_remote_url, options=options
