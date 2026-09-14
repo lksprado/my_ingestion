@@ -64,13 +64,14 @@ def sanitize_values(
     """Devolve uma cópia com os valores texto sem acento/pontuação e em maiúsculas.
 
     Colunas numéricas e as listadas em ``exclude`` (URLs, e-mails, datas) são
-    preservadas.
+    preservadas. Nulos continuam nulos (sem virar o texto ``NAN``/``NONE``).
     """
     df = df.copy()
     for col in df.columns:
         if col in exclude or pd.api.types.is_numeric_dtype(df[col]):
             continue
-        s = df[col].astype(str).map(unidecode).str.strip()
+        s = df[col].map(lambda v: unidecode(str(v)).strip(), na_action="ignore")
+        s = s.astype("object")
         if case == "upper":
             s = s.str.upper()
         elif case == "lower":

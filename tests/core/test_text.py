@@ -36,6 +36,13 @@ def test_sanitize_values_skips_numeric_and_excluded():
     assert out["n"].tolist() == [1]
 
 
+def test_sanitize_values_keeps_nulls():
+    df = pd.DataFrame({"nome": ["Ana", None, float("nan")]})
+    out = sanitize_values(df)
+    assert out["nome"].tolist()[0] == "ANA"
+    assert out["nome"].isna().tolist() == [False, True, True]
+
+
 def test_strip_newlines_only_text_columns():
     df = pd.DataFrame({"t": ["a\r\nb\nc"], "n": [1]})
     assert strip_newlines(df)["t"].tolist() == ["a b c"]
