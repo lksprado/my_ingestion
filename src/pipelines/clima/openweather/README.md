@@ -30,8 +30,9 @@ Sem datas faltantes, o extract encerra com `Nenhuma data faltando.`
 ## Configuração
 
 No `.env` da raiz: `OPENWEATHER_API_KEY=`. O banco é o do ambiente
-(`DB__<ENV>__*`, `analytics_dev` em dev); a tabela
-`raw_openweather.openweather_daily` precisa existir lá para o high-water mark.
+(`DB__<ENV>__*`, `ingestion_sandbox` em dev); a tabela
+`raw_openweather.openweather_daily` precisa existir lá para o high-water mark
+(em dev: `scripts/raw_copy.sh seed raw_openweather`).
 Latitude/longitude, arquivo de controle e coluna de data ficam em `options` no
 YAML; `bronze_sep: ","` porque o Airflow lê o CSV. Saídas em
 `${LAKE_ROOT}/staging/weather_project/`.

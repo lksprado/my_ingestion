@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Monorepo de ingestão de dados pessoais: APIs públicas, scraping e planilhas → data lake local (CSV/JSON em `${LAKE_ROOT}`) e Postgres (schemas `raw_<fonte>` no banco do ambiente: `analytics_dev` em dev). A transformação (dbt) vive **fora** deste repo (`~/workspace/demodados/demodadosdw` e `~/workspace/my_analytics`). Código, comentários, docs e mensagens de commit são em **português**.
+Monorepo de ingestão de dados pessoais: APIs públicas, scraping e planilhas → data lake local (CSV/JSON em `${LAKE_ROOT}`) e Postgres (schemas `raw_<fonte>` no banco do ambiente: `ingestion_sandbox` em dev). A transformação (dbt) vive **fora** deste repo (`~/workspace/demodados/demodadosdw` e `~/workspace/my_analytics`). Código, comentários, docs e mensagens de commit são em **português**.
 
 Documentação autoritativa (leia antes de mexer no que ela cobre):
 
@@ -50,7 +50,7 @@ uv run python -c "import pipelines.<domínio>.<fonte>.<fonte>_etl"   # checa que
 
 **Exceções ao `GenericETL`** (não escrevem em `raw_*`): `precos/atacadao` (CSV → seed do dbt), `financas/fundos_imobiliarios` (CLI mensal + relatório), `financas/investimentos/investimentos_fgc.py` (DW → seed). Mesmo aí, use `HttpClient`, `PostgresClient.read_sql`, `write_csv`, `concat_files_to_df`, `setup_logger()`. Tudo o mais está no padrão, inclusive NHL (`load: jsonb`) e solar/openweather (`load: none`, Airflow carrega).
 
-**Um banco por ambiente, um schema por fonte.** `ENV` escolhe o perfil de conexão `DB__<ENV>__*` do `.env` (`settings.db_target`); `PostgresClient()` sem argumentos usa esse perfil; no Airflow, `PostgresClient(connection=hook.get_conn())`. Em `ENV=dev` (local) o banco é obrigatoriamente `analytics_dev` (validator em `settings.py`); `ENV=prod` é o Airflow, produção em outro host. Nunca passe `db_name=` para desviar de banco. Toda escrita exige `schema=` explícito começando com `raw_` (`core.db.validate_raw_schema`; `send_df_to_db`, `load_files_to_table`, `JsonbLoader` não têm default). O schema de uma fonte é declarado uma vez, na chave `db_schema` do topo do `<fonte>_config.yml`. Leituras (`staging.*`, `intermediate.*`) via `read_sql` não são restringidas.
+**Um banco por ambiente, um schema por fonte.** `ENV` escolhe o perfil de conexão `DB__<ENV>__*` do `.env` (`settings.db_target`); `PostgresClient()` sem argumentos usa esse perfil; no Airflow, `PostgresClient(connection=hook.get_conn())`. Em `ENV=dev` (local) o banco é obrigatoriamente `ingestion_sandbox` (validator em `settings.py`), para os testes de carga não sujarem a raw que o dbt consome no `analytics_dev`; `ENV=prod` é o Airflow, produção em outro host. Nunca passe `db_name=` para desviar de banco. Toda escrita exige `schema=` explícito começando com `raw_` (`core.db.validate_raw_schema`; `send_df_to_db`, `load_files_to_table`, `JsonbLoader` não têm default). O schema de uma fonte é declarado uma vez, na chave `db_schema` do topo do `<fonte>_config.yml`. Leituras de objetos do dbt (views de parâmetros, `intermediate_*`) usam `PostgresClient(settings.models_target)`: em dev é o `analytics_dev`, em prod o mesmo banco da carga. `scripts/raw_copy.sh seed|promote raw_<fonte>` copia schemas raw entre `analytics_dev` e sandbox.
 
 **`HttpClient` devolve `None` em erro** em vez de levantar exceção (`get_json`, `get_text`, `request`, `fetch_and_save*`). Trate o item, logue e siga; um ID quebrado não pode derrubar uma extração longa.
 

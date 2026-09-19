@@ -10,8 +10,13 @@ São dois ambientes: ``dev`` (execução local) e ``prod`` (Airflow). ``ENV``
 escolhe tanto o bloco ``environments`` dos YAMLs quanto o perfil de conexão
 ``DB__<ENV>__*`` (``DB__DEV__HOST``, ``DB__DEV__NAME``...). O perfil ativo sai em
 ``settings.db_target``; ``PostgresClient()`` sem argumentos usa ele.
-Guard-rail: em ``ENV=dev`` o banco tem que ser ``analytics_dev``. Perfis
+Guard-rail: em ``ENV=dev`` o banco tem que ser ``ingestion_sandbox``. Perfis
 inativos podem ficar em branco no .env.
+
+Em dev, cargas e objetos do dbt vivem em bancos diferentes: a carga vai para o
+sandbox, e o que o dbt constrói (views de parâmetros, intermediate) fica no
+``analytics_dev``. Leituras desses objetos usam ``settings.models_target``. Em
+prod os dois são o mesmo banco.
 """
 
 from pathlib import Path
@@ -26,8 +31,10 @@ from sqlalchemy.engine import URL
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = REPO_ROOT / ".env"
 
-# Banco obrigatório em dev (execução local): evita carga acidental em outro banco.
-DEV_DB_NAME = "analytics_dev"
+# Banco obrigatório em dev (execução local): testes de carga não sujam a raw que o
+# dbt consome no analytics_dev.
+DEV_DB_NAME = "ingestion_sandbox"
+DEV_MODELS_DB_NAME = "analytics_dev"
 
 
 class DbTarget(BaseModel):
@@ -114,6 +121,13 @@ class Settings(BaseSettings):
     @property
     def db_url(self) -> str:
         return self.db_target.url
+
+    @property
+    def models_target(self) -> DbTarget:
+        """Banco com os objetos do dbt; em dev, o perfil dev no analytics_dev."""
+        if self.env == "dev":
+            return self.db.dev.model_copy(update={"name": DEV_MODELS_DB_NAME})
+        return self.db_target
 
     @model_validator(mode="after")
     def _validate_db_target(self) -> "Settings":
