@@ -16,7 +16,7 @@ options:
   watermarks:
     solar_daily_energy: "date"
     solar_hourly_energy: "datetime"
-  equipment_id: "216200001531"
+  # equipment_id do inversor vem do .env (APSYSTEMS_EQUIPMENT_ID)
   login_url: "https://apsystemsema.com/ema/index.action"
   report_url: "https://apsystemsema.com/ema/ajax/getReportApiAjax/getHourlyEnergyOnCurrentDayAjax"
   headless: false

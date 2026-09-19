@@ -67,6 +67,8 @@ def extract(cfg: PipelineConfig) -> None:
         return
     if not settings.openweather_api_key:
         raise ValueError("Token da OpenWeather ausente (OPENWEATHER_API_KEY).")
+    if settings.openweather_lat is None or settings.openweather_lon is None:
+        raise ValueError("Ponto ausente (OPENWEATHER_LAT / OPENWEATHER_LON).")
 
     http = HttpClient(logger, retries=3, backoff_factor=1.0, timeout=15)
     for day in dates:
@@ -74,8 +76,8 @@ def extract(cfg: PipelineConfig) -> None:
         data = http.get_json(
             cfg.url_base,
             params={
-                "lat": opts["lat"],
-                "lon": opts["lon"],
+                "lat": settings.openweather_lat,
+                "lon": settings.openweather_lon,
                 "date": day,
                 "appid": settings.openweather_api_key,
             },

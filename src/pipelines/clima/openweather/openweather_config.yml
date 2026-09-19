@@ -22,7 +22,6 @@ sources:
     bronze_file: "all_dfs.csv"
     db_table: "openweather_daily"          # high-water mark: MAX(options.date_column)
     options:
-      lat: -23.137                         # Atibaia/SP
-      lon: -46.5547861
+      # lat/lon do ponto vêm do .env (OPENWEATHER_LAT / OPENWEATHER_LON)
       control_file: "missing_dates.csv"
       date_column: "date"

@@ -6,8 +6,8 @@ from core import PipelineConfig
 from pipelines.clima.openweather.openweather_etl import parse_day_summary, transform
 
 SAMPLE = {
-    "lat": -23.137,
-    "lon": -46.5547861,
+    "lat": -23.5,
+    "lon": -46.6,
     "tz": "-03:00",
     "date": "2021-09-16",
     "units": "standard",

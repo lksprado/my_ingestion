@@ -90,14 +90,17 @@ class Settings(BaseSettings):
     # Pipeline energia/solar
     apsystems_user: str | None = None
     apsystems_password: str | None = None
+    apsystems_equipment_id: str | None = None
 
     # Pipeline financas/investimentos (google): service account e URLs das
     # planilhas, uma por chave do YAML (URL_FINANCE__<CHAVE>=...)
     google_credentials_file: Path | None = None
     url_finance: dict[str, str] = {}
 
-    # Pipeline clima/openweather — chave da API One Call 3.0
+    # Pipeline clima/openweather — chave da API One Call 3.0 e ponto consultado
     openweather_api_key: str | None = None
+    openweather_lat: float | None = None
+    openweather_lon: float | None = None
 
     # Selenium remoto (container selenium/standalone-chrome). Sem valor, os
     # pipelines com navegador (solar, fundos_imobiliarios) abrem Chrome local.

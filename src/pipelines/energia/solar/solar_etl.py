@@ -113,6 +113,8 @@ def extract(cfg: PipelineConfig) -> None:
     if not dates:
         logger.info("Nenhuma data faltando.")
         return
+    if not settings.apsystems_equipment_id:
+        raise ValueError("Inversor ausente (APSYSTEMS_EQUIPMENT_ID).")
 
     driver = setup_driver(
         headless=bool(opts.get("headless", True)),
@@ -130,7 +132,7 @@ def extract(cfg: PipelineConfig) -> None:
         http = HttpClient(logger, retries=3, backoff_factor=1.0, timeout=30)
         for day in dates:
             payload = {
-                "selectedValue": opts["equipment_id"],
+                "selectedValue": settings.apsystems_equipment_id,
                 "queryDate": day.replace("-", ""),
                 "systemId": user_id,
                 "userId": user_id,
