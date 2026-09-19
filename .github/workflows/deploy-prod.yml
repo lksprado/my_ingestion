@@ -1,0 +1,29 @@
+name: Deploy prod
+
+# A branch main é produção: cada merge aqui pede ao my_orchestrator que publique
+# a ponta dos três repos no Airflow do atb (workflow "Deploy prod" de lá, no
+# runner self-hosted). Este job só dispara; o resultado aparece no Actions do
+# my_orchestrator.
+#
+# Secret DEPLOY_DISPATCH_TOKEN: token fine-grained com Contents read/write só
+# no lksprado/my_orchestrator (o mínimo que o repository_dispatch exige).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  disparar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: repository_dispatch no my_orchestrator
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+        run: |
+          gh api repos/lksprado/my_orchestrator/dispatches \
+            -f event_type=deploy \
+            -f "client_payload[repo]=my_ingestion" \
+            -f "client_payload[sha]=${GITHUB_SHA::7}"
+          echo "deploy pedido: https://github.com/lksprado/my_orchestrator/actions/workflows/deploy.yml"
