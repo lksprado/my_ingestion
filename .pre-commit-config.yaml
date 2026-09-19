@@ -6,6 +6,10 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: detect-private-key
+      # main é produção: toda mudança entra por branch + PR. A proteção de
+      # verdade é a do GitHub; este hook só avisa antes do commit.
+      - id: no-commit-to-branch
+        args: [--branch, main]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.13.0
