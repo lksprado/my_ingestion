@@ -10,6 +10,8 @@ name: Deploy prod
 on:
   push:
     branches: [main]
+    # O deploy só leva o src/: testes, pyproject, docs etc. não disparam.
+    paths: ['src/**', '!**/*.md']
   workflow_dispatch:
 
 permissions: {}
