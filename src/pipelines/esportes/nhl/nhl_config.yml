@@ -10,6 +10,7 @@
 # control_table. Lidas pelo nhl_etl.py:
 #   season_subdir  - grava/lê em subpasta <season_id>/ (carrega só a mais recente)
 #   skip_existing  - não rebaixa arquivo já presente no landing (dado imutável)
+#   season_id      - força a temporada de params_jogos (backfill); sem ela, a atual
 #   workers        - threads de extração (1 = sequencial)
 #
 # Quais IDs requisitar NÃO vem do YAML: cada entidade dinâmica tem sua consulta
