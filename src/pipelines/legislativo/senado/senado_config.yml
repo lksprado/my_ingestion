@@ -67,6 +67,8 @@ sources:
     bronze_file: "senado_processo_consolidado.csv"
     db_table: "raw_senado_processo"
     parameter_file: "id_processo.csv"
+    write: append                 # incremental: um JSON por processo
     options:
       parameter_column: "idprocesso"
       no_data_file: "sem_dados_id_processo.csv"
+      control_table: "ingestion_control"

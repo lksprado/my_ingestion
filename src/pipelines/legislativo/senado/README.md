@@ -47,4 +47,10 @@ uv run python -m pipelines.legislativo.senado.senado_etl status                 
 - `processo` é incremental por ID (`core.extract_by_ids`, default `has_data=bool`)
   e reconstrói o bronze em streaming.
 - Quebras de linha em colunas de texto são removidas por `core.write_bronze`.
-- Carga é full refresh (`replace`) na tabela `raw_senado.*`.
+- Carga full refresh (`write: truncate`): `TRUNCATE` + `COPY` na tabela
+  `raw_senado.*`, numa transação e sem recriar a tabela.
+- `processo` é **incremental por arquivo** (`write: append` +
+  `options.control_table`): um JSON por processo, imutável; o transform só põe no
+  bronze o que falta e o load registra o manifesto junto com o COPY.
+- Ao ligar o incremental numa tabela que já tem histórico, rode uma vez
+  `uv run python scripts/controle_semear.py src/pipelines/legislativo/senado/senado_config.yml processo`.

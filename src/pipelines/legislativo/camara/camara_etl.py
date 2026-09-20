@@ -25,7 +25,7 @@ from core import (
     sanitize_columns,
     sanitize_values,
     write_bronze,
-    write_bronze_streaming,
+    write_bronze_incremental,
 )
 from core.parsers.json import normalize_json_object
 
@@ -98,11 +98,16 @@ def transform_dados_abertos(cfg: PipelineConfig, url_col: str) -> None:
 
 
 def transform_dados_abertos_streaming(cfg: PipelineConfig, url_col: str) -> None:
-    """Para landings com milhares de arquivos (entidades por ID)."""
-    write_bronze_streaming(
+    """Para landings com milhares de arquivos (entidades por ID).
+
+    Com ``options.control_table`` no YAML o bronze sai só com os arquivos ainda
+    não carregados (e um manifesto ao lado); sem ela, é o rebuild completo.
+    """
+    write_bronze_incremental(
         cfg,
         sorted(cfg.landing_dir.glob("*.json")),
         partial(parse_dados_abertos, url_col=url_col),
+        log=logger,
     )
 
 
