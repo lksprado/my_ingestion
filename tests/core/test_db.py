@@ -146,7 +146,9 @@ def test_plan_columns_preserva_ordem_do_dado():
 
 
 def test_plan_columns_detecta_coluna_nova_e_sumida():
-    plano = plan_columns(["a", "nova"], ["a", "antiga", "arquivo_origem", "data_carga"])
+    plano = plan_columns(
+        ["a", "nova"], ["a", "antiga", "arquivo_origem", "loaded_at_utc"]
+    )
     assert plano.add == ["nova"]
     assert plano.missing == ["antiga"]  # rastreio não conta como sumida
 

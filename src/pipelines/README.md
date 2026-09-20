@@ -283,8 +283,8 @@ está no padrão.
 - [ ] O módulo importa isolado:
       `uv run python -c "import pipelines.<domínio>.<fonte>.<fonte>_etl"`.
 - [ ] Rodou de verdade uma vez e conferiu a tabela em `raw_<fonte>.*` do
-      `ingestion_sandbox`: contagem esperada, `data_carga` não nula e
-      `count(DISTINCT data_carga) = 1` (uma carga, um timestamp).
+      `ingestion_sandbox`: contagem esperada, `loaded_at_utc` não nula e
+      `count(DISTINCT loaded_at_utc) = 1` (uma carga, um timestamp).
 - [ ] Nenhum caminho absoluto e nenhum segredo no diff (o `pre-commit` roda o
       gitleaks, mas confira).
 

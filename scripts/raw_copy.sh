@@ -15,19 +15,24 @@
 # o delta:
 #
 #   sem tabela no destino .............. cria o DDL da origem e copia completa
-#   sem data_carga nos dois lados ...... completa
+#   sem loaded_at_utc nos dois lados ... completa
 #   destino vazio ...................... completa
 #   delta == total na origem ........... completa (é tabela de full refresh: ela
 #                                        reescreve todas as linhas a cada carga)
 #   destino tem índice único ........... completa (o delta exigiria upsert, e
 #                                        essas tabelas são pequenas)
-#   caso contrário ..................... só as linhas com data_carga > o máximo
-#                                        do destino (fontes write: append e as
-#                                        tabelas JSONB, que só inserem)
+#   caso contrário ..................... só as linhas com loaded_at_utc > o
+#                                        máximo do destino (fontes write: append
+#                                        e as tabelas JSONB, que só inserem)
 #
-# O delta supõe que o destino é um espelho atrasado da origem e que data_carga só
-# cresce. Se o destino tiver carga mais nova que a origem (ou se os dois lados
-# estiverem em fusos diferentes), ele diz "em dia" sem estar: use --full.
+# O delta supõe que o destino é um espelho atrasado da origem e que loaded_at_utc
+# só cresce. Se o destino tiver carga mais nova que a origem, ele diz "em dia"
+# sem estar: use --full.
+#
+# A lista de colunas vem da ORIGEM e é usada nos dois lados, então os bancos
+# precisam estar no mesmo nome de coluna. Divergência de nome (um lado ainda com
+# a antiga `data_carga`) dá erro de \copy, não cópia completa: migre os bancos
+# antes de sincronizar (scripts/loaded_at_migra.sh).
 #
 # --dry-run mostra a decisão de cada tabela sem mover dado.
 # --full    ignora o delta e copia tudo, tabela a tabela.
@@ -135,7 +140,7 @@ copia_completa() {
 
 copia_delta() {
     local schema=$1 tabela=$2 cols=$3 marca=$4
-    origem -q -c "\copy (SELECT $cols FROM $schema.$tabela WHERE data_carga > '$marca') TO STDOUT (FORMAT text)" |
+    origem -q -c "\copy (SELECT $cols FROM $schema.$tabela WHERE loaded_at_utc > '$marca') TO STDOUT (FORMAT text)" |
         destino -q -c "\copy $schema.$tabela ($cols) FROM STDIN (FORMAT text)"
 }
 
@@ -163,27 +168,27 @@ for schema in "$@"; do
         cols=$(origem -Atc "SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position)
                             FROM information_schema.columns
                             WHERE table_schema='$schema' AND table_name='$tabela'")
-        # O delta precisa de data_carga nos DOIS lados: a marca vem do destino e o
+        # O delta precisa de loaded_at_utc nos DOIS lados: a marca vem do destino e o
         # filtro roda na origem.
         conta_marca="SELECT count(*) FROM information_schema.columns
                      WHERE table_schema='$schema' AND table_name='$tabela'
-                       AND column_name='data_carga'"
+                       AND column_name='loaded_at_utc'"
         tem_marca=0
         [[ $(destino -Atc "$conta_marca") == 1 && $(origem -Atc "$conta_marca") == 1 ]] && tem_marca=1
         marca=""
-        [[ $tem_marca == 1 ]] && marca=$(destino -Atc "SELECT coalesce(max(data_carga)::text,'') FROM $schema.$tabela")
+        [[ $tem_marca == 1 ]] && marca=$(destino -Atc "SELECT coalesce(max(loaded_at_utc)::text,'') FROM $schema.$tabela")
 
         if [[ -z $motivo && $FORCA_FULL == 1 ]]; then
             motivo="--full"
         fi
         if [[ -z $motivo ]]; then
             if [[ $tem_marca != 1 ]]; then
-                motivo="sem data_carga nos dois lados"
+                motivo="sem loaded_at_utc nos dois lados"
             elif [[ -z $marca ]]; then
                 motivo="destino vazio"
             else
                 total=$(origem -Atc "SELECT count(*) FROM $schema.$tabela")
-                delta=$(origem -Atc "SELECT count(*) FROM $schema.$tabela WHERE data_carga > '$marca'")
+                delta=$(origem -Atc "SELECT count(*) FROM $schema.$tabela WHERE loaded_at_utc > '$marca'")
                 unicos=$(destino -Atc "SELECT count(*) FROM pg_index WHERE indrelid='$schema.$tabela'::regclass AND indisunique")
                 if [[ $delta == 0 ]]; then
                     echo "  $schema.$tabela: em dia ($total linha(s))"

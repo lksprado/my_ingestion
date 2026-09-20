@@ -242,10 +242,21 @@ decide). A tipagem é responsabilidade do dbt (staging). O `JsonbLoader` (NHL) j
 grava `payload JSONB`.
 
 **As colunas de rastreio não viajam no stream.** `arquivo_origem` (quando você passa
-`filename`) e `data_carga` vêm de `DEFAULT` no catálogo: `data_carga` é o `now()` da
-transação, ou seja, **um valor só para a carga inteira, em UTC** — antes era um
-`datetime.now()` local por chunk. O `DEFAULT` de `arquivo_origem` só é reescrito
-quando muda de valor, porque o `ALTER` pega `ACCESS EXCLUSIVE`.
+`filename`) e `loaded_at_utc` vêm de `DEFAULT` no catálogo: o carimbo é o
+`now() AT TIME ZONE 'utc'` da transação, ou seja, **um valor só para a carga
+inteira, sempre em UTC** — o `AT TIME ZONE` é o que torna o nome verdade mesmo
+num servidor fora de UTC (`now()` puro grava a hora local dele). O `DEFAULT` de
+`arquivo_origem` só é reescrito quando muda de valor, porque o `ALTER` pega
+`ACCESS EXCLUSIVE`.
+
+A coluna chamava-se `data_carga` até esta mudança. `ensure_loaded_at` faz a
+migração sozinha na primeira carga de cada tabela (`RENAME COLUMN`, operação de
+catálogo: nada é reescrito e as views do dbt sobrevivem), e
+`scripts/loaded_at_migra.sh {sandbox|models|prod} [--dry-run]` faz o schema
+inteiro de uma vez — o que **precisa** acontecer nos três bancos antes do próximo
+`raw_copy.sh`, que usa a lista de colunas da origem nos dois lados. Linhas
+gravadas antes da migração ficam como estavam: se aquele servidor não estava em
+UTC, o histórico anterior está no fuso dele.
 
 **NULL vs string vazia no `COPY` (`FORMAT csv`, marcador default `''`):**
 
@@ -276,7 +287,7 @@ vazia, não como NULL.
 que openweather e solar já têm. O `INSERT` usa `DISTINCT ON (merge_key)`: sem isso
 o `ON CONFLICT` erra com *cannot affect row a second time* quando o lote traz a
 mesma chave duas vezes; quando isso acontece, sai um WARNING dizendo quantas
-linhas foram descartadas. `arquivo_origem` e `data_carga` também são atualizados
+linhas foram descartadas. `arquivo_origem` e `loaded_at_utc` também são atualizados
 no conflito, então a linha sempre reflete a última carga que a tocou.
 
 **Drift de colunas** (`plan_columns`, função pura): coluna nova no dado vira
@@ -289,8 +300,9 @@ recreate (rename, `TEXT` ↔ `JSONB`) é gesto manual e logado como WARNING:
 DROP TABLE raw_camara.raw_camara_votacoes CASCADE;
 ```
 
-Tabela legada criada pelo `to_sql` antigo (com `data_carga` **sem** `DEFAULT`) é
-migrada sozinha na primeira carga nova, sem recriação.
+Tabela legada criada pelo `to_sql` antigo (com o carimbo **sem** `DEFAULT`, ou
+ainda com o nome `data_carga`) é migrada sozinha na primeira carga nova, sem
+recriação.
 
 | Método | Para quê |
 |---|---|

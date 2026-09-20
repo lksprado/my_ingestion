@@ -27,7 +27,12 @@ from pathlib import Path
 import pandas as pd
 
 from core.config import PipelineConfig
-from core.db import PostgresClient, validate_raw_schema
+from core.db import (
+    LOADED_AT_DEFAULT,
+    PostgresClient,
+    ensure_column_default,
+    validate_raw_schema,
+)
 from core.io import write_bronze_streaming
 
 logger = logging.getLogger(__name__)
@@ -53,6 +58,10 @@ class IngestionControl:
         self.logger = log or logger
 
     def ensure(self, cur) -> None:
+        # `ingested_at` não é o `loaded_at_utc` das tabelas de dado: aqui a linha
+        # é o registro de um arquivo no manifesto, e a idempotência é por
+        # `filename` (ninguém lê este carimbo). Só o fuso é o mesmo — UTC
+        # explícito, para não depender do TimeZone do servidor.
         cur.execute(
             f"""
             CREATE SCHEMA IF NOT EXISTS {self.schema};
@@ -60,12 +69,15 @@ class IngestionControl:
                 table_schema TEXT NOT NULL,
                 table_name   TEXT NOT NULL,
                 filename     TEXT NOT NULL,
-                ingested_at  TIMESTAMP NOT NULL DEFAULT now(),
+                ingested_at  TIMESTAMP NOT NULL
+                             DEFAULT ({LOADED_AT_DEFAULT}),
                 is_overwrite BOOLEAN NOT NULL DEFAULT FALSE,
                 PRIMARY KEY (table_schema, table_name, filename)
             );
             """
         )
+        # Tabela de controle criada antes desta regra ficou com o `now()` puro.
+        ensure_column_default(cur, self.schema, self.table, "ingested_at", None)
 
     def ingested(self, cur, table: str) -> set[str]:
         cur.execute(

@@ -76,7 +76,7 @@ def test_copy_csv_preserva_a_semantica_de_texto_da_raw(pg, tmp_path):
         pg,
         "SELECT data_type FROM information_schema.columns "
         f"WHERE table_schema = '{SCHEMA}' AND table_name = 'texto' "
-        "AND column_name NOT IN ('data_carga')",
+        "AND column_name NOT IN ('loaded_at_utc')",
     )
     assert {t[0] for t in tipos} == {"text"}
 
@@ -112,14 +112,14 @@ def test_send_df_to_db_distingue_nulo_de_string_vazia(pg):
 # ------------------------ colunas de rastreio ------------------------
 
 
-def test_data_carga_e_uma_so_para_a_carga_inteira(pg, tmp_path):
+def test_loaded_at_utc_e_um_so_para_a_carga_inteira(pg, tmp_path):
     path = bronze(tmp_path, "a\n" + "\n".join(str(i) for i in range(500)) + "\n")
     pg.copy_csv(path, "rastreio", schema=SCHEMA, filename=path.name)
 
     assert query(
         pg,
-        "SELECT count(DISTINCT data_carga),"
-        " count(*) FILTER (WHERE data_carga IS NULL),"
+        "SELECT count(DISTINCT loaded_at_utc),"
+        " count(*) FILTER (WHERE loaded_at_utc IS NULL),"
         " count(DISTINCT arquivo_origem), min(arquivo_origem)"
         f" FROM {SCHEMA}.rastreio",
     ) == [(1, 0, 1, "f.csv")]
@@ -132,7 +132,7 @@ def test_sem_filename_nao_cria_coluna_de_arquivo(pg):
         "SELECT column_name FROM information_schema.columns "
         f"WHERE table_schema = '{SCHEMA}' AND table_name = 'semarquivo'",
     )
-    assert {c[0] for c in colunas} == {"a", "data_carga"}
+    assert {c[0] for c in colunas} == {"a", "loaded_at_utc"}
 
 
 # ------------------------ modos de escrita ------------------------
@@ -210,7 +210,7 @@ def test_ordem_das_colunas_do_bronze_nao_importa(pg, tmp_path):
 # ------------------------ tabelas legadas do to_sql ------------------------
 
 
-def test_tabela_legada_sem_default_ganha_data_carga(pg, tmp_path):
+def test_tabela_legada_sem_default_ganha_carimbo(pg, tmp_path):
     """O ``to_sql`` criava ``data_carga`` sem DEFAULT; sem migrar, viria NULL."""
     conn = pg.connect()
     with conn.cursor() as cur:
@@ -226,8 +226,60 @@ def test_tabela_legada_sem_default_ganha_data_carga(pg, tmp_path):
 
     assert query(
         pg,
-        f"SELECT a, arquivo_origem, data_carga IS NOT NULL FROM {SCHEMA}.legada",
+        f"SELECT a, arquivo_origem, loaded_at_utc IS NOT NULL FROM {SCHEMA}.legada",
     ) == [("1", "f.csv", True)]
+
+
+def test_data_carga_vira_loaded_at_utc_preservando_os_valores(pg, tmp_path):
+    """Rename de catálogo: o carimbo antigo continua lá, com o nome novo."""
+    conn = pg.connect()
+    with conn.cursor() as cur:
+        cur.execute(
+            f"CREATE TABLE {SCHEMA}.renomeia (a TEXT, "
+            "data_carga TIMESTAMP NOT NULL DEFAULT now())"
+        )
+        cur.execute(f"INSERT INTO {SCHEMA}.renomeia (a) VALUES ('velha')")
+    conn.commit()
+    conn.close()
+    oid = query(pg, f"SELECT '{SCHEMA}.renomeia'::regclass::oid")
+
+    pg.copy_csv(
+        bronze(tmp_path, "a\nnova\n"), "renomeia", schema=SCHEMA, write="append"
+    )
+
+    colunas = query(
+        pg,
+        "SELECT column_name FROM information_schema.columns "
+        f"WHERE table_schema = '{SCHEMA}' AND table_name = 'renomeia'",
+    )
+    assert {c[0] for c in colunas} == {"a", "loaded_at_utc"}
+    assert query(
+        pg,
+        f"SELECT count(*), count(*) FILTER (WHERE loaded_at_utc IS NULL) "
+        f"FROM {SCHEMA}.renomeia",
+    ) == [(2, 0)]
+    # sem recreate: o OID é o mesmo, então as views do dbt sobrevivem ao rename
+    assert query(pg, f"SELECT '{SCHEMA}.renomeia'::regclass::oid") == oid
+
+
+def test_carimbo_e_utc_mesmo_com_a_sessao_em_outro_fuso(pg, tmp_path):
+    """É o DEFAULT que garante UTC, não o TimeZone do servidor."""
+    conn = pg.connect()
+    with conn.cursor() as cur:
+        cur.execute("SET SESSION TIME ZONE 'America/Sao_Paulo'")
+    cliente = PostgresClient(connection=conn)
+    cliente.copy_csv(bronze(tmp_path, "a\n1\n"), "fuso", schema=SCHEMA)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT abs(extract(epoch FROM"
+            " loaded_at_utc - (now() AT TIME ZONE 'utc')))"
+            f" FROM {SCHEMA}.fuso"
+        )
+        distancia = cur.fetchone()[0]
+    conn.close()
+    # em São Paulo (UTC-3) o now() puro daria ~10800s de diferença
+    assert distancia < 60
 
 
 # ------------------------ write: merge ------------------------
@@ -331,18 +383,18 @@ def test_merge_tolera_chave_repetida_no_lote(pg, tmp_path):
     assert query(pg, f"SELECT count(*) FROM {SCHEMA}.repetida") == [(1,)]
 
 
-def test_merge_atualiza_data_carga_e_arquivo_origem(pg, tmp_path):
+def test_merge_atualiza_carimbo_e_arquivo_origem(pg, tmp_path):
     p1 = bronze(tmp_path, "date;temp\n2026-01-01;10\n", nome="a.csv")
     pg.copy_csv(
         p1, "rastro", schema=SCHEMA, write="merge", merge_key=["date"], filename="a.csv"
     )
-    antes = query(pg, f"SELECT arquivo_origem, data_carga FROM {SCHEMA}.rastro")
+    antes = query(pg, f"SELECT arquivo_origem, loaded_at_utc FROM {SCHEMA}.rastro")
 
     p2 = bronze(tmp_path, "date;temp\n2026-01-01;11\n", nome="b.csv")
     pg.copy_csv(
         p2, "rastro", schema=SCHEMA, write="merge", merge_key=["date"], filename="b.csv"
     )
-    depois = query(pg, f"SELECT arquivo_origem, data_carga FROM {SCHEMA}.rastro")
+    depois = query(pg, f"SELECT arquivo_origem, loaded_at_utc FROM {SCHEMA}.rastro")
 
     assert antes[0][0] == "a.csv" and depois[0][0] == "b.csv"
     assert depois[0][1] > antes[0][1]
@@ -365,7 +417,7 @@ def test_merge_em_tabela_com_duplicatas_falha_alto(pg, tmp_path):
         )
 
 
-def test_jsonb_loader_grava_data_carga(pg, tmp_path):
+def test_jsonb_loader_grava_carimbo(pg, tmp_path):
     from core.jsonb import JsonbLoader
 
     (tmp_path / "x.json").write_text('[{"a": 1}, {"a": 2}]', encoding="utf-8")
@@ -374,8 +426,8 @@ def test_jsonb_loader_grava_data_carga(pg, tmp_path):
     )
     assert query(
         pg,
-        "SELECT count(*), count(*) FILTER (WHERE data_carga IS NULL),"
-        f" count(DISTINCT data_carga) FROM {SCHEMA}.jsonb_t",
+        "SELECT count(*), count(*) FILTER (WHERE loaded_at_utc IS NULL),"
+        f" count(DISTINCT loaded_at_utc) FROM {SCHEMA}.jsonb_t",
     ) == [(2, 0, 1)]
 
 

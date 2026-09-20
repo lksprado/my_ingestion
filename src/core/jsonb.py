@@ -1,9 +1,9 @@
 """Carga de arquivos JSON em tabelas JSONB via COPY.
 
-Cada registro vira uma linha ``(payload JSONB, source_filename TEXT, data_carga)``;
-a tabela de controle registra os arquivos já ingeridos, o que torna a carga
-incremental idempotente (arquivo já registrado é pulado). ``data_carga`` vem de
-``DEFAULT now()``, como nas tabelas tabulares.
+Cada registro vira uma linha ``(payload JSONB, source_filename TEXT,
+loaded_at_utc)``; a tabela de controle registra os arquivos já ingeridos, o que
+torna a carga incremental idempotente (arquivo já registrado é pulado).
+``loaded_at_utc`` vem de ``DEFAULT``, como nas tabelas tabulares.
 """
 
 import io
@@ -13,7 +13,13 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from core.control import CONTROL_TABLE, IngestionControl
-from core.db import PostgresClient, validate_raw_schema
+from core.db import (
+    LOADED_AT_COLUMN,
+    LOADED_AT_DEFAULT,
+    PostgresClient,
+    ensure_loaded_at,
+    validate_raw_schema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,22 +101,25 @@ class JsonbLoader:
 
     # ------------------------ DDL ------------------------
     def _ensure_table(self, cur, table: str) -> None:
-        # data_carga alinha as tabelas JSONB com as tabulares: é o loaded_at_field
-        # do dbt e o que a sincronização prod -> dev usa para achar o delta.
-        # Em tabela existente o ADD COLUMN é operação de catálogo (now() é stable),
-        # mas as linhas antigas ficam com o instante da migração, não o da ingestão.
+        # loaded_at_utc alinha as tabelas JSONB com as tabulares: é o
+        # loaded_at_field do dbt e o que a sincronização prod -> dev usa para
+        # achar o delta. Em tabela existente o ADD COLUMN é operação de catálogo,
+        # mas as linhas antigas ficam com o instante da migração, não o da
+        # ingestão.
         cur.execute(
             f"""
             CREATE SCHEMA IF NOT EXISTS {self.schema};
             CREATE TABLE IF NOT EXISTS {self.schema}.{table} (
                 payload JSONB NOT NULL,
                 source_filename TEXT NOT NULL,
-                data_carga TIMESTAMP NOT NULL DEFAULT now()
+                {LOADED_AT_COLUMN} TIMESTAMP NOT NULL
+                    DEFAULT ({LOADED_AT_DEFAULT})
             );
-            ALTER TABLE {self.schema}.{table}
-                ADD COLUMN IF NOT EXISTS data_carga TIMESTAMP DEFAULT now();
             """
         )
+        # Mesma migração do caminho tabular: renomeia data_carga, cria a coluna
+        # quando falta e conserta o DEFAULT de tabela criada antes desta regra.
+        ensure_loaded_at(cur, self.schema, table, self.logger)
 
     def _truncate(self, cur, table: str) -> None:
         cur.execute(f"TRUNCATE TABLE {self.schema}.{table}")
