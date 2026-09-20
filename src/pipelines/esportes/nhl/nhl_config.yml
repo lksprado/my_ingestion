@@ -7,19 +7,18 @@
 # Não há bronze (load: jsonb): os JSONs do landing vão direto para tabelas JSONB
 # (payload, source_filename) via core.JsonbLoader, com a tabela de controle abaixo.
 # ``options`` lidas pela core (load jsonb): array_key, overwrite, file_pattern,
-# control_table. Lidas por _common.py:
-#   param_schema   - schema das views dbt de parâmetros
-#   param_view     - view com os IDs a requisitar
-#   param_columns  - colunas da view que preenchem os placeholders da URL
-#   param_filter   - coluna booleana: só linhas com ela FALSE (ainda não sincronizadas)
+# control_table. Lidas pelo nhl_etl.py:
 #   season_subdir  - grava/lê em subpasta <season_id>/ (carrega só a mais recente)
+#   skip_existing  - não rebaixa arquivo já presente no landing (dado imutável)
 #   workers        - threads de extração (1 = sequencial)
+#
+# Quais IDs requisitar NÃO vem do YAML: cada entidade dinâmica tem sua consulta
+# na raw (params_* no nhl_etl.py), amarrada em ETLS.
 
 db_schema: "raw_nhl"
 load: jsonb
 options:
   control_table: "nhl_ingestion_control"   # preservado do repo original
-  param_schema: "staging"
 
 environments:
   dev:
@@ -55,7 +54,7 @@ sources:
       overwrite: true
       array_key: "data"
 
-  # ---------- dinâmicos: IDs vindos das views dbt ----------
+  # ---------- dinâmicos: IDs de uma consulta na raw (params_* no nhl_etl) ----------
   games_details:              # boxscore: detalhes do jogo com jogadores
     base_url: "https://api-web.nhle.com/v1/gamecenter/{game_id}/boxscore"
     subpath: "raw_all_games_details"
@@ -63,10 +62,8 @@ sources:
     db_table: "nhl_raw_all_games_details"
     options:
       overwrite: false
+      skip_existing: true
       file_pattern: "raw_*_details.json"
-      param_view: "vw_stg_request_games_id"
-      param_columns: [game_id]
-      param_filter: "has_games_details"
 
   games_summary_details:      # right-rail: estatísticas do jogo
     base_url: "https://api-web.nhle.com/v1/gamecenter/{game_id}/right-rail"
@@ -75,10 +72,8 @@ sources:
     db_table: "nhl_raw_all_games_summary_details"
     options:
       overwrite: false
+      skip_existing: true
       file_pattern: "raw_*_summary_details.json"
-      param_view: "vw_stg_request_games_id"
-      param_columns: [game_id]
-      param_filter: "has_games_summary_details"
 
   play_by_play:               # todos os eventos de um jogo
     base_url: "https://api-web.nhle.com/v1/gamecenter/{game_id}/play-by-play"
@@ -87,10 +82,8 @@ sources:
     db_table: "nhl_raw_all_play_by_play"
     options:
       overwrite: false
+      skip_existing: true
       file_pattern: "raw_*.json"
-      param_view: "vw_stg_request_games_id"
-      param_columns: [game_id]
-      param_filter: "has_play_by_play"
 
   club_stats:                 # estatísticas dos jogadores por time/temporada/tipo
     base_url: "https://api-web.nhle.com/v1/club-stats/{team_id}/{season_id}/{game_type_id}"
@@ -100,8 +93,6 @@ sources:
     options:
       overwrite: true
       file_pattern: "raw_stats_club_*_*_*.json"
-      param_view: "vw_stg_request_teams_seasons_gametypes_id"
-      param_columns: [team_id, season_id, game_type_id]
 
   players:                    # ficha do jogador
     base_url: "https://api-web.nhle.com/v1/player/{player_id}/landing"
@@ -111,8 +102,6 @@ sources:
     options:
       overwrite: true
       file_pattern: "player_*_info.json"
-      param_view: "vw_stg_request_players_id"
-      param_columns: [player_id]
 
   player_game_log:            # jogo a jogo do jogador na temporada
     base_url: "https://api-web.nhle.com/v1/player/{player_id}/game-log/{season_id}/{game_type_id}"
@@ -123,5 +112,3 @@ sources:
       overwrite: true
       file_pattern: "*_*_*.json"
       season_subdir: true
-      param_view: "vw_stg_request_players_seasons_gametypes_id"
-      param_columns: [player_id, season_id, game_type_id]
