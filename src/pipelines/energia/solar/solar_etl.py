@@ -1,9 +1,11 @@
-"""ETL da energia solar (portal APsystems) -> CSVs que o Airflow carrega em
-raw_apsystem (schema preservado do my_analytics).
+"""ETL da energia solar (portal APsystems) -> raw_apsystem (schema preservado do
+my_analytics).
 
 extract: high-water mark no Postgres -> datas faltantes -> login Selenium -> um
-JSON horário por dia no landing. ``daily_energy`` e ``hourly_energy`` leem o mesmo
-landing; só o primeiro extrai. ``load: none``: o Airflow faz o upsert.
+JSON horário por dia no landing, que acumula o histórico. ``daily_energy`` e
+``hourly_energy`` leem o mesmo landing; só o primeiro extrai. load: full refresh
+(``write: truncate``) — cada tabela é função do landing, e é o extract que evita
+rebaixar o que já está lá.
 """
 
 import logging
