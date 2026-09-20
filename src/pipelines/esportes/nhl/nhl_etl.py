@@ -21,6 +21,7 @@ from core import (
     PostgresClient,
     run_source,
 )
+from settings import settings
 
 logger = logging.getLogger(__name__)
 CONFIG_FILE = Path(__file__).parent / "nhl_config.yml"
@@ -39,7 +40,8 @@ def fetch_params(cfg: PipelineConfig) -> list[dict]:
     )
     if opts.get("param_filter"):
         sql += f" WHERE {opts['param_filter']} IS FALSE"
-    rows = PostgresClient(log=logger).read_sql(sql)[columns].to_dict(orient="records")
+    db = PostgresClient(settings.models_target, log=logger)
+    rows = db.read_sql(sql)[columns].to_dict(orient="records")
     logger.info(f"🔎 {len(rows)} parâmetro(s) de {opts['param_view']}")
     return rows
 

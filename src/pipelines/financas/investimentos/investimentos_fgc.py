@@ -66,7 +66,8 @@ def _normalize_for_match(s: str) -> str:
 
 def build_depara(csv_path: Path, output_dir: Path, threshold: int = 80) -> Path:
     """Constroi o de-para emissor -> conglomerado e escreve o CSV. Retorna o path."""
-    emissores = PostgresClient(log=logger).read_sql(_SQL_EMISSORES)["emissor"].tolist()
+    db = PostgresClient(settings.models_target, log=logger)
+    emissores = db.read_sql(_SQL_EMISSORES)["emissor"].tolist()
     logger.info("Emissores distintos lidos de int_renda_fixa: %d", len(emissores))
 
     inst = pd.read_csv(csv_path)

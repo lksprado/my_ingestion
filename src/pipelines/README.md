@@ -252,7 +252,7 @@ está no padrão.
   repo**, em `~/.secrets/`, e o `.env` guarda só o caminho.
 - Banco: nunca escolha o destino no código. `PostgresClient()` usa o perfil
   `DB__<ENV>__*` do ambiente ativo (`settings.db_target`); em `dev` é sempre
-  `analytics_dev`. O schema vem do YAML (`db_schema: raw_<fonte>`) e toda escrita
+  `ingestion_sandbox`. Leitura de objeto do dbt usa `settings.models_target`. O schema vem do YAML (`db_schema: raw_<fonte>`) e toda escrita
   exige `schema=` explícito — a `core` recusa qualquer coisa sem o prefixo `raw_`.
 
 ---
@@ -268,7 +268,7 @@ está no padrão.
 - [ ] `uv run task lint` e `uv run task test` limpos.
 - [ ] O módulo importa isolado:
       `uv run python -c "import pipelines.<domínio>.<fonte>.<fonte>_etl"`.
-- [ ] Rodou de verdade uma vez e conferiu a tabela em `raw_<fonte>.*` do `analytics_dev`.
+- [ ] Rodou de verdade uma vez e conferiu a tabela em `raw_<fonte>.*` do `ingestion_sandbox`.
 - [ ] Nenhum caminho absoluto e nenhum segredo no diff (o `pre-commit` roda o
       gitleaks, mas confira).
 

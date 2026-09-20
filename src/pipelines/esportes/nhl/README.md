@@ -65,10 +65,13 @@ source por endpoint com seu bloco `options` (documentado no cabeçalho do YAML):
 `array_key`, `file_pattern`, `season_subdir` e `workers` (threads; default 1, seja
 gentil com a API).
 
-Credenciais: só o Postgres do `.env` da raiz (perfil `DB__<ENV>__*`). As tabelas
-`raw_nhl.nhl_raw_*` e as views `staging.vw_stg_request_*` ficam no banco do
-ambiente (`analytics_dev` em dev); o dbt `my_analytics` precisa rodar contra
-ele antes dos pipelines dinâmicos. A API não exige token.
+Credenciais: só o Postgres do `.env` da raiz (perfil `DB__<ENV>__*`). Em dev as
+tabelas `raw_nhl.nhl_raw_*` são carregadas no `ingestion_sandbox`, e as views
+`vw_stg_request_*` são lidas do `analytics_dev` (`settings.models_target`); em
+prod é tudo o mesmo banco. O dbt `my_analytics` precisa rodar antes dos
+pipelines dinâmicos. Para testar um dinâmico no sandbox, antes rode
+`scripts/raw_copy.sh seed raw_nhl` (senão o controle de ingestão está vazio e ele
+recarrega tudo). A API não exige token.
 
 ## Idempotência
 

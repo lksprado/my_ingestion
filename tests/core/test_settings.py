@@ -11,7 +11,7 @@ BASE = {
     "SEEDS_ROOT": "/tmp/seeds",
     "DB__DEV__HOST": "localhost",
     "DB__DEV__PORT": "5435",
-    "DB__DEV__NAME": "analytics_dev",
+    "DB__DEV__NAME": "ingestion_sandbox",
     "DB__DEV__USER": "u",
     "DB__DEV__PASSWORD": "p@ss/word",
 }
@@ -32,16 +32,36 @@ def _settings(monkeypatch, **override):
 def test_db_target_follows_env(monkeypatch):
     s = _settings(monkeypatch)
     assert s.env == "dev"
-    assert s.db_target.name == "analytics_dev"
+    assert s.db_target.name == "ingestion_sandbox"
     assert s.db_target.port == 5435
     # Senha com caracteres especiais é escapada na URL.
     assert s.db_url.startswith("postgresql+psycopg2://u:p%40ss%2Fword@localhost:5435/")
-    assert s.db_url.endswith("/analytics_dev")
+    assert s.db_url.endswith("/ingestion_sandbox")
 
 
-def test_dev_env_requires_analytics_dev(monkeypatch):
-    with pytest.raises(ValidationError, match="DB__DEV__NAME=analytics_dev"):
-        _settings(monkeypatch, DB__DEV__NAME="demodados")
+def test_dev_env_requires_ingestion_sandbox(monkeypatch):
+    with pytest.raises(ValidationError, match="DB__DEV__NAME=ingestion_sandbox"):
+        _settings(monkeypatch, DB__DEV__NAME="analytics_dev")
+
+
+def test_models_target_in_dev_is_analytics_dev(monkeypatch):
+    s = _settings(monkeypatch)
+    assert s.models_target.name == "analytics_dev"
+    assert s.models_target.host == s.db_target.host
+    assert s.models_target.user == s.db_target.user
+    assert s.db_target.name == "ingestion_sandbox"
+
+
+def test_models_target_in_prod_is_db_target(monkeypatch):
+    s = _settings(
+        monkeypatch,
+        ENV="prod",
+        DB__PROD__HOST="pg",
+        DB__PROD__NAME="analytics_prod",
+        DB__PROD__USER="u",
+        DB__PROD__PASSWORD="p",
+    )
+    assert s.models_target == s.db_target
 
 
 def test_active_profile_must_be_complete(monkeypatch):

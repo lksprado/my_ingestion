@@ -12,7 +12,7 @@ e no Postgres (`raw_<fonte>.<entidade>` no banco do ambiente). Quem agenda é o
 
 ```bash
 uv sync                          # .venv único (Python 3.12)
-cp .env.example .env             # preencha; em dev o banco é analytics_dev
+cp .env.example .env             # preencha; em dev o banco é ingestion_sandbox
 uv run pre-commit install        # ruff, gitleaks e bloqueio de commit na main
 ```
 
@@ -29,6 +29,20 @@ Cada fonte roda sozinha pela linha de comando:
 uv run python -m pipelines.legislativo.camara.camara_etl                          # todas as entidades
 uv run python -m pipelines.legislativo.camara.camara_etl proposicao --steps transform,load
 ```
+
+### Bancos em dev
+
+As cargas locais vão para o `ingestion_sandbox`, um banco descartável. O `analytics_dev` é do dbt e
+só recebe raw por cópia. Pipelines que leem objetos do dbt (views de parâmetros da NHL,
+`int_renda_fixa`) leem do `analytics_dev` (`settings.models_target`).
+
+```bash
+scripts/raw_copy.sh seed raw_nhl       # analytics_dev -> sandbox: antes de testar um incremental
+scripts/raw_copy.sh promote raw_nhl    # sandbox -> analytics_dev: raw validada, para modelar no dbt
+```
+
+A cópia troca tabela a tabela. Views do dbt sobre a raw caem junto (`CASCADE`) e voltam no
+próximo `dbt build`.
 
 - **Pipeline novo:** siga [`src/pipelines/README.md`](src/pipelines/README.md) (onde colocar, YAML, esqueleto, checklist).
 - **Biblioteca compartilhada** (`core`): [`src/core/README.md`](src/core/README.md).

@@ -45,9 +45,11 @@ def test_load_files_validates_before_reading(tmp_path):
 
 
 def test_client_uses_injected_target_without_env():
-    target = DbTarget(host="h", port=1, name="analytics_dev", user="u", password="p")
+    target = DbTarget(
+        host="h", port=1, name="ingestion_sandbox", user="u", password="p"
+    )
     engine = PostgresClient(target=target).alchemy()  # create_engine não conecta
-    assert engine.url.database == "analytics_dev"
+    assert engine.url.database == "ingestion_sandbox"
     assert engine.url.host == "h"
 
 
