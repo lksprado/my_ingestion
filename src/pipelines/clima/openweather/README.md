@@ -3,7 +3,8 @@
 Resumo meteorológico diário de um ponto fixo (Atibaia/SP) via API
 [One Call 3.0 — day_summary](https://openweathermap.org/api/one-call-3#history_daily_aggregation).
 Mesmo desenho do [`energia/solar`](../../energia/solar/README.md): high-water mark no
-Postgres → extração só das datas faltantes → CSV consolidado no staging.
+Postgres → extração só das datas faltantes → landing que acumula os JSONs → bronze
+reconstruído a partir dele → full refresh da tabela.
 
 Migrado do repo `openweather` (submódulo `include/openweather` do airflow3).
 
