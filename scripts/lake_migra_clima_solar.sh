@@ -44,6 +44,41 @@ executa() {
     fi
 }
 
+# Move um arquivo copiando e só então apagando a origem.
+#
+# Não dá para usar `mv`: no SeaweedFS cada pasta de topo de /buckets é um bucket
+# próprio, e rename entre buckets devolve EIO -- o mv nem cai no fallback de
+# copiar, porque o erro não é EXDEV. Copiar e conferir o tamanho antes de apagar
+# também deixa a migração retomável: arquivo já no destino só some da origem.
+mover_arquivo() {
+    local arquivo=$1 destino=$2
+    local nome=${arquivo##*/}
+    if [[ -e $destino/$nome ]] && [[ $(stat -c%s "$arquivo") == $(stat -c%s "$destino/$nome") ]]; then
+        rm -f "$arquivo"
+        return 0
+    fi
+    # -p pode falhar em FUSE ao preservar metadados; o dado importa mais.
+    cp -p "$arquivo" "$destino/$nome" 2>/dev/null || cp "$arquivo" "$destino/$nome" || return 1
+    [[ $(stat -c%s "$arquivo") == $(stat -c%s "$destino/$nome") ]] || return 1
+    rm -f "$arquivo"
+}
+
+mover_lote() {
+    local destino=$1
+    shift
+    local feitos=0 falhas=0
+    for arquivo in "$@"; do
+        if mover_arquivo "$arquivo" "$destino"; then
+            feitos=$((feitos + 1))
+        else
+            falhas=$((falhas + 1))
+            echo "   ❌ falhou: $arquivo" >&2
+        fi
+    done
+    echo "   $feitos movido(s)$([[ $falhas -gt 0 ]] && echo ", $falhas com falha")"
+    [[ $falhas == 0 ]]
+}
+
 for projeto in "${PROJETOS[@]}"; do
     landing="$LAKE_ROOT/raw/$projeto"
     bronze="$LAKE_ROOT/bronze/$projeto"
@@ -57,9 +92,9 @@ for projeto in "${PROJETOS[@]}"; do
         if ((${#jsons[@]})); then
             echo "   ${#jsons[@]} JSON(s) bronze/ -> raw/"
             if [[ $DRY_RUN == 1 ]]; then
-                echo "   + mv <${#jsons[@]} arquivos> $landing/"
+                echo "   + copia ${#jsons[@]} arquivo(s) para $landing/ e apaga a origem"
             else
-                printf '%s\0' "${jsons[@]}" | xargs -0 mv -n -t "$landing"
+                mover_lote "$landing" "${jsons[@]}"
             fi
         else
             echo "   nenhum JSON em bronze/ (já migrado?)"
@@ -69,7 +104,11 @@ for projeto in "${PROJETOS[@]}"; do
     # controle de datas: staging -> landing (é entrada do extract, não bronze)
     if [[ -f $staging/missing_dates.csv ]]; then
         echo "   missing_dates.csv staging/ -> raw/"
-        executa mv -n "$staging/missing_dates.csv" "$landing/"
+        if [[ $DRY_RUN == 1 ]]; then
+            echo "   + copia $staging/missing_dates.csv para $landing/ e apaga a origem"
+        else
+            mover_arquivo "$staging/missing_dates.csv" "$landing"
+        fi
     fi
 
     # CSVs soltos no staging eram o bronze antigo; o transform regrava em bronze/
