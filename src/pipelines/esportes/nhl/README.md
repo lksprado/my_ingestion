@@ -3,8 +3,8 @@
 Extrai estatísticas de hóquei das APIs públicas da NHL (`api-web.nhle.com` e
 `api.nhle.com/stats`) e carrega os JSONs **sem transformação** em tabelas JSONB
 (`payload`, `source_filename`) no schema `raw_nhl` (`load: jsonb` no YAML). A
-normalização acontece no dbt [`my_analytics`](https://github.com/lksprado/my_analytics)
-(seletor `nhl`).
+normalização acontece no dbt [`my_analytics`](https://github.com/lksprado/my_analytics),
+que consome `raw_nhl` **a jusante**: nenhum passo deste pipeline depende dele.
 
 Migrado do repo `nhl-extraction` (submódulo `include/nhl_extraction` do airflow3).
 
@@ -32,46 +32,64 @@ o schema segue o padrão (`raw_nhl`, chave `db_schema` do YAML).
 ## Como funciona
 
 Em `ETLS`, as entidades **estáticas** usam o extract padrão da `core` (uma requisição
-a `base_url`); as **dinâmicas** (com `param_view` no YAML) usam `extract_dynamic`, que lê os IDs de uma view do dbt e
-requisita `base_url.format(**linha)`. Não há transform. O load é o modo `jsonb` da
-`core` (`JsonbLoader`, controle em `raw_nhl.nhl_ingestion_control`); só
-`player_game_log` usa um `load_fn` próprio para carregar a temporada mais recente.
+a `base_url`); as **dinâmicas** usam `extract_dynamic`, que recebe por `functools.partial`
+a função `params_*` que descobre quais IDs requisitar e depois pede
+`base_url.format(**linha)`. Não há transform. O load é o modo `jsonb` da `core`
+(`JsonbLoader`, controle em `raw_nhl.nhl_ingestion_control`); só `player_game_log`
+usa um `load_fn` próprio para carregar a temporada mais recente.
 
-## Dependências entre pipelines (ordem de execução)
+## De onde vêm os IDs (sem dbt)
 
-Os seis pipelines dinâmicos descobrem **quais IDs requisitar** em views do dbt
-(`staging.vw_stg_request_*`), que cruzam `games_summary` com o que já foi carregado.
-Logo a sequência é a do `dag_nhl_master` do airflow3:
+As quatro consultas de parâmetro leem o **mesmo banco da carga** (`PostgresClient()`,
+não `models_target`), só o schema `raw_nhl`:
+
+| Função | Entidades | O que devolve |
+|---|---|---|
+| `params_jogos` | `games_details`, `games_summary_details`, `play_by_play` | `game_id` dos jogos já realizados (`gameStateId = 7`) na temporada atual que ainda não constam de `cfg.db_table` na tabela de controle |
+| `params_times` | `club_stats` | `team_id` (triCode), `season_id`, `game_type_id` dos times com jogo realizado na temporada atual, tipos 2 e 3 |
+| `params_jogadores` | `players` | `player_id` de goleiros e jogadores de linha em `nhl_raw_all_club_stats` na temporada/tipo atuais |
+| `params_jogadores_temporada` | `player_game_log` | os mesmos `player_id` com `season_id`/`game_type_id` |
+
+Elas substituem as views `staging_nhl.vw_stg_request_*` do `my_analytics` e devolvem
+o mesmo conjunto (conferido linha a linha contra as views). A diferença é o critério
+de "já tenho": antes era "existe no staging do dbt", agora é "existe na tabela de
+controle da ingestão" — o metadado que o próprio `JsonbLoader` grava.
+
+`params_jogadores*` derivam a temporada da **agenda** (`games_summary`), não de
+`nhl_raw_all_seasons_id`: o endpoint de seasons já lista a temporada seguinte, que
+ainda não tem `club_stats` e zeraria a lista de jogadores. É o mesmo critério que as
+views usavam.
+
+## Ordem de execução
+
+`games_summary` é a base de tudo (é dela que saem os jogos realizados); `teams`
+traduz id → triCode para `club_stats`; `club_stats` alimenta `players` e
+`player_game_log`. Sem dbt no meio:
 
 ```bash
-uv run python -m pipelines.esportes.nhl.nhl_etl games_summary   # 1) base dos IDs
-dbt build --selector nhl          # 2) no my_analytics: (re)constrói as views
+uv run python -m pipelines.esportes.nhl.nhl_etl games_summary     # 1) base dos IDs
 uv run python -m pipelines.esportes.nhl.nhl_etl \
-    games_summary_details games_details play_by_play club_stats player_game_log players   # 3) os seis dinâmicos
-dbt build --selector nhl          # 4) staging/intermediate/marts com os dados novos
+    games_summary_details games_details play_by_play \
+    club_stats player_game_log players                            # 2) os seis dinâmicos
 ```
 
 `seasons` e `teams` mudam uma vez por ano (rodar em outubro:
-`nhl_etl seasons teams`). Rodar `nhl_etl` sem entidades executa as nove em
-sequência, o que só faz sentido com as views já construídas. Uma entidade que
-falha não aborta as demais. `--steps load` recarrega o landing sem bater na API
-(era `--load-only`).
+`nhl_etl seasons teams`). Rodar `nhl_etl` sem entidades executa as nove na ordem de
+`ETLS`, que já é essa. Uma entidade que falha não aborta as demais. `--steps load`
+recarrega o landing sem bater na API.
 
 ## Configuração
 
-`nhl_config.yml`: no topo, `load: jsonb`, `control_table` e `param_schema`; um
-source por endpoint com seu bloco `options` (documentado no cabeçalho do YAML):
-`param_view`/`param_columns`/`param_filter` (de onde vêm os IDs), `overwrite`,
-`array_key`, `file_pattern`, `season_subdir` e `workers` (threads; default 1, seja
-gentil com a API).
+`nhl_config.yml`: no topo, `load: jsonb` e `control_table`; um source por endpoint
+com seu bloco `options` (documentado no cabeçalho do YAML): `overwrite`, `array_key`,
+`file_pattern`, `season_subdir`, `skip_existing` e `workers` (threads; default 1, seja
+gentil com a API). **Quais IDs requisitar não está no YAML** — é a `params_*` amarrada
+em `ETLS`.
 
-Credenciais: só o Postgres do `.env` da raiz (perfil `DB__<ENV>__*`). Em dev as
-tabelas `raw_nhl.nhl_raw_*` são carregadas no `ingestion_sandbox`, e as views
-`vw_stg_request_*` são lidas do `analytics_dev` (`settings.models_target`); em
-prod é tudo o mesmo banco. O dbt `my_analytics` precisa rodar antes dos
-pipelines dinâmicos. Para testar um dinâmico no sandbox, antes rode
-`scripts/raw_copy.sh seed raw_nhl` (senão o controle de ingestão está vazio e ele
-recarrega tudo). A API não exige token.
+Credenciais: só o Postgres do `.env` da raiz (perfil `DB__<ENV>__*`). Em dev tudo
+acontece no `ingestion_sandbox`; em prod, no banco do Airflow. Para testar um
+incremental no sandbox, antes rode `scripts/raw_copy.sh seed raw_nhl` — senão o
+controle de ingestão está vazio e os `params_*` pedem a temporada inteira.
 
 ## Idempotência
 
@@ -79,17 +97,24 @@ recarrega tudo). A API não exige token.
 `raw_nhl.nhl_ingestion_control` (nome preservado do repo original — o banco já tem o
 histórico). Pipelines com `overwrite: false` só inserem arquivos que não constam lá;
 os com `overwrite: true` truncam a tabela e limpam o controle antes de recarregar.
+Como os `params_*` leem esse mesmo controle, extract e load enxergam o mesmo delta.
 
 ## Armadilhas
 
-- **As views precisam existir.** O `my_analytics` está com `staging.nhl`
-  `+enabled: false` no `dbt_project.yml`; sem habilitar e construir o seletor `nhl`,
-  os dinâmicos falham no `fetch_params`.
+- **`table_schema` legado no controle.** O repo `nhl-extraction` gravava as ~168 mil
+  linhas de controle com `table_schema = 'nhl'`; aqui o schema é `raw_nhl`. Enquanto
+  isso não for corrigido, o controle parece vazio: a carga duplica tudo e os `params_*`
+  pedem a temporada inteira de novo. Rode uma vez por banco:
+  `scripts/nhl_controle_migra.sh` (idempotente).
 - `all_games_summary.json` tem ~33 MB e é serializado em memória antes do COPY.
 - A API devolve 404 para jogos ainda não realizados: o `HttpClient` loga e pula.
-  A view `vw_stg_request_games_id` já filtra por `has_happened_by_status`.
+  O `params_jogos` já filtra por `gameStateId = 7`.
 - `player_game_log` grava em `raw_game_log/<season_id>/` e carrega **só a pasta de
   maior nome** (temporada mais recente). Para recarregar uma temporada antiga, use
   o `JsonbLoader` direto com os arquivos da pasta.
+- Na entressafra, `players` e `player_game_log` devolvem zero parâmetros: a agenda já
+  tem a temporada seguinte, mas `club_stats` ainda é da anterior. Volta ao normal no
+  primeiro jogo realizado. Era assim nas views do dbt também.
 - Volumes: `games_details` e `summary_details` têm ~70 mil arquivos cada; a primeira
-  carga completa leva horas. Depois disso é só o delta.
+  carga completa leva horas. Depois disso é só o delta — e `skip_existing` evita
+  rebaixar o que já está no landing.

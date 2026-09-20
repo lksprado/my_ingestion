@@ -33,8 +33,8 @@ uv run python -m pipelines.legislativo.camara.camara_etl proposicao --steps tran
 ### Bancos em dev
 
 As cargas locais vão para o `ingestion_sandbox`, um banco descartável. O `analytics_dev` é do dbt e
-só recebe raw por cópia. Pipelines que leem objetos do dbt (views de parâmetros da NHL,
-`int_renda_fixa`) leem do `analytics_dev` (`settings.models_target`).
+só recebe raw por cópia. O único pipeline que lê objeto do dbt é o
+`investimentos_fgc` (`int_renda_fixa`), pelo `analytics_dev` (`settings.models_target`).
 
 ```bash
 scripts/raw_copy.sh seed raw_nhl       # analytics_dev -> sandbox: antes de testar um incremental

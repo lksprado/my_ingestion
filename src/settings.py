@@ -14,9 +14,9 @@ Guard-rail: em ``ENV=dev`` o banco tem que ser ``ingestion_sandbox``. Perfis
 inativos podem ficar em branco no .env.
 
 Em dev, cargas e objetos do dbt vivem em bancos diferentes: a carga vai para o
-sandbox, e o que o dbt constrói (views de parâmetros, intermediate) fica no
-``analytics_dev``. Leituras desses objetos usam ``settings.models_target``. Em
-prod os dois são o mesmo banco.
+sandbox, e o que o dbt constrói (``intermediate``, marts) fica no
+``analytics_dev``. Leituras desses objetos usam ``settings.models_target`` — hoje
+só o ``investimentos_fgc``. Em prod os dois são o mesmo banco.
 """
 
 from pathlib import Path

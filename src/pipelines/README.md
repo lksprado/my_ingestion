@@ -218,7 +218,7 @@ levantar exceção — trate o item, logue e siga. Um ID quebrado não pode derr
 extração de 4 horas.
 
 **Várias entidades de uma vez.** `<fonte>_etl a b c` roda só essas, em sequência,
-isolando falhas (ex.: os seis dinâmicos da NHL depois do dbt).
+isolando falhas (ex.: os seis dinâmicos da NHL depois do `games_summary`).
 
 ---
 
@@ -252,7 +252,7 @@ está no padrão.
   repo**, em `~/.secrets/`, e o `.env` guarda só o caminho.
 - Banco: nunca escolha o destino no código. `PostgresClient()` usa o perfil
   `DB__<ENV>__*` do ambiente ativo (`settings.db_target`); em `dev` é sempre
-  `ingestion_sandbox`. Leitura de objeto do dbt usa `settings.models_target`. O schema vem do YAML (`db_schema: raw_<fonte>`) e toda escrita
+  `ingestion_sandbox`. Leitura de objeto do dbt (raro) usa `settings.models_target`. O schema vem do YAML (`db_schema: raw_<fonte>`) e toda escrita
   exige `schema=` explícito — a `core` recusa qualquer coisa sem o prefixo `raw_`.
 
 ---
