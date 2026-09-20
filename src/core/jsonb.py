@@ -1,8 +1,9 @@
 """Carga de arquivos JSON em tabelas JSONB via COPY.
 
-Cada registro vira uma linha ``(payload JSONB, source_filename TEXT)``; a
-tabela de controle registra os arquivos já ingeridos, o que torna a carga
-incremental idempotente (arquivo já registrado é pulado).
+Cada registro vira uma linha ``(payload JSONB, source_filename TEXT, data_carga)``;
+a tabela de controle registra os arquivos já ingeridos, o que torna a carga
+incremental idempotente (arquivo já registrado é pulado). ``data_carga`` vem de
+``DEFAULT now()``, como nas tabelas tabulares.
 """
 
 import io
@@ -11,6 +12,7 @@ import logging
 from collections.abc import Iterable
 from pathlib import Path
 
+from core.control import CONTROL_TABLE, IngestionControl
 from core.db import PostgresClient, validate_raw_schema
 
 logger = logging.getLogger(__name__)
@@ -70,8 +72,9 @@ class JsonbLoader:
     """Carrega JSONs brutos em ``schema.table (payload JSONB, source_filename)``.
 
     ``schema`` é obrigatório e precisa ser ``raw_<fonte>`` (``validate_raw_schema``).
-    ``<schema>.<control_table>`` guarda os arquivos já ingeridos por tabela; cargas
-    com ``overwrite=False`` só inserem os que ainda não constam lá.
+    ``<schema>.<control_table>`` (``core.control.IngestionControl``) guarda os
+    arquivos já ingeridos por tabela; cargas com ``overwrite=False`` só inserem os
+    que ainda não constam lá.
     """
 
     def __init__(
@@ -79,65 +82,40 @@ class JsonbLoader:
         db: PostgresClient,
         *,
         schema: str,
-        control_table: str = "ingestion_control",
+        control_table: str = CONTROL_TABLE,
         log: logging.Logger | None = None,
     ):
         self.db = db
         self.schema = validate_raw_schema(schema)
         self.control_table = control_table
         self.logger = log or logger
+        self.control = IngestionControl(
+            db, schema=self.schema, table=control_table, log=self.logger
+        )
 
     # ------------------------ DDL ------------------------
     def _ensure_table(self, cur, table: str) -> None:
+        # data_carga alinha as tabelas JSONB com as tabulares: é o loaded_at_field
+        # do dbt e o que a sincronização prod -> dev usa para achar o delta.
+        # Em tabela existente o ADD COLUMN é operação de catálogo (now() é stable),
+        # mas as linhas antigas ficam com o instante da migração, não o da ingestão.
         cur.execute(
             f"""
             CREATE SCHEMA IF NOT EXISTS {self.schema};
             CREATE TABLE IF NOT EXISTS {self.schema}.{table} (
                 payload JSONB NOT NULL,
-                source_filename TEXT NOT NULL
+                source_filename TEXT NOT NULL,
+                data_carga TIMESTAMP NOT NULL DEFAULT now()
             );
-            """
-        )
-
-    def _ensure_control_table(self, cur) -> None:
-        cur.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS {self.schema}.{self.control_table} (
-                table_schema TEXT NOT NULL,
-                table_name   TEXT NOT NULL,
-                filename     TEXT NOT NULL,
-                ingested_at  TIMESTAMP NOT NULL DEFAULT now(),
-                is_overwrite BOOLEAN NOT NULL DEFAULT FALSE,
-                PRIMARY KEY (table_schema, table_name, filename)
-            );
+            ALTER TABLE {self.schema}.{table}
+                ADD COLUMN IF NOT EXISTS data_carga TIMESTAMP DEFAULT now();
             """
         )
 
     def _truncate(self, cur, table: str) -> None:
         cur.execute(f"TRUNCATE TABLE {self.schema}.{table}")
-        cur.execute(
-            f"DELETE FROM {self.schema}.{self.control_table} "
-            "WHERE table_schema = %s AND table_name = %s",
-            (self.schema, table),
-        )
+        self.control.clear(cur, table)
         self.logger.info(f"🧹 Tabela truncada: {self.schema}.{table}")
-
-    # ------------------------ controle ------------------------
-    def _ingested_filenames(self, cur, table: str) -> set[str]:
-        cur.execute(
-            f"SELECT filename FROM {self.schema}.{self.control_table} "
-            "WHERE table_schema = %s AND table_name = %s",
-            (self.schema, table),
-        )
-        return {row[0] for row in cur.fetchall()}
-
-    def _register(self, cur, table: str, filename: str, overwrite: bool) -> None:
-        cur.execute(
-            f"INSERT INTO {self.schema}.{self.control_table} "
-            "(table_schema, table_name, filename, is_overwrite) "
-            "VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (self.schema, table, filename, overwrite),
-        )
 
     def _copy(self, cur, table: str, buffer: io.StringIO) -> None:
         cur.copy_expert(
@@ -164,12 +142,12 @@ class JsonbLoader:
         try:
             with conn.cursor() as cur:
                 self._ensure_table(cur, table)
-                self._ensure_control_table(cur)
+                self.control.ensure(cur)
                 if overwrite:
                     self._truncate(cur, table)
                     new_files = files
                 else:
-                    ingested = self._ingested_filenames(cur, table)
+                    ingested = self.control.ingested(cur, table)
                     new_files = [f for f in files if f.name not in ingested]
 
                 if not new_files:
@@ -185,7 +163,7 @@ class JsonbLoader:
                 for i, filepath in enumerate(new_files, start=1):
                     buffer = json_file_to_ndjson_buffer(filepath, array_key)
                     self._copy(cur, table, buffer)
-                    self._register(cur, table, filepath.name, overwrite)
+                    self.control.register(cur, table, [filepath.name], overwrite)
                     if i % 1000 == 0:
                         self.logger.info(f"   ... {i}/{len(new_files)}")
             conn.commit()

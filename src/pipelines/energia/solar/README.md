@@ -10,14 +10,14 @@ ETL em `solar_etl.py` (Selenium e parsers inclusos); configuração em `solar_co
 
 ## O que gera
 
-| Entidade | Etapas | Saída (staging) |
-|---|---|---|
-| `daily_energy` | extract + transform | `daily_energy.csv` |
-| `hourly_energy` | transform (lê o mesmo landing) | `hourly_energy.csv` |
+| Entidade | Etapas | Bronze | Tabela |
+|---|---|---|---|
+| `daily_energy` | extract + transform + load | `daily_energy.csv` | `raw_apsystem.solar_daily_energy` |
+| `hourly_energy` | transform + load (lê o mesmo landing) | `hourly_energy.csv` | `raw_apsystem.solar_hourly_energy` |
 
 O **daily vem primeiro** (ordem de `ETLS`): é ele que faz a extração (um JSON por dia,
-`hourly24_production_YYYY-MM-DD.json`). Sem load (`load: none`): o Airflow carrega em
-`raw_apsystem.solar_daily_energy` / `solar_hourly_energy`.
+`hourly24_production_YYYY-MM-DD.json`). A carga é full refresh (`write: truncate`,
+o default): cada tabela é função do landing.
 
 ## Fluxo
 
@@ -44,17 +44,23 @@ Sem datas faltantes, o extract encerra com `Nenhuma data faltando.`
 
 No `.env` da raiz: `APSYSTEMS_USER=` e `APSYSTEMS_PASSWORD=`; banco pelo perfil
 `DB__<ENV>__*` (`raw_apsystem.*` precisa existir lá). ID do equipamento, URLs do
-portal, `headless` e arquivo de controle ficam em `options` no YAML. Saídas em
-`${LAKE_ROOT}/staging/solar_project/`.
+portal, `headless` e arquivo de controle ficam em `options` no YAML. Landing em
+`${LAKE_ROOT}/raw/solar_project/` (acumula os JSONs e o `missing_dates.csv`),
+bronze em `${LAKE_ROOT}/bronze/solar_project/`.
 
 ## Notas
 
-- **Não há etapa de load.** O Postgres é lido apenas para descobrir até onde os
-  dados já vão; a carga fica a cargo do Airflow.
+- **A carga é full refresh a partir do landing**, e o que evita rebaixar o
+  histórico é o extract (high-water mark nas próprias tabelas). O landing é a
+  fonte de verdade: os 1.821 JSONs reconstroem as 1.819 linhas de
+  `solar_daily_energy` e as 43.656 de `solar_hourly_energy` em ~16 s.
+- Os índices únicos `solar_daily_energy_date_pk` e
+  `solar_hourly_energy_datetime_pk` continuam no banco e não atrapalham, mas
+  deixaram de ser necessários (eram do upsert que o DAG fazia).
 - O Selenium roda **com janela** por padrão (`headless: false` no YAML), porque o
   portal se comporta mal em headless.
-- `all_dfs.csv` (consolidado intermediário) **não é mais gravado**; confirme que o
-  DAG não o lê.
+- `all_dfs.csv` (consolidado intermediário) **não é mais gravado**; há um resquício
+  dele em `bronze/solar_project/` que pode ser apagado à mão.
 - Testes dos parsers em `tests/energia/test_solar_parsers.py`.
 
 ## Checklist para o DAG do Airflow (mudou nesta padronização)

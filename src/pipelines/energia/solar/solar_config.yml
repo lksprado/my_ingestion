@@ -1,14 +1,15 @@
 # Fonte: portal apsystemsema.com (login via Selenium, relatório horário via AJAX).
-# Landing e bronze ficam no mesmo staging: um JSON por dia + daily_energy.csv e
-# hourly_energy.csv com "," — o Airflow lê os CSVs e faz o upsert em
-# raw_apsystem.solar_daily_energy / solar_hourly_energy (por isso load: none).
+# Padrão das demais fontes: o landing acumula um JSON por dia, cada entidade
+# reconstrói seu bronze a partir dele e a carga é full refresh (write: truncate,
+# o default). O que evita rebaixar o histórico é o extract, incremental por data
+# (high-water mark nas próprias tabelas), não a carga.
 # Schema raw_apsystem preservado: é o que o my_analytics lê.
+# bronze_sep "," é o formato histórico destes CSVs; nada fora daqui os lê.
 # ``{day}`` em landing_file é resolvido pelo pipeline (data requisitada).
 #
 # Ordem: solar_daily_energy (extract + transform) e depois solar_hourly_energy
 # (só transform, lê o mesmo landing).
 db_schema: "raw_apsystem"
-load: none
 bronze_sep: ","
 options:
   control_file: "missing_dates.csv"
@@ -23,11 +24,11 @@ options:
 
 environments:
   dev:
-    base_raw: "${LAKE_ROOT}/staging/solar_project"
-    base_bronze: "${LAKE_ROOT}/staging/solar_project"
+    base_raw: "${LAKE_ROOT}/raw/solar_project"
+    base_bronze: "${LAKE_ROOT}/bronze/solar_project"
   prod:
-    base_raw: "/usr/local/airflow/mylake/staging/solar_project"
-    base_bronze: "/usr/local/airflow/mylake/staging/solar_project"
+    base_raw: "/usr/local/airflow/mylake/raw/solar_project"
+    base_bronze: "/usr/local/airflow/mylake/bronze/solar_project"
 
 sources:
   daily_energy:

@@ -1,19 +1,20 @@
 # Fonte: OpenWeather One Call 3.0 — day_summary (resumo diário de um ponto).
-# Landing e bronze ficam no mesmo staging (um JSON por dia + all_dfs.csv com ","):
-# o Airflow lê o CSV, faz o upsert em raw_openweather.openweather_daily e move os
-# JSONs para bronze/weather_project — por isso load: none e o caminho antigo.
+# Padrão das demais fontes: o landing acumula um JSON por dia, o transform
+# reconstrói o bronze a partir dele e a carga é full refresh (write: truncate,
+# o default). O que evita rebaixar o histórico é o extract, incremental por data
+# (high-water mark na própria tabela), não a carga.
+# bronze_sep "," é o formato histórico deste CSV; nada fora daqui o lê.
 # ``{day}`` em landing_file é resolvido pelo pipeline (data requisitada).
 db_schema: "raw_openweather"
-load: none
 bronze_sep: ","
 
 environments:
   dev:
-    base_raw: "${LAKE_ROOT}/staging/weather_project"
-    base_bronze: "${LAKE_ROOT}/staging/weather_project"
+    base_raw: "${LAKE_ROOT}/raw/weather_project"
+    base_bronze: "${LAKE_ROOT}/bronze/weather_project"
   prod:
-    base_raw: "/usr/local/airflow/mylake/staging/weather_project"
-    base_bronze: "/usr/local/airflow/mylake/staging/weather_project"
+    base_raw: "/usr/local/airflow/mylake/raw/weather_project"
+    base_bronze: "/usr/local/airflow/mylake/bronze/weather_project"
 
 sources:
   daily:

@@ -1,7 +1,13 @@
 """Biblioteca compartilhada do monorepo de ingestão."""
 
 from core.config import PipelineConfig, load_yaml
-from core.db import PostgresClient, validate_raw_schema
+from core.control import (
+    IngestionControl,
+    read_manifest,
+    write_bronze_incremental,
+    write_manifest,
+)
+from core.db import PostgresClient, validate_raw_schema, validate_write_mode
 from core.etl import Etl, GenericETL, build_etl, run_source
 from core.http import HttpClient
 from core.incremental import (
@@ -29,6 +35,10 @@ from core.parsers.json import flatten_children
 from core.text import normalize_string, sanitize_columns, sanitize_values
 
 __all__ = [
+    "write_manifest",
+    "write_bronze_incremental",
+    "read_manifest",
+    "IngestionControl",
     "Etl",
     "GenericETL",
     "HttpClient",
@@ -56,6 +66,7 @@ __all__ = [
     "sanitize_values",
     "setup_logger",
     "validate_raw_schema",
+    "validate_write_mode",
     "write_bronze",
     "write_bronze_streaming",
     "write_csv",

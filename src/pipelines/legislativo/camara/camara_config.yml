@@ -3,6 +3,14 @@
 # Sources por ID: base_url e landing_file usam o placeholder {id}; o CSV de
 # parâmetros vem de parameter_file (coluna options.parameter_column, default id)
 # e os IDs sem resposta ficam em options.no_data_file (ver legislativo/_common.py).
+#
+# write: append + options.control_table marca a entidade como incremental por
+# arquivo: o transform só põe no bronze o landing ainda não carregado (bronze-delta
+# + manifesto) e o load registra o manifesto na tabela de controle, na mesma
+# transação do COPY. Vale para o que a API devolve imutável (um voto, uma
+# proposição já baixada). Quem não tem isso segue full refresh (write: truncate).
+# Ao ligar numa tabela que já tem histórico, rode uma vez:
+#   uv run python scripts/controle_semear.py <config.yml> <entidade>
 db_schema: "raw_camara"
 
 environments:
@@ -49,8 +57,10 @@ sources:
     bronze_file: "camara_votos_deputados.csv"
     db_table: "raw_camara_votos_deputados"
     parameter_file: "id_votacoes.csv"
+    write: append                 # incremental: um JSON por votação, imutável
     options:
       no_data_file: "sem_dados_id_votacao.csv"
+      control_table: "ingestion_control"
 
   votos_orientacao:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes/{id}/orientacoes"
@@ -70,9 +80,11 @@ sources:
     bronze_file: "camara_proposicao_tema.csv"
     db_table: "raw_camara_proposicao_tema"
     parameter_file: "id_proposicao.csv"
+    write: append                 # incremental: um JSON por proposição
     options:
       parameter_column: "id_proposicao"
       no_data_file: "sem_dados_id_proposicao_tema.csv"
+      control_table: "ingestion_control"
 
   proposicao:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/proposicoes/{id}"
@@ -81,6 +93,8 @@ sources:
     bronze_file: "camara_proposicao.csv"
     db_table: "raw_camara_proposicao"
     parameter_file: "id_proposicao.csv"
+    write: append                 # incremental: um JSON por proposição
     options:
       parameter_column: "id_proposicao"
       no_data_file: "sem_dados_id_proposicao.csv"
+      control_table: "ingestion_control"

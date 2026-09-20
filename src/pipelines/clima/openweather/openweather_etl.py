@@ -1,8 +1,10 @@
 """ETL do resumo diário do clima (OpenWeather day_summary), incremental por data.
 
 extract: high-water mark em raw_openweather.openweather_daily -> datas faltantes
-(CSV de controle) -> um JSON por dia no landing. transform: JSONs -> all_dfs.csv.
-Sem load: o Airflow faz o upsert.
+(CSV de controle) -> um JSON por dia no landing, que acumula o histórico.
+transform: todos os JSONs do landing -> all_dfs.csv. load: full refresh
+(``write: truncate``) — a tabela é função do landing, e é o extract que evita
+rebaixar o que já está lá.
 """
 
 import json

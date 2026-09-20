@@ -23,7 +23,7 @@ from core import (
     sanitize_columns,
     sanitize_values,
     write_bronze,
-    write_bronze_streaming,
+    write_bronze_incremental,
 )
 from core.parsers.json import normalize_json_object
 
@@ -196,7 +196,10 @@ def _parse_processo(path: Path) -> pd.DataFrame | None:
 
 
 def transform_processo(cfg: PipelineConfig) -> None:
-    write_bronze_streaming(cfg, sorted(cfg.landing_dir.glob("*.json")), _parse_processo)
+    # Incremental por arquivo quando o YAML declara options.control_table.
+    write_bronze_incremental(
+        cfg, sorted(cfg.landing_dir.glob("*.json")), _parse_processo, log=logger
+    )
 
 
 ETLS = {

@@ -57,4 +57,17 @@ uv run python -m pipelines.legislativo.camara.camara_etl proposicao --steps tran
   `proposicao_tema` reconstroem o bronze inteiro a cada transform, um arquivo por
   vez (`core.write_bronze_streaming`). Antes era append incremental; o rebuild é
   mais lento por execução, mas sem estado paralelo ao landing.
-- Carga é full refresh (`replace`) na tabela `raw_camara.*`.
+- Carga full refresh (`write: truncate`): `TRUNCATE` + `COPY` na tabela
+  `raw_camara.*`, numa transação e sem recriar a tabela. Vale para `legislaturas`,
+  `deputados` (a ficha muda com o tempo), `votacoes` (o bronze concatena todo o
+  landing, então a mesma votação reaparece em mais de um arquivo) e
+  `votos_orientacao`.
+- `votos_deputados`, `proposicao` e `proposicao_tema` são **incrementais por
+  arquivo** (`write: append` + `options.control_table`): o JSON de cada ID é
+  imutável, então o transform só põe no bronze o que ainda não entrou e o load
+  registra o manifesto junto com o COPY. Refazer não duplica. O ganho é no
+  transform: reconstruir `votos_deputados` inteiro custa ~93 s (5.961 arquivos,
+  1,9 M linhas) contra ~1 s no caminho incremental.
+- Ao ligar o incremental numa tabela que já tem histórico, rode uma vez
+  `uv run python scripts/controle_semear.py src/pipelines/legislativo/camara/camara_config.yml <entidade>`
+  — sem isso o primeiro delta traz todo o landing e o `append` duplica a tabela.

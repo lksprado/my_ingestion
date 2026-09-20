@@ -5,10 +5,12 @@
   alimentado por fora (planilha, PDF, outro pipeline) e a etapa é um no-op.
 - ``transform``: pré-processamento tabular que termina em ``write_bronze``.
   Sem ``transform_fn`` a etapa é um no-op (fontes JSON → JSONB).
-- ``load``: por ``cfg.load`` — ``table`` (bronze CSV → ``raw_<fonte>.<tabela>``,
-  full refresh), ``files`` (cada CSV do bronze_dir → tabela de mesmo nome),
-  ``jsonb`` (JSONs do landing → ``JsonbLoader``), ``none`` (o orquestrador carrega).
-  ``load_fn`` sobrescreve o modo.
+- ``load``: por ``cfg.load`` — ``table`` (bronze CSV → ``raw_<fonte>.<tabela>``),
+  ``files`` (cada CSV do bronze_dir → tabela de mesmo nome), ``jsonb`` (JSONs do
+  landing → ``JsonbLoader``), ``none`` (o orquestrador carrega). ``load_fn``
+  sobrescreve o modo. Como a tabela é escrita vem de ``cfg.write``
+  (``truncate``/``append``/``merge`` + ``cfg.merge_key``); a carga é sempre
+  ``COPY``, nunca ``DROP``.
 
 Cada etapa lê e escreve disco, para rodar como task separada no Airflow.
 
@@ -24,18 +26,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-import pandas as pd
-
 from core.config import PipelineConfig
-from core.db import READ_CSV_AS_TEXT, PostgresClient, validate_raw_schema
+from core.control import control_for, manifest_path, read_manifest
+from core.db import PostgresClient, validate_raw_schema
 from core.http import HttpClient
 from core.jsonb import JsonbLoader
 from core.logging import setup_logger
 
 Step = Literal["extract", "transform", "load"]
 ALL_STEPS: tuple[Step, ...] = ("extract", "transform", "load")
-
-_CHUNK = 50_000
 
 
 class GenericETL:
@@ -96,23 +95,52 @@ class GenericETL:
         self.logger.info("✅ Carga concluida")
 
     def _load_table(self) -> None:
+        # O bronze vai inteiro para o COPY: sem pandas, sem chunk, uma transação.
+        # CSV só com cabeçalho cria a tabela vazia, sem caso especial.
         cfg = self.cfg
         schema = validate_raw_schema(cfg.db_schema)
         path = cfg.bronze_filepath
-        self.logger.info(f"📤 {path} -> {schema}.{cfg.db_table}")
-        db = PostgresClient(log=self.logger)
-        how = "replace"
-        chunks = pd.read_csv(
-            path, sep=cfg.bronze_sep, chunksize=_CHUNK, **READ_CSV_AS_TEXT
+        after_copy = self._registrar_manifesto()
+        if after_copy is False:  # bronze-delta vazio: nada a fazer
+            return
+        PostgresClient(log=self.logger).copy_csv(
+            path,
+            cfg.db_table,
+            schema=schema,
+            sep=cfg.bronze_sep,
+            write=cfg.write,
+            filename=path.name,
+            merge_key=cfg.merge_key,
+            after_copy=after_copy,
         )
-        for chunk in chunks:
-            db.send_df_to_db(
-                chunk, cfg.db_table, schema=schema, filename=path.name, how=how
+
+    def _registrar_manifesto(self):
+        """Hook que registra o manifesto na tabela de controle, junto com o COPY.
+
+        Devolve ``None`` quando a fonte não é incremental por arquivo e ``False``
+        quando é mas não há nada novo (o load inteiro é pulado).
+        """
+        cfg = self.cfg
+        controle = control_for(cfg, self.logger)
+        if controle is None or cfg.write != "append":
+            return None
+        if not manifest_path(cfg).exists():
+            self.logger.warning(
+                f"⚠️ Sem manifesto em {manifest_path(cfg)}: rode o transform "
+                "(write_bronze_incremental) antes do load."
             )
-            how = "append"
-        if how == "replace":  # CSV só com cabeçalho: cria a tabela vazia.
-            header = pd.read_csv(path, sep=cfg.bronze_sep, nrows=0, **READ_CSV_AS_TEXT)
-            db.send_df_to_db(header, cfg.db_table, schema=schema, filename=path.name)
+            return False
+        nomes = read_manifest(cfg)
+        if not nomes:
+            self.logger.info("✅ Manifesto vazio: nada novo para carregar.")
+            return False
+
+        def registrar(cur, nomes=nomes):
+            controle.ensure(cur)
+            controle.register(cur, cfg.db_table, nomes)
+            self.logger.info(f"📒 {len(nomes)} arquivo(s) registrado(s) no controle.")
+
+        return registrar
 
     def _load_files(self) -> None:
         cfg = self.cfg
@@ -122,7 +150,9 @@ class GenericETL:
             cfg.bronze_dir,
             schema=schema,
             pattern=cfg.options.get("file_pattern", "*.csv"),
+            write=cfg.write,
             sep=cfg.bronze_sep,
+            merge_key=cfg.merge_key,
         )
 
     def _load_jsonb(self) -> None:

@@ -99,10 +99,10 @@ if __name__ == "__main__":
   canônica; nome inválido levanta `ValueError`.
 - `extract()` / `transform()` / `load()` chamam a função sua ou o default da tabela
   acima. `load_fn` sobrescreve o modo do YAML (uso raro: NHL `player_game_log`).
-- Modos de load:
-  - `table` — lê o bronze em chunks de 50 mil linhas (`sep=cfg.bronze_sep`) e grava
-    em `<db_schema>.<db_table>` com `replace` (1º chunk) + `append`. CSV só com
-    cabeçalho cria a tabela vazia.
+- Modos de load (o **quê**; o **como** escrever vem de `cfg.write`):
+  - `table` — manda o bronze inteiro para um `COPY` em `<db_schema>.<db_table>`
+    (`sep=cfg.bronze_sep`), sem pandas e sem chunk. CSV só com cabeçalho cria a
+    tabela vazia, sem caso especial.
   - `files` — `PostgresClient.load_files_to_table(cfg.bronze_dir, ...)`: cada CSV
     (`options.file_pattern`, default `*.csv`) vira a tabela de mesmo nome.
   - `jsonb` — `JsonbLoader` sobre `cfg.landing_dir.glob(options.file_pattern or
@@ -148,7 +148,9 @@ source, *, env=None, **overrides)` é a forma de construir (o `env` default vem 
 | `parameter_file` | CSV de entrada que parametriza a extração |
 | `output_param_file` | `str` ou `{arquivo: coluna}` gerado para o próximo pipeline (em `parameter_dir`) |
 | `db_table` / `db_schema` | tabela e schema destino (`raw_<fonte>`) |
-| `load` | `table` (default) \| `files` \| `jsonb` \| `none` |
+| `load` | de onde carregar: `table` (default) \| `files` \| `jsonb` \| `none` |
+| `write` | como escrever na tabela: `truncate` (default) \| `append` \| `merge` |
+| `merge_key` | colunas da chave do `merge` (obrigatória com ele, recusada sem ele) |
 | `bronze_sep` | separador do bronze (default `;`) |
 | `options` | dict livre do bloco `options:` (a core lê só as chaves listadas em `etl.py`) |
 | `criar_dirs` | cria os diretórios no `__init__` (default `True`; em testes use `False`) |
@@ -158,12 +160,14 @@ Propriedades `landing_filepath`, `bronze_filepath`, `parameter_filepath` levanta
 `write_output_params(df, default_column=None)` exporta os valores únicos de uma
 coluna (ou de várias, com o dict) para `parameter_dir`.
 
-Formato do YAML (`db_schema`, `load`, `bronze_sep` e `options` valem no topo como
-default do arquivo e podem ser sobrescritos por source; `options` faz merge):
+Formato do YAML (`db_schema`, `load`, `write`, `bronze_sep` e `options` valem no
+topo como default do arquivo e podem ser sobrescritos por source; `options` faz
+merge):
 
 ```yaml
 db_schema: "raw_camara"
 load: table                       # opcional
+write: truncate                   # opcional (truncate | append | merge)
 environments:
   dev:
     base_raw: "${LAKE_ROOT}/raw/demodados/camara"
@@ -218,24 +222,84 @@ A conexão vem de `settings.db_target` (perfil `DB__<ENV>__*` do `.env`) ou de u
 `settings`.
 
 **Schema é obrigatório em toda escrita** e precisa ser `raw_<fonte>`
-(`validate_raw_schema`). Todo carregamento acrescenta `arquivo_origem` (quando você
-passa `filename`) e `data_carga`.
+(`validate_raw_schema`).
 
-**Na raw os dados são sempre texto.** `send_df_to_db` passa o DataFrame por
-`to_raw_frame(df)`: toda coluna vira `TEXT` (nulo continua NULL); a exceção é a
-coluna cujos valores são objetos JSON (dict/list), gravada como `JSONB`. A tipagem
-é responsabilidade do dbt (staging). `data_carga` é metadado da carga e fica
-`TIMESTAMP` (é o `loaded_at_field` do dbt). Os CSVs do bronze são lidos com
-`READ_CSV_AS_TEXT` (`dtype=str`, só a célula vazia vira nulo): `007` não vira `7`
-e `NA` não vira NULL. O `JsonbLoader` (NHL) já grava `payload JSONB`.
+**A carga é sempre `COPY`, nunca `DROP`.** Um full refresh (`write="truncate"`) é
+`CREATE TABLE IF NOT EXISTS` + `TRUNCATE` + `COPY` numa única transação. Três
+consequências que valem por si:
+
+- a tabela **nunca é recriada**, então as views do dbt sobre a raw sobrevivem, os
+  grants ficam e o OID é estável — é o que torna possível sincronizar prod → dev;
+- DDL no Postgres é transacional, então falha no meio do `COPY` faz rollback e a
+  tabela **continua com os dados anteriores** (o caminho antigo, em chunks, deixava
+  a tabela parcial);
+- `TRUNCATE` pega `ACCESS EXCLUSIVE`. A carga usa `SET LOCAL lock_timeout = '30s'`
+  para falhar rápido em vez de empilhar fila na frente de um `dbt build`.
+
+**Na raw os dados são sempre texto.** Toda coluna vira `TEXT`; a exceção é a coluna
+cujos valores são objetos JSON (dict/list), gravada como `JSONB` (`to_raw_frame`
+decide). A tipagem é responsabilidade do dbt (staging). O `JsonbLoader` (NHL) já
+grava `payload JSONB`.
+
+**As colunas de rastreio não viajam no stream.** `arquivo_origem` (quando você passa
+`filename`) e `data_carga` vêm de `DEFAULT` no catálogo: `data_carga` é o `now()` da
+transação, ou seja, **um valor só para a carga inteira, em UTC** — antes era um
+`datetime.now()` local por chunk. O `DEFAULT` de `arquivo_origem` só é reescrito
+quando muda de valor, porque o `ALTER` pega `ACCESS EXCLUSIVE`.
+
+**NULL vs string vazia no `COPY` (`FORMAT csv`, marcador default `''`):**
+
+- *bronze* (`copy_csv`): campo vazio não aspado é NULL — exatamente o
+  `na_values=[""]` com que o pandas lia esses CSVs. `007` continua `007`, `NA` e
+  `null` continuam texto. O que o `write_bronze` gera é compatível campo a campo
+  (verificado por teste de round-trip em `tests/core/test_copy_load.py`);
+- *memória* (`send_df_to_db`): `df_to_csv_buffer` aspa **todo** valor não nulo, então
+  `''` sai como `""` (string vazia) e `None` sai como campo vazio (NULL),
+  preservando a distinção. De quebra, `;`, `"`, quebra de linha e a linha `\.` ficam
+  inofensivos.
+
+Único caso em que o COPY diverge do caminho pandas antigo: uma string vazia
+**aspada** (`""`) num bronze produzido fora do `write_bronze` chega como string
+vazia, não como NULL.
+
+**Modos de escrita** (`write` no YAML, `write=` nos métodos):
+
+| `write` | O que faz |
+|---|---|
+| `truncate` (default) | Full refresh: `TRUNCATE` + `COPY`, numa transação |
+| `append` | Só `COPY`. Para bronze-delta — ver `control.py`; num bronze completo, duplica |
+| `merge` | Upsert: `COPY` para uma temporária + `INSERT ... ON CONFLICT (merge_key) DO UPDATE` |
+
+`merge` exige `merge_key` (uma ou mais colunas, que precisam estar no dado).
+`ensure_raw_table` cria o índice único da chave quando não houver — procurando por
+**conjunto de colunas**, não por nome, para não duplicar os índices feitos à mão
+que openweather e solar já têm. O `INSERT` usa `DISTINCT ON (merge_key)`: sem isso
+o `ON CONFLICT` erra com *cannot affect row a second time* quando o lote traz a
+mesma chave duas vezes; quando isso acontece, sai um WARNING dizendo quantas
+linhas foram descartadas. `arquivo_origem` e `data_carga` também são atualizados
+no conflito, então a linha sempre reflete a última carga que a tocou.
+
+**Drift de colunas** (`plan_columns`, função pura): coluna nova no dado vira
+`ALTER TABLE ADD COLUMN ... TEXT` com WARNING; coluna que sumiu do dado fica fora do
+`COPY` e chega NULL, também com WARNING. Nunca se dropa coluna. Mudança que exige
+recreate (rename, `TEXT` ↔ `JSONB`) é gesto manual e logado como WARNING:
+
+```sql
+-- derruba a tabela e as views do dbt, que voltam no próximo dbt build
+DROP TABLE raw_camara.raw_camara_votacoes CASCADE;
+```
+
+Tabela legada criada pelo `to_sql` antigo (com `data_carga` **sem** `DEFAULT`) é
+migrada sozinha na primeira carga nova, sem recriação.
 
 | Método | Para quê |
 |---|---|
-| `send_df_to_db(df, table_name, *, schema, how="replace", filename=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
-| `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", how="replace", source_column="arquivo_origem", sep=";")` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
+| `copy_csv(path, table_name, *, schema, sep=";", write="truncate", filename=None, merge_key=None, after_copy=None)` | Caminho quente: um CSV inteiro por `COPY`, sem pandas |
+| `send_df_to_db(df, table_name, *, schema, write="truncate", filename=None, merge_key=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
+| `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", write="truncate", source_column="arquivo_origem", sep=";", merge_key=None)` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
 | `read_sql(sql)` | Resultado como DataFrame (leituras em `staging.*`, `intermediate.*`) |
 | `connect()` | Conexão psycopg2 crua (`copy_expert`, transação explícita) |
-| `alchemy()` | Engine SQLAlchemy |
+| `alchemy()` | Engine SQLAlchemy (só leitura) |
 
 ---
 
@@ -310,6 +374,62 @@ placeholder `{id}` em `base_url`/`landing_file`, `parameter_file` com os IDs e, 
 `options`, `no_data_file`, `parameter_column` (default `id`) e `blacklist_on_error`
 (default `true`: erro/timeout também entra no "sem dados"). `has_data(resposta)`
 decide o que é "sem dados" (a câmara usa `dados` não vazio).
+
+---
+
+## `control.py` — carga incremental por arquivo
+
+Uma linha por `(schema, tabela, arquivo)` em `<schema>.<control_table>` diz o que
+já entrou. Era exclusivo do `JsonbLoader` (NHL); agora serve também ao caminho
+tabular, que é onde estão os volumes grandes do legislativo.
+
+Uma fonte vira incremental por arquivo declarando no YAML, por entidade:
+
+```yaml
+write: append
+options:
+  control_table: "ingestion_control"
+```
+
+e trocando o fim do transform por `write_bronze_incremental`:
+
+```python
+write_bronze_incremental(cfg, sorted(cfg.landing_dir.glob("*.json")), parse_fn)
+```
+
+O ciclo passa a ser:
+
+1. **transform** — pergunta ao controle quais arquivos faltam, gera o bronze só
+   com eles e grava um **manifesto** ao lado (`<bronze>.manifesto.csv`) dizendo
+   quais foram. Sem pendências, o manifesto sai vazio e não há bronze;
+2. **load** — lê o manifesto, faz o `COPY` do bronze-delta e registra aqueles
+   arquivos no controle **na mesma transação**. Manifesto vazio: pula a carga.
+
+Falha em qualquer ponto faz rollback, nada é registrado e o transform seguinte
+refaz exatamente o mesmo delta. Rodar duas vezes não duplica.
+
+**Nessas entidades o bronze passa a ser o delta da última execução**, não o
+histórico completo — quem acumula é a tabela raw. Só vale para landing imutável
+(um voto, uma proposição já baixada); o que muda com o tempo (ficha de deputado)
+fica em `write: truncate`.
+
+`write_bronze_incremental` sem `options.control_table` é o `write_bronze_streaming`
+de sempre, então a mesma função serve aos dois casos e ligar o incremental é uma
+mudança de YAML.
+
+**Ao ligar numa tabela que já tem histórico**, rode uma vez o bootstrap — senão o
+primeiro delta traz todo o landing e o `append` duplica a tabela:
+
+```bash
+uv run python scripts/controle_semear.py <fonte>_config.yml <entidade>
+```
+
+| Peça | Para quê |
+|---|---|
+| `IngestionControl(db, *, schema, table)` | `ensure`/`ingested`/`register`/`clear`/`pending` sobre a tabela de controle |
+| `write_bronze_incremental(cfg, files, parse_fn)` | Fim do transform incremental: bronze-delta + manifesto |
+| `write_manifest(cfg, files)` / `read_manifest(cfg)` | O manifesto, se você precisar mexer nele |
+| `control_for(cfg)` | `IngestionControl` da entidade, ou `None` se o YAML não pediu |
 
 ---
 
