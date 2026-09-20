@@ -15,9 +15,10 @@ rollback preservando os dados anteriores.
 
 Na raw os dados são sempre texto: toda coluna é ``TEXT`` (a tipagem é do dbt) —
 exceto colunas cujos valores são objetos JSON (dict/list), gravadas como
-``JSONB``. As colunas de rastreio ``arquivo_origem`` e ``data_carga`` nunca
-viajam no stream do COPY: vêm de ``DEFAULT`` no catálogo, então ``data_carga``
-é o ``now()`` da transação — um valor só para a carga inteira, em UTC.
+``JSONB``. As colunas de rastreio ``arquivo_origem`` e ``loaded_at_utc`` nunca
+viajam no stream do COPY: vêm de ``DEFAULT`` no catálogo, então ``loaded_at_utc``
+é o ``now() AT TIME ZONE 'utc'`` da transação — um valor só para a carga
+inteira, sempre em UTC, qualquer que seja o fuso do servidor.
 
 Convenção de NULL no COPY (``FORMAT csv``, marcador default ``''``):
 
@@ -57,7 +58,20 @@ WriteMode = Literal["truncate", "append", "merge"]
 WRITE_MODES: tuple[str, ...] = ("truncate", "append", "merge")
 
 # Metadados da carga: não vêm do dado, vêm de DEFAULT no catálogo.
-TRACKING_COLUMNS: tuple[str, ...] = ("arquivo_origem", "data_carga")
+LOADED_AT_COLUMN = "loaded_at_utc"
+# Nome antigo, renomeado sozinho na primeira carga (ver ensure_raw_table).
+LOADED_AT_LEGACY_COLUMN = "data_carga"
+TRACKING_COLUMNS: tuple[str, ...] = ("arquivo_origem", LOADED_AT_COLUMN)
+
+# `now()` é timestamptz: gravado numa coluna sem fuso, viraria a hora local do
+# servidor. O `AT TIME ZONE 'utc'` é o que faz o nome da coluna ser verdade em
+# qualquer banco, sem depender do TimeZone da sessão.
+LOADED_AT_DEFAULT = "now() AT TIME ZONE 'utc'"
+# Como o pg_get_expr normaliza a expressão acima — a segunda forma aparece
+# quando o DEFAULT foi escrito como timezone('utc', now()).
+_LOADED_AT_DEFAULT_FORMS = frozenset(
+    {"(now() AT TIME ZONE 'utc'::text)", "timezone('utc'::text, now())"}
+)
 
 # Sem isso um TRUNCATE entra na fila na frente dos SELECTs do dbt e segura o
 # banco pelo tempo inteiro do COPY. Melhor falhar rápido e reexecutar.
@@ -223,29 +237,32 @@ _COLUMN_DEFAULT_SQL = """
 """
 
 
-def _ensure_default(
+def ensure_column_default(
     cur, schema: str, table: str, column: str, value: str | None
 ) -> None:
     """Define o DEFAULT da coluna de rastreio; no-op quando já é o mesmo.
 
-    ``value=None`` significa ``now()``. A condicional importa: o ``ALTER`` pega
-    ``ACCESS EXCLUSIVE`` até o commit, o que em ``write="append"`` bloquearia os
-    leitores durante o COPY inteiro. Como ``filename`` é constante entre
-    execuções, da segunda carga em diante nenhum ALTER é emitido.
+    ``value=None`` significa o carimbo de carga (``LOADED_AT_DEFAULT``). A
+    condicional importa: o ``ALTER`` pega ``ACCESS EXCLUSIVE`` até o commit, o
+    que em ``write="append"`` bloquearia os leitores durante o COPY inteiro.
+    Como ``filename`` é constante entre execuções, da segunda carga em diante
+    nenhum ALTER é emitido.
     """
-    esperado = (
-        "now()" if value is None else "'{}'::text".format(value.replace("'", "''"))
-    )
     cur.execute(_COLUMN_DEFAULT_SQL, (f"{schema}.{table}", column))
     atual = cur.fetchone()
-    if atual and atual[0] == esperado:
-        return
+    if value is None:
+        if atual and atual[0] in _LOADED_AT_DEFAULT_FORMS:
+            return
+    else:
+        esperado = "'{}'::text".format(value.replace("'", "''"))
+        if atual and atual[0] == esperado:
+            return
     cur.execute(
         sql.SQL("ALTER TABLE {}.{} ALTER COLUMN {} SET DEFAULT {}").format(
             sql.Identifier(schema),
             sql.Identifier(table),
             sql.Identifier(column),
-            sql.SQL("now()") if value is None else sql.Literal(value),
+            sql.SQL(LOADED_AT_DEFAULT) if value is None else sql.Literal(value),
         )
     )
 
@@ -291,6 +308,47 @@ def _ensure_unique_index(
     log.info(f"🔑 Índice único {nome} em {schema}.{table} ({', '.join(colunas)})")
 
 
+def ensure_loaded_at(
+    cur, schema: str, table: str, log: logging.Logger | None = None
+) -> None:
+    """Garante ``loaded_at_utc`` com o DEFAULT em UTC — tabular e JSONB.
+
+    Três reparos idempotentes, todos de catálogo (nenhuma linha é reescrita):
+
+    - ``data_carga`` (nome antigo) vira ``loaded_at_utc`` por ``RENAME COLUMN``;
+      as views do dbt sobre a raw seguem válidas, porque o Postgres reescreve a
+      dependência sozinho;
+    - tabela sem a coluna (legado do ``to_sql``) ganha o ``ADD COLUMN``, senão
+      ela entraria NULL e quebraria o ``loaded_at_field`` do dbt;
+    - o DEFAULT é acertado para ``now() AT TIME ZONE 'utc'`` (inclusive nas
+      tabelas que ficaram com o ``now()`` puro, em fuso do servidor).
+    """
+    log = log or logger
+    existentes = _table_columns(cur, schema, table)
+    if LOADED_AT_COLUMN not in existentes:
+        if LOADED_AT_LEGACY_COLUMN in existentes:
+            cur.execute(
+                sql.SQL("ALTER TABLE {}.{} RENAME COLUMN {} TO {}").format(
+                    sql.Identifier(schema),
+                    sql.Identifier(table),
+                    sql.Identifier(LOADED_AT_LEGACY_COLUMN),
+                    sql.Identifier(LOADED_AT_COLUMN),
+                )
+            )
+            log.warning(
+                f"🔁 {schema}.{table}.{LOADED_AT_LEGACY_COLUMN} renomeada para "
+                f"{LOADED_AT_COLUMN}"
+            )
+        else:
+            cur.execute(
+                sql.SQL(
+                    f"ALTER TABLE {{}}.{{}} ADD COLUMN {LOADED_AT_COLUMN} "
+                    f"TIMESTAMP DEFAULT ({LOADED_AT_DEFAULT})"
+                ).format(sql.Identifier(schema), sql.Identifier(table))
+            )
+    ensure_column_default(cur, schema, table, LOADED_AT_COLUMN, None)
+
+
 def ensure_raw_table(
     cur,
     schema: str,
@@ -319,13 +377,16 @@ def ensure_raw_table(
     ]
     if filename is not None:
         colunas.append(sql.SQL("arquivo_origem TEXT"))
-    colunas.append(sql.SQL("data_carga TIMESTAMP NOT NULL DEFAULT now()"))
+    colunas.append(
+        sql.SQL(f"{LOADED_AT_COLUMN} TIMESTAMP NOT NULL DEFAULT ({LOADED_AT_DEFAULT})")
+    )
     cur.execute(
         sql.SQL("CREATE TABLE IF NOT EXISTS {}.{} ({})").format(
             sql.Identifier(schema), sql.Identifier(table), sql.SQL(", ").join(colunas)
         )
     )
 
+    ensure_loaded_at(cur, schema, table, log)
     existentes = _table_columns(cur, schema, table)
     plano = plan_columns(list(tipos), list(existentes))
 
@@ -352,16 +413,6 @@ def ensure_raw_table(
                 "o COPY vai gravar no tipo atual. Recreate manual para corrigir."
             )
 
-    # Tabelas criadas pelo to_sql antigo não têm DEFAULT em data_carga: sem isso
-    # a coluna entraria NULL e quebraria o loaded_at_field do dbt.
-    if "data_carga" not in existentes:
-        cur.execute(
-            sql.SQL(
-                "ALTER TABLE {}.{} ADD COLUMN data_carga TIMESTAMP DEFAULT now()"
-            ).format(sql.Identifier(schema), sql.Identifier(table))
-        )
-    _ensure_default(cur, schema, table, "data_carga", None)
-
     if filename is not None:
         if "arquivo_origem" not in existentes:
             cur.execute(
@@ -369,7 +420,7 @@ def ensure_raw_table(
                     sql.Identifier(schema), sql.Identifier(table)
                 )
             )
-        _ensure_default(cur, schema, table, "arquivo_origem", filename)
+        ensure_column_default(cur, schema, table, "arquivo_origem", filename)
 
     if merge_key:
         _ensure_unique_index(cur, schema, table, merge_key, log)
@@ -535,7 +586,7 @@ class PostgresClient:
                 )
                 if write == "merge":
                     # LIKE ... INCLUDING DEFAULTS: a temporária já carimba
-                    # arquivo_origem e data_carga com os mesmos DEFAULTs do alvo.
+                    # arquivo_origem e loaded_at_utc com os mesmos DEFAULTs do alvo.
                     temp = f"stg_{table}"[:63]
                     cur.execute(
                         sql.SQL(
@@ -548,7 +599,7 @@ class PostgresClient:
                     colunas = plano.copy + list(
                         c
                         for c in TRACKING_COLUMNS
-                        if c == "data_carga" or filename is not None
+                        if c == LOADED_AT_COLUMN or filename is not None
                     )
                     linhas = self._merge(cur, schema, table, temp, colunas, merge_key)
                     if linhas < copiadas:
@@ -627,7 +678,7 @@ class PostgresClient:
         """Envia um DataFrame para ``schema.table_name`` por ``COPY``.
 
         Dados como ``TEXT`` (JSON como ``JSONB``), ver ``to_raw_frame``.
-        ``arquivo_origem`` (se ``filename``) e ``data_carga`` vêm de DEFAULT.
+        ``arquivo_origem`` (se ``filename``) e ``loaded_at_utc`` vêm de DEFAULT.
         """
         schema = validate_raw_schema(schema)
         validate_write_mode(write)
