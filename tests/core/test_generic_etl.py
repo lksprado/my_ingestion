@@ -75,63 +75,102 @@ def test_run_rejects_unknown_step(tmp_path):
         GenericETL(_cfg(tmp_path)).run(steps=["extrair"])
 
 
-def test_load_table_streams_bronze_in_chunks(monkeypatch, tmp_path):
-    sent = []
+class _FakeCopy:
+    """PostgresClient falso que só registra a chamada de COPY."""
 
-    class FakePg:
-        def __init__(self, log=None): ...
+    chamadas: list = []
 
-        def send_df_to_db(self, df, table_name, *, schema, filename, how="replace"):
-            sent.append((table_name, schema, filename, how, len(df)))
+    def __init__(self, log=None): ...
 
-    monkeypatch.setattr(etl_module, "PostgresClient", FakePg)
-    monkeypatch.setattr(etl_module, "_CHUNK", 2)
+    def copy_csv(
+        self,
+        path,
+        table_name,
+        *,
+        schema,
+        sep,
+        write,
+        filename,
+        merge_key=None,
+        after_copy=None,
+    ):
+        _FakeCopy.chamadas.append(
+            {
+                "path": Path(path),
+                "table": table_name,
+                "schema": schema,
+                "sep": sep,
+                "write": write,
+                "filename": filename,
+                "merge_key": merge_key,
+            }
+        )
+
+
+def test_load_table_manda_o_bronze_inteiro_num_unico_copy(monkeypatch, tmp_path):
+    _FakeCopy.chamadas = []
+    monkeypatch.setattr(etl_module, "PostgresClient", _FakeCopy)
 
     cfg = _cfg(tmp_path, bronze_file="f.csv", db_table="t", db_schema="raw_x")
     pd.DataFrame({"x": [1, 2, 3]}).to_csv(cfg.bronze_filepath, sep=";", index=False)
     GenericETL(cfg).load()
 
-    assert sent == [
-        ("t", "raw_x", "f.csv", "replace", 2),
-        ("t", "raw_x", "f.csv", "append", 1),
+    assert _FakeCopy.chamadas == [
+        {
+            "path": cfg.bronze_filepath,
+            "table": "t",
+            "schema": "raw_x",
+            "sep": ";",
+            "write": "truncate",
+            "filename": "f.csv",
+            "merge_key": None,
+        }
     ]
 
 
-def test_load_table_reads_bronze_as_text(monkeypatch, tmp_path):
-    seen = []
+def test_load_table_usa_o_write_do_yaml(monkeypatch, tmp_path):
+    _FakeCopy.chamadas = []
+    monkeypatch.setattr(etl_module, "PostgresClient", _FakeCopy)
 
-    class FakePg:
-        def __init__(self, log=None): ...
-
-        def send_df_to_db(self, df, table_name, *, schema, filename, how="replace"):
-            seen.append(df)
-
-    monkeypatch.setattr(etl_module, "PostgresClient", FakePg)
-    cfg = _cfg(tmp_path, bronze_file="f.csv", db_table="t", db_schema="raw_x")
-    cfg.bronze_filepath.write_text("id;sigla;valor\n007;NA;1.50\n;null;\n")
+    cfg = _cfg(
+        tmp_path, bronze_file="f.csv", db_table="t", db_schema="raw_x", write="append"
+    )
+    cfg.bronze_filepath.write_text("a;b\n1;2\n")
     GenericETL(cfg).load()
 
-    df = seen[0]
-    assert df["id"].tolist()[0] == "007"  # zero à esquerda preservado
-    assert df["sigla"].tolist() == ["NA", "null"]  # só a célula vazia vira nulo
-    assert df["valor"].tolist()[0] == "1.50"
-    assert pd.isna(df["id"].tolist()[1]) and pd.isna(df["valor"].tolist()[1])
+    assert _FakeCopy.chamadas[0]["write"] == "append"
 
 
-def test_load_table_with_header_only_creates_empty_table(monkeypatch, tmp_path):
-    sent = []
+def test_load_table_repassa_a_merge_key_do_yaml(monkeypatch, tmp_path):
+    _FakeCopy.chamadas = []
+    monkeypatch.setattr(etl_module, "PostgresClient", _FakeCopy)
 
-    class FakePg:
-        def __init__(self, log=None): ...
+    cfg = _cfg(
+        tmp_path,
+        bronze_file="f.csv",
+        db_table="t",
+        db_schema="raw_x",
+        write="merge",
+        merge_key=["date"],
+    )
+    cfg.bronze_filepath.write_text("date;v\n2026-01-01;1\n")
+    GenericETL(cfg).load()
 
-        def send_df_to_db(self, df, table_name, *, schema, filename, how="replace"):
-            sent.append((how, list(df.columns), len(df)))
+    assert _FakeCopy.chamadas[0]["write"] == "merge"
+    assert _FakeCopy.chamadas[0]["merge_key"] == ["date"]
 
-    monkeypatch.setattr(etl_module, "PostgresClient", FakePg)
+
+def test_load_table_com_so_cabecalho_nao_tem_caso_especial(monkeypatch, tmp_path):
+    # O COPY de um CSV só com cabeçalho cria a tabela e insere 0 linhas: o
+    # branch que existia para isso no _load_table deixou de ser necessário.
+    _FakeCopy.chamadas = []
+    monkeypatch.setattr(etl_module, "PostgresClient", _FakeCopy)
+
     cfg = _cfg(tmp_path, bronze_file="f.csv", db_table="t", db_schema="raw_x")
     cfg.bronze_filepath.write_text("a;b\n")
     GenericETL(cfg).load()
-    assert sent == [("replace", ["a", "b"], 0)]
+
+    assert len(_FakeCopy.chamadas) == 1
 
 
 def test_load_requires_raw_schema(monkeypatch, tmp_path):
@@ -156,9 +195,16 @@ def test_load_files_uses_bronze_dir_and_sep(monkeypatch, tmp_path):
     class FakePg:
         def __init__(self, log=None): ...
 
-        def load_files_to_table(self, input_dir, *, schema, pattern, sep):
+        def load_files_to_table(
+            self, input_dir, *, schema, pattern, write, sep, merge_key=None
+        ):
             called.update(
-                input_dir=Path(input_dir), schema=schema, pattern=pattern, sep=sep
+                input_dir=Path(input_dir),
+                schema=schema,
+                pattern=pattern,
+                write=write,
+                sep=sep,
+                merge_key=merge_key,
             )
 
     monkeypatch.setattr(etl_module, "PostgresClient", FakePg)
@@ -168,7 +214,9 @@ def test_load_files_uses_bronze_dir_and_sep(monkeypatch, tmp_path):
         "input_dir": cfg.bronze_dir,
         "schema": "raw_b3",
         "pattern": "*.csv",
+        "write": "truncate",
         "sep": ",",
+        "merge_key": None,
     }
 
 

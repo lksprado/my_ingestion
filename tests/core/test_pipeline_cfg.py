@@ -142,3 +142,20 @@ def test_from_yaml_defaults_without_top_level_keys(tmp_path: Path):
     cfg = PipelineConfig.from_yaml(yml, "s", env="dev", criar_dirs=False)
     assert cfg.db_schema is None
     assert (cfg.load, cfg.bronze_sep, cfg.options) == ("table", ";", {})
+
+
+def test_write_merge_exige_merge_key(tmp_path):
+    with pytest.raises(ValueError, match="exige merge_key"):
+        PipelineConfig(landing_dir=tmp_path, criar_dirs=False, write="merge")
+
+
+def test_merge_key_sem_merge_e_recusada(tmp_path):
+    with pytest.raises(ValueError, match="merge_key só faz sentido"):
+        PipelineConfig(landing_dir=tmp_path, criar_dirs=False, merge_key=["date"])
+
+
+def test_merge_key_string_vira_lista(tmp_path):
+    cfg = PipelineConfig(
+        landing_dir=tmp_path, criar_dirs=False, write="merge", merge_key="date"
+    )
+    assert cfg.merge_key == ["date"]

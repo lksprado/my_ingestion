@@ -1,14 +1,24 @@
-"""PostgresClient sem Postgres: validação de schema, perfil injetado e DDL."""
+"""PostgresClient sem Postgres: validação, plano de colunas e serialização.
 
-from contextlib import contextmanager
+O que emite SQL (``ensure_raw_table``, ``COPY``) só é testável com conexão real —
+``psycopg2.sql`` precisa dela para citar identificadores. Essa parte está em
+``test_copy_load.py`` (``@pytest.mark.integration``); aqui fica tudo que é puro.
+"""
 
 import numpy as np
 import pandas as pd
 import pytest
-from sqlalchemy import DateTime, Text
-from sqlalchemy.dialects.postgresql import JSONB
 
-from core.db import PostgresClient, to_raw_frame, validate_raw_schema
+from core.db import (
+    ColumnPlan,
+    PostgresClient,
+    df_to_csv_buffer,
+    plan_columns,
+    read_csv_header,
+    to_raw_frame,
+    validate_raw_schema,
+    validate_write_mode,
+)
 from settings import DbTarget
 
 
@@ -25,21 +35,62 @@ def test_validate_raw_schema_rejects(schema):
         validate_raw_schema(schema)
 
 
+@pytest.mark.parametrize("write", ["truncate", "append", "merge"])
+def test_validate_write_mode_accepts(write):
+    assert validate_write_mode(write) == write
+
+
+@pytest.mark.parametrize("write", [None, "", "replace", "upsert"])
+def test_validate_write_mode_rejects(write):
+    with pytest.raises(ValueError, match="inválido"):
+        validate_write_mode(write)
+
+
+def test_merge_sem_chave_nao_conecta():
+    pg = PostgresClient(connection=_Sentinel())
+    with pytest.raises(ValueError, match="exige merge_key"):
+        pg.send_df_to_db(pd.DataFrame({"a": ["1"]}), "t", schema="raw_x", write="merge")
+
+
+def test_merge_com_chave_fora_do_dado_nao_conecta():
+    pg = PostgresClient(connection=_Sentinel())
+    with pytest.raises(ValueError, match="merge_key"):
+        pg.send_df_to_db(
+            pd.DataFrame({"a": ["1"]}),
+            "t",
+            schema="raw_x",
+            write="merge",
+            merge_key=["inexistente"],
+        )
+
+
 class _Sentinel:
-    """Engine falsa: qualquer uso levanta, provando que a validação vem antes."""
+    """Dublê que levanta em qualquer uso, provando que a validação vem antes."""
 
     def __getattr__(self, name):
-        raise AssertionError(f"engine não deveria ser usada ({name})")
+        raise AssertionError(f"não deveria ser usado ({name})")
 
 
-def test_send_df_validates_before_touching_engine():
-    pg = PostgresClient(engine=_Sentinel())
+def test_send_df_validates_before_connecting():
+    pg = PostgresClient(connection=_Sentinel())
     with pytest.raises(ValueError, match="raw_<fonte>"):
         pg.send_df_to_db(pd.DataFrame({"a": [1]}), "t", schema="raw")
 
 
+def test_send_df_validates_write_mode_before_connecting():
+    pg = PostgresClient(connection=_Sentinel())
+    with pytest.raises(ValueError, match="inválido"):
+        pg.send_df_to_db(pd.DataFrame({"a": [1]}), "t", schema="raw_x", write="replace")
+
+
+def test_copy_csv_validates_before_reading(tmp_path):
+    pg = PostgresClient(connection=_Sentinel())
+    with pytest.raises(ValueError, match="raw_<fonte>"):
+        pg.copy_csv(tmp_path / "nao_existe.csv", "t", schema="staging")
+
+
 def test_load_files_validates_before_reading(tmp_path):
-    pg = PostgresClient(engine=_Sentinel())
+    pg = PostgresClient(connection=_Sentinel())
     with pytest.raises(ValueError, match="raw_<fonte>"):
         pg.load_files_to_table(tmp_path, schema="staging")
 
@@ -51,22 +102,6 @@ def test_client_uses_injected_target_without_env():
     engine = PostgresClient(target=target).alchemy()  # create_engine não conecta
     assert engine.url.database == "ingestion_sandbox"
     assert engine.url.host == "h"
-
-
-def test_ensure_schema_runs_ddl_in_transaction():
-    executed = []
-
-    class FakeConn:
-        def execute(self, stmt):
-            executed.append(str(stmt))
-
-    class FakeEngine:
-        @contextmanager
-        def begin(self):
-            yield FakeConn()
-
-    PostgresClient(engine=FakeEngine())._ensure_schema("raw_x")
-    assert executed == ["CREATE SCHEMA IF NOT EXISTS raw_x"]
 
 
 def test_read_sql_prefers_injected_connection(monkeypatch):
@@ -82,17 +117,6 @@ def test_read_sql_prefers_injected_connection(monkeypatch):
     assert seen == {"sql": "select 1", "con": conn}
 
 
-def test_load_files_reads_semicolon_by_default(tmp_path, monkeypatch):
-    (tmp_path / "acoes.csv").write_text("a;b\n1;2\n")
-    sent = []
-    pg = PostgresClient(engine=_Sentinel())
-    monkeypatch.setattr(
-        pg, "send_df_to_db", lambda df, t, **kw: sent.append((t, list(df.columns)))
-    )
-    pg.load_files_to_table(tmp_path, schema="raw_b3")
-    assert sent == [("acoes", ["a", "b"])]
-
-
 def test_read_sql_wraps_engine_queries_in_text(monkeypatch):
     seen = {}
 
@@ -104,6 +128,73 @@ def test_read_sql_wraps_engine_queries_in_text(monkeypatch):
     PostgresClient(engine=_Sentinel()).read_sql("select 1 where x like 'a%'")
     assert str(seen["sql"]) == "select 1 where x like 'a%'"
     assert not isinstance(seen["sql"], str)  # sqlalchemy.text
+
+
+# ------------------------ plano de colunas (drift) ------------------------
+
+
+def test_plan_columns_sem_tabela_usa_tudo_do_dado():
+    assert plan_columns(["a", "b"], []) == ColumnPlan(
+        copy=["a", "b"], add=["a", "b"], missing=[]
+    )
+
+
+def test_plan_columns_preserva_ordem_do_dado():
+    plano = plan_columns(["b", "a"], ["a", "b"])
+    assert plano.copy == ["b", "a"]
+    assert plano.add == []
+
+
+def test_plan_columns_detecta_coluna_nova_e_sumida():
+    plano = plan_columns(["a", "nova"], ["a", "antiga", "arquivo_origem", "data_carga"])
+    assert plano.add == ["nova"]
+    assert plano.missing == ["antiga"]  # rastreio não conta como sumida
+
+
+# ------------------------ serialização para COPY ------------------------
+
+
+def test_df_to_csv_buffer_distingue_nulo_de_string_vazia():
+    df = pd.DataFrame({"a": [None, "", "x"]}, dtype=object)
+    df, tipos = to_raw_frame(df)
+    # campo vazio SEM aspas = NULL no COPY; "" = string vazia
+    assert df_to_csv_buffer(df, tipos).getvalue() == '\n""\n"x"\n'
+
+
+def test_df_to_csv_buffer_protege_separador_aspas_e_ponto_barra():
+    df = pd.DataFrame({"a": ["a;b", 'as"pas', "\\."]}, dtype=object)
+    df, tipos = to_raw_frame(df)
+    assert df_to_csv_buffer(df, tipos).getvalue() == '"a;b"\n"as""pas"\n"\\."\n'
+
+
+def test_df_to_csv_buffer_serializa_jsonb_como_texto_compacto():
+    df = pd.DataFrame({"j": [{"a": 1}, None]})
+    df, tipos = to_raw_frame(df)
+    assert tipos == {"j": "JSONB"}
+    assert df_to_csv_buffer(df, tipos).getvalue() == '"{""a"":1}"\n\n'
+
+
+def test_df_to_csv_buffer_mantem_nulo_em_tabela_de_uma_coluna():
+    # csv.writer aspa o campo unico vazio; aqui a linha fica em branco, que e
+    # como o COPY representa NULL numa tabela de uma coluna so.
+    df, tipos = to_raw_frame(pd.DataFrame({"a": [None, ""]}, dtype=object))
+    assert df_to_csv_buffer(df, tipos).getvalue() == '\n""\n'
+
+
+def test_read_csv_header_ignora_bom_e_desaspa(tmp_path):
+    path = tmp_path / "x.csv"
+    path.write_text('\ufeffa;"b;c";d\n1;2;3\n', encoding="utf-8")
+    assert read_csv_header(path, ";") == ["a", "b;c", "d"]
+
+
+def test_read_csv_header_rejeita_arquivo_vazio(tmp_path):
+    path = tmp_path / "x.csv"
+    path.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="sem cabeçalho"):
+        read_csv_header(path, ";")
+
+
+# ------------------------ tipagem da raw ------------------------
 
 
 def test_to_raw_frame_everything_text_except_json():
@@ -119,9 +210,9 @@ def test_to_raw_frame_everything_text_except_json():
             "vazia": [None, None, None],
         }
     )
-    out, dtype = to_raw_frame(df)
+    out, tipos = to_raw_frame(df)
 
-    assert dtype == {c: Text for c in df.columns if c != "j"} | {"j": JSONB}
+    assert tipos == {c: "TEXT" for c in df.columns if c != "j"} | {"j": "JSONB"}
     assert out["s"].tolist() == ["007", None, "x"]
     assert out["i"].tolist() == ["1", "2", "3"]
     assert out["f"].tolist() == ["1.5", None, "2.0"]
@@ -132,24 +223,47 @@ def test_to_raw_frame_everything_text_except_json():
     assert out["vazia"].tolist() == [None, None, None]
 
 
-def test_send_df_to_db_writes_text_json_and_timestamp_metadata(monkeypatch):
+def test_send_df_to_db_passa_tipos_e_buffer_para_a_carga(monkeypatch):
     captured = {}
+    pg = PostgresClient(connection=_Sentinel())
 
-    def fake_to_sql(self, name, con, schema, if_exists, index, dtype):
-        captured.update(frame=self.copy(), dtype=dtype, name=name, schema=schema)
+    def fake_load(schema, table, *, tipos, write, filename, copy, merge_key=None):
+        captured.update(
+            schema=schema, table=table, tipos=tipos, write=write, filename=filename
+        )
 
-    monkeypatch.setattr(pd.DataFrame, "to_sql", fake_to_sql)
-    pg = PostgresClient(engine=object())
-    monkeypatch.setattr(pg, "_ensure_schema", lambda schema: None)
-
+    monkeypatch.setattr(pg, "_load", fake_load)
     df = pd.DataFrame({"n": [1], "j": [{"k": "v"}]})
     pg.send_df_to_db(df, "t", schema="raw_x", filename="f.csv")
 
-    assert captured["dtype"] == {
-        "n": Text,
-        "j": JSONB,
-        "arquivo_origem": Text,
-        "data_carga": DateTime,
-    }
-    assert captured["frame"]["n"].tolist() == ["1"]
+    assert captured["tipos"] == {"n": "TEXT", "j": "JSONB"}
+    assert captured["write"] == "truncate"
+    assert captured["filename"] == "f.csv"
+    # colunas de rastreio não entram no stream: vêm de DEFAULT no catálogo
     assert list(df.columns) == ["n", "j"]  # DataFrame do chamador intacto
+
+
+def test_load_files_manda_csv_direto_para_o_copy(tmp_path, monkeypatch):
+    (tmp_path / "acoes.csv").write_text("a;b\n1;2\n")
+    pg = PostgresClient(connection=_Sentinel())
+    chamadas = []
+    monkeypatch.setattr(
+        pg,
+        "copy_csv",
+        lambda path, table, **kw: chamadas.append((path.name, table, kw)),
+    )
+    pg.load_files_to_table(tmp_path, schema="raw_b3")
+
+    assert chamadas == [
+        (
+            "acoes.csv",
+            "acoes",
+            {
+                "schema": "raw_b3",
+                "sep": ";",
+                "write": "truncate",
+                "filename": "acoes.csv",
+                "merge_key": None,
+            },
+        )
+    ]
