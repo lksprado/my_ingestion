@@ -57,26 +57,33 @@ def _query(sql: str, columns: list[str]) -> list[dict]:
     return rows
 
 
+def _temporada(cfg: PipelineConfig, schema: str) -> str:
+    """Expressão SQL da temporada: ``options.season_id`` ou a atual."""
+    season = cfg.options.get("season_id")
+    if season is None:
+        return f"(SELECT MAX(payload::INT) FROM {schema}.{T_SEASONS})"
+    return str(int(season))  # int(): o valor vai interpolado no SQL
+
+
 def params_jogos(cfg: PipelineConfig) -> list[dict]:
-    """``game_id`` dos jogos já realizados na temporada atual que faltam carregar.
+    """``game_id`` dos jogos já realizados na temporada que faltam carregar.
 
     "Faltam carregar" = não estão registrados em ``cfg.db_table`` na tabela de
     controle, cujo ``filename`` carrega o ``game_id`` (``raw_<id>_details.json``,
     ``raw_<id>_summary_details.json``, ``raw_<id>.json``).
+
+    A temporada é a atual (maior id em ``nhl_raw_all_seasons_id``), ou a de
+    ``options.season_id`` — é assim que se refaz uma temporada passada, cujos
+    jogos o critério "temporada atual" já deixou para trás.
     """
     s = _schema(cfg)
     sql = f"""
-    WITH temporada_atual AS (
-        SELECT MAX(payload::INT) AS season_id
-        FROM {s}.{T_SEASONS}
-    ),
-    jogos_realizados AS (
+    WITH jogos_realizados AS (
         SELECT DISTINCT (payload ->> 'id')::BIGINT AS game_id
         FROM {s}.{T_GAMES_SUMMARY}
         WHERE {AGENDADO}
           AND {REALIZADO}
-          AND (payload ->> 'season')::INT
-              = (SELECT season_id FROM temporada_atual)
+          AND (payload ->> 'season')::INT = {_temporada(cfg, s)}
     ),
     ja_ingeridos AS (
         SELECT (REGEXP_MATCH(filename, '([0-9]+)'))[1]::BIGINT AS game_id

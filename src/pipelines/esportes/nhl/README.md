@@ -91,6 +91,31 @@ acontece no `ingestion_sandbox`; em prod, no banco do Airflow. Para testar um
 incremental no sandbox, antes rode `scripts/raw_copy.sh seed raw_nhl` — senão o
 controle de ingestão está vazio e os `params_*` pedem a temporada inteira.
 
+## Backfill de uma temporada passada
+
+`params_jogos` olha para a temporada atual (maior id em `nhl_raw_all_seasons_id`).
+Quando a API publica a temporada seguinte — o que acontece meses antes do primeiro
+jogo —, o que ficou faltando da anterior sai do escopo e nunca mais é pedido. Para
+fechar esse buraco, passe `options.season_id`:
+
+```python
+from core import GenericETL, PipelineConfig, setup_logger
+from pipelines.esportes.nhl.nhl_etl import CONFIG_FILE, extract_dynamic, params_jogos
+
+setup_logger()
+for entidade in ("games_details", "games_summary_details", "play_by_play"):
+    cfg = PipelineConfig.from_yaml(CONFIG_FILE, entidade)
+    cfg.options["season_id"] = 20252026
+    extract_dynamic(cfg, params=params_jogos)
+    GenericETL(cfg).load()
+```
+
+Não dá para usar `build_etl` aqui: ele relê o YAML e perderia o `season_id`.
+
+O load não precisa de `season_id`: o `JsonbLoader` pega do landing o que ainda não
+está na tabela de controle. `skip_existing` continua valendo, então o que já foi
+baixado não é rebaixado.
+
 ## Idempotência
 
 `core.jsonb.JsonbLoader` registra cada arquivo carregado em

@@ -63,6 +63,26 @@ def test_params_consultam_o_schema_e_a_tabela_da_carga(fake_pg):
     assert "staging" not in sql and "vw_stg_" not in sql
 
 
+def test_params_jogos_usa_a_temporada_atual_por_default(fake_pg):
+    nhl_etl.params_jogos(_cfg_raw())
+    assert "MAX(payload::INT) FROM raw_nhl.nhl_raw_all_seasons_id" in fake_pg.sql
+
+
+def test_params_jogos_aceita_season_id_para_backfill(fake_pg):
+    cfg = _cfg_raw()
+    cfg.options["season_id"] = 20252026
+    nhl_etl.params_jogos(cfg)
+    assert "(payload ->> 'season')::INT = 20252026" in fake_pg.sql
+    assert "nhl_raw_all_seasons_id" not in fake_pg.sql
+
+
+def test_params_jogos_recusa_season_id_nao_numerico(fake_pg):
+    cfg = _cfg_raw()
+    cfg.options["season_id"] = "2025; DROP TABLE x"
+    with pytest.raises(ValueError):
+        nhl_etl.params_jogos(cfg)
+
+
 def test_params_rejeitam_schema_fora_da_raw(fake_pg):
     cfg = PipelineConfig(landing_dir=".", db_schema="staging_nhl", criar_dirs=False)
     with pytest.raises(ValueError):
