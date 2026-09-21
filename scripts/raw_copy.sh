@@ -35,6 +35,10 @@
 #
 # --dry-run mostra a decisão de cada tabela sem mover dado.
 # --full    ignora o delta e copia tudo, tabela a tabela.
+#
+# As credenciais saem do .env da raiz do repo, mas a variável de ambiente de mesmo
+# nome vence o arquivo e dispensa o .env -- é por aí que a DAG raw_pull_prod (dev)
+# chama o pull de dentro do container do Airflow.
 set -euo pipefail
 
 SANDBOX_DB=ingestion_sandbox
@@ -48,9 +52,16 @@ usage() {
     exit 1
 }
 
-# Valor de uma chave do .env; vazio quando a chave não existe.
+# Valor de uma chave: a variável já exportada no ambiente vence o .env, e o .env
+# é opcional. É assim que o Airflow roda este script -- no container não existe o
+# .env do repo, só as DB__DEV__*/DB__PROD__* que o Astro injeta no ambiente.
 env_opt() {
     local line
+    [[ -n ${!1:-} ]] && {
+        printf '%s' "${!1}"
+        return 0
+    }
+    [[ -f $ENV_FILE ]] || return 0
     line=$(grep -E "^$1=" "$ENV_FILE" | tail -n1) || return 0
     line=${line#*=}
     line=${line%\"}
@@ -62,7 +73,7 @@ env_value() {
     local valor
     valor=$(env_opt "$1")
     [[ -n $valor ]] || {
-        echo "faltou $1 em $ENV_FILE" >&2
+        echo "faltou $1 no ambiente e em $ENV_FILE" >&2
         exit 1
     }
     printf '%s' "$valor"
