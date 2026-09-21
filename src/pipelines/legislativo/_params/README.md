@@ -37,6 +37,14 @@ saiu e use `--forcar` quando a redução for esperada. (Hoje é o caso de
 `seed_camara_tipos_proposicao.csv` não sai daqui — é mantido à mão no
 `my_analytics`.
 
+As mesmas tabelas existem como resíduo na raw (`raw_senado.raw_senado_tipos_*`,
+`raw_camara.raw_camara_tipos_proposicao`), de um caminho antigo em que iam para
+o banco em vez de virarem seed. Não têm consumidor — o dbt lê os seeds — e não
+têm `loaded_at_utc`, então o `raw_copy.sh` as copia sempre por inteiro. Para
+limpar: `scripts/drop_tabelas_orfas.sh {models|prod}`, que **simula por padrão**
+e só derruba com `--confirmar`, pulando qualquer tabela que tenha dependente ou
+cujo dado não esteja todo preservado no seed.
+
 Grava com `sep=","` e `index=False` — o dbt exige esse formato para seeds.
 
 ## CSVs nesta pasta
