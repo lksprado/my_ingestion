@@ -1,4 +1,4 @@
-"""Gera parameters/id_deputados.csv (coluna ``id``) para camara/camara_deputados."""
+"""Gera parameters/id_deputados.csv (coluna ``id``) para a entidade ``deputados``."""
 
 import logging
 from pathlib import Path

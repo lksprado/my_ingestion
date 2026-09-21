@@ -12,8 +12,8 @@
 #     models   analytics_dev   (perfil DB__DEV__*)
 #     prod     produção        (perfil DB__PROD__*)
 #
-# **Sem --confirmar ele não derruba nada**: só mostra o que faria. É o inverso
-# do loaded_at_migra.sh de propósito — rename se desfaz, DROP não.
+# **Sem --confirmar ele não derruba nada**: só mostra o que faria. É o único
+# script do repo que precisa disso, porque DROP não se desfaz.
 #
 # Antes de derrubar cada tabela, checa duas coisas e pula a tabela se qualquer
 # uma falhar:
