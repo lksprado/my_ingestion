@@ -292,8 +292,6 @@ está no padrão.
 
 ## 8. Dívidas conhecidas
 
-- `legislativo/_params/dbt_seed_maker.py` grava em caminho absoluto para o repo do
-  dbt. É exceção consciente (aquele warehouse não é o `SEEDS_ROOT`), não um exemplo.
 - `legislativo/ecidadania` guarda no landing o CSV já parseado, não o HTML bruto.
 - Comportamentos registrados por fonte (timeout na lista "sem dados", vínculo
   senado_status ← ecidadania) estão nos READMEs de `camara` e `senado`.

@@ -18,17 +18,24 @@ Rode quando a legislatura mudar ou quando houver troca de titularidade.
 ## `dbt_seed_maker.py`
 
 Baixa tabelas estáticas do Senado (tipos de entes, tipos de decisão, tipos de
-projetos) e grava direto na pasta `seeds/` do projeto dbt, para virarem seeds.
+projetos) e grava na pasta `seeds/` do projeto dbt (`settings.seeds_root`, do
+`SEEDS_ROOT`), com o nome que o dbt referencia: `seed_senado_tipos_*`.
 
 ```bash
-uv run python -m pipelines.legislativo._params.dbt_seed_maker                          # todas
-uv run python -m pipelines.legislativo._params.dbt_seed_maker raw_senado_tipos_entes   # uma
+uv run python -m pipelines.legislativo._params.dbt_seed_maker                            # todas
+uv run python -m pipelines.legislativo._params.dbt_seed_maker seed_senado_tipos_entes    # uma
+uv run python -m pipelines.legislativo._params.dbt_seed_maker seed_senado_tipos_decisao --forcar
 ```
 
-⚠️ O destino é um **caminho absoluto hardcoded** apontando para o repo
-`demodadosdw` (`/home/lucas/workspace/demodados/demodadosdw/seeds/`). Não usa
-`SEEDS_ROOT`, porque essa variável aponta para outro data warehouse (`my_analytics`).
-Se o repo dbt mudar de lugar, edite `SEEDS_DIR`.
+⚠️ A API do Senado às vezes **encolhe**: uma sigla sai da lista sem nada a
+substituir. Como o seed é a fonte de verdade do join no dbt, perder linha é
+perder descrição em dado histórico — por isso, quando o conteúdo baixado tem
+menos linhas que o seed atual, o script avisa e **não grava**. Confira o que
+saiu e use `--forcar` quando a redução for esperada. (Hoje é o caso de
+`tipos_decisao`: a API devolve 32 linhas e o seed tem 36.)
+
+`seed_camara_tipos_proposicao.csv` não sai daqui — é mantido à mão no
+`my_analytics`.
 
 Grava com `sep=","` e `index=False` — o dbt exige esse formato para seeds.
 
