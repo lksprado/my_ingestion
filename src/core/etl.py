@@ -95,8 +95,8 @@ class GenericETL:
         self.logger.info("✅ Carga concluida")
 
     def _load_table(self) -> None:
-        # O bronze vai inteiro para o COPY: sem pandas, sem chunk, uma transação.
-        # CSV só com cabeçalho cria a tabela vazia, sem caso especial.
+        # O bronze vai inteiro para o COPY, numa transação. CSV só com
+        # cabeçalho cria a tabela e insere 0 linhas: não precisa de caso especial.
         cfg = self.cfg
         schema = validate_raw_schema(cfg.db_schema)
         path = cfg.bronze_filepath

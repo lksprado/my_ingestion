@@ -22,13 +22,12 @@ inteira, sempre em UTC, qualquer que seja o fuso do servidor.
 
 Convenção de NULL no COPY (``FORMAT csv``, marcador default ``''``):
 
-- **caminho do bronze** (``copy_csv``): campo vazio não aspado é NULL, que é
-  exatamente o ``na_values=[""]`` com que o pandas lia esses CSVs antes;
-- **caminho em memória** (``send_df_to_db``): o buffer é serializado com
-  ``csv.QUOTE_NOTNULL``, que aspa tudo que não é ``None``. Assim ``''`` sai como
-  ``""`` (string vazia) e ``None`` sai como campo vazio (NULL), preservando a
-  distinção que o ``to_sql`` fazia. De quebra, como todo valor não nulo sai
-  aspado, ``;``, ``"``, quebra de linha e a linha ``\\.`` ficam imunes.
+- **caminho do bronze** (``copy_csv``): campo vazio não aspado é NULL — e só ele,
+  de modo que ``NA``, ``null`` e ``nan`` seguem texto e ``007`` segue ``007``;
+- **caminho em memória** (``send_df_to_db``): o buffer aspa tudo que não é
+  ``None``. Assim ``''`` sai como ``""`` (string vazia) e ``None`` sai como campo
+  vazio (NULL), preservando a distinção entre os dois. De quebra, como todo valor
+  não nulo sai aspado, ``;``, ``"``, quebra de linha e a linha ``\\.`` ficam imunes.
 """
 
 import csv
@@ -59,19 +58,14 @@ WRITE_MODES: tuple[str, ...] = ("truncate", "append", "merge")
 
 # Metadados da carga: não vêm do dado, vêm de DEFAULT no catálogo.
 LOADED_AT_COLUMN = "loaded_at_utc"
-# Nome antigo, renomeado sozinho na primeira carga (ver ensure_raw_table).
-LOADED_AT_LEGACY_COLUMN = "data_carga"
 TRACKING_COLUMNS: tuple[str, ...] = ("arquivo_origem", LOADED_AT_COLUMN)
 
 # `now()` é timestamptz: gravado numa coluna sem fuso, viraria a hora local do
 # servidor. O `AT TIME ZONE 'utc'` é o que faz o nome da coluna ser verdade em
 # qualquer banco, sem depender do TimeZone da sessão.
 LOADED_AT_DEFAULT = "now() AT TIME ZONE 'utc'"
-# Como o pg_get_expr normaliza a expressão acima — a segunda forma aparece
-# quando o DEFAULT foi escrito como timezone('utc', now()).
-_LOADED_AT_DEFAULT_FORMS = frozenset(
-    {"(now() AT TIME ZONE 'utc'::text)", "timezone('utc'::text, now())"}
-)
+# Como o pg_get_expr normaliza a expressão acima.
+_LOADED_AT_DEFAULT_FORM = "(now() AT TIME ZONE 'utc'::text)"
 
 # Sem isso um TRUNCATE entra na fila na frente dos SELECTs do dbt e segura o
 # banco pelo tempo inteiro do COPY. Melhor falhar rápido e reexecutar.
@@ -93,7 +87,7 @@ def validate_raw_schema(schema: str | None) -> str:
 
 
 def validate_write_mode(write: str | None) -> str:
-    """Garante um modo de escrita conhecido (``truncate``/``append``)."""
+    """Garante um modo de escrita conhecido (``truncate``/``append``/``merge``)."""
     if write not in WRITE_MODES:
         raise ValueError(f"write={write!r} inválido; use um de {WRITE_MODES}.")
     return write
@@ -251,7 +245,7 @@ def ensure_column_default(
     cur.execute(_COLUMN_DEFAULT_SQL, (f"{schema}.{table}", column))
     atual = cur.fetchone()
     if value is None:
-        if atual and atual[0] in _LOADED_AT_DEFAULT_FORMS:
+        if atual and atual[0] == _LOADED_AT_DEFAULT_FORM:
             return
     else:
         esperado = "'{}'::text".format(value.replace("'", "''"))
@@ -313,39 +307,21 @@ def ensure_loaded_at(
 ) -> None:
     """Garante ``loaded_at_utc`` com o DEFAULT em UTC — tabular e JSONB.
 
-    Três reparos idempotentes, todos de catálogo (nenhuma linha é reescrita):
-
-    - ``data_carga`` (nome antigo) vira ``loaded_at_utc`` por ``RENAME COLUMN``;
-      as views do dbt sobre a raw seguem válidas, porque o Postgres reescreve a
-      dependência sozinho;
-    - tabela sem a coluna (legado do ``to_sql``) ganha o ``ADD COLUMN``, senão
-      ela entraria NULL e quebraria o ``loaded_at_field`` do dbt;
-    - o DEFAULT é acertado para ``now() AT TIME ZONE 'utc'`` (inclusive nas
-      tabelas que ficaram com o ``now()`` puro, em fuso do servidor).
+    Reparo idempotente e de catálogo (nenhuma linha é reescrita): tabela que não
+    tem a coluna ganha o ``ADD COLUMN`` — senão ela entraria NULL e quebraria o
+    ``loaded_at_field`` do dbt — e o DEFAULT é acertado para
+    ``now() AT TIME ZONE 'utc'``. As linhas que já estavam lá ficam com o
+    instante do ``ADD COLUMN``, não com o da ingestão que as trouxe.
     """
     log = log or logger
-    existentes = _table_columns(cur, schema, table)
-    if LOADED_AT_COLUMN not in existentes:
-        if LOADED_AT_LEGACY_COLUMN in existentes:
-            cur.execute(
-                sql.SQL("ALTER TABLE {}.{} RENAME COLUMN {} TO {}").format(
-                    sql.Identifier(schema),
-                    sql.Identifier(table),
-                    sql.Identifier(LOADED_AT_LEGACY_COLUMN),
-                    sql.Identifier(LOADED_AT_COLUMN),
-                )
-            )
-            log.warning(
-                f"🔁 {schema}.{table}.{LOADED_AT_LEGACY_COLUMN} renomeada para "
-                f"{LOADED_AT_COLUMN}"
-            )
-        else:
-            cur.execute(
-                sql.SQL(
-                    f"ALTER TABLE {{}}.{{}} ADD COLUMN {LOADED_AT_COLUMN} "
-                    f"TIMESTAMP DEFAULT ({LOADED_AT_DEFAULT})"
-                ).format(sql.Identifier(schema), sql.Identifier(table))
-            )
+    if LOADED_AT_COLUMN not in _table_columns(cur, schema, table):
+        cur.execute(
+            sql.SQL(
+                f"ALTER TABLE {{}}.{{}} ADD COLUMN {LOADED_AT_COLUMN} "
+                f"TIMESTAMP DEFAULT ({LOADED_AT_DEFAULT})"
+            ).format(sql.Identifier(schema), sql.Identifier(table))
+        )
+        log.warning(f"➕ {schema}.{table}.{LOADED_AT_COLUMN} criada")
     ensure_column_default(cur, schema, table, LOADED_AT_COLUMN, None)
 
 
@@ -362,9 +338,8 @@ def ensure_raw_table(
     """Garante schema, tabela e colunas de rastreio; devolve o plano de colunas.
 
     Idempotente e sem DROP: cria o que falta, acrescenta coluna nova do dado e
-    avisa (WARNING) sobre coluna que sumiu ou trocou de tipo — casos em que hoje
-    o ``replace`` "consertava" recriando a tabela, e que agora precisam de um
-    recreate manual (documentado no ``core/README.md``).
+    avisa (WARNING) sobre coluna que sumiu ou trocou de tipo. Rename e troca de
+    tipo exigem recreate manual (documentado no ``core/README.md``).
     """
     log = log or logger
     schema = validate_raw_schema(schema)
@@ -558,8 +533,7 @@ class PostgresClient:
         junto com a carga — hoje, o registro do manifesto na tabela de controle.
 
         DDL no Postgres é transacional, então nada fica visível antes do commit:
-        falha no meio devolve a tabela ao estado anterior, em vez de deixá-la
-        vazia ou parcial como o caminho em chunks deixava.
+        falha no meio devolve a tabela ao estado anterior, nunca vazia ou parcial.
         """
         if write == "merge":
             if not merge_key:
@@ -769,7 +743,7 @@ class PostgresClient:
         self.logger.info(f"✅ Load concluido: {len(files)} arquivo(s)")
 
     def read_sql(self, sql_text: str) -> pd.DataFrame:
-        """Resultado de uma query como DataFrame (leituras: staging, intermediate)."""
+        """Resultado de uma query como DataFrame (leituras em objetos do dbt)."""
         if self.external_connection:
             return pd.read_sql(sql_text, con=self.external_connection)
         # text(): '%' literal (LIKE) não vira placeholder do driver.

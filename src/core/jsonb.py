@@ -103,9 +103,7 @@ class JsonbLoader:
     def _ensure_table(self, cur, table: str) -> None:
         # loaded_at_utc alinha as tabelas JSONB com as tabulares: é o
         # loaded_at_field do dbt e o que a sincronização prod -> dev usa para
-        # achar o delta. Em tabela existente o ADD COLUMN é operação de catálogo,
-        # mas as linhas antigas ficam com o instante da migração, não o da
-        # ingestão.
+        # achar o delta.
         cur.execute(
             f"""
             CREATE SCHEMA IF NOT EXISTS {self.schema};
@@ -117,8 +115,8 @@ class JsonbLoader:
             );
             """
         )
-        # Mesma migração do caminho tabular: renomeia data_carga, cria a coluna
-        # quando falta e conserta o DEFAULT de tabela criada antes desta regra.
+        # Mesmo reparo do caminho tabular: cria a coluna quando a tabela é
+        # anterior a ela e garante o DEFAULT em UTC.
         ensure_loaded_at(cur, self.schema, table, self.logger)
 
     def _truncate(self, cur, table: str) -> None:

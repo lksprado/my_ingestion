@@ -207,59 +207,39 @@ def test_ordem_das_colunas_do_bronze_nao_importa(pg, tmp_path):
     assert query(pg, f"SELECT a, b FROM {SCHEMA}.ordem") == [("10", "20")]
 
 
-# ------------------------ tabelas legadas do to_sql ------------------------
+# ------------------------ tabela anterior ao carimbo ------------------------
 
 
-def test_tabela_legada_sem_default_ganha_carimbo(pg, tmp_path):
-    """O ``to_sql`` criava ``data_carga`` sem DEFAULT; sem migrar, viria NULL."""
+def test_tabela_sem_carimbo_ganha_a_coluna_sem_recreate(pg, tmp_path):
+    """Tabela criada antes do carimbo (JSONB da NHL, apsystem, openweather).
+
+    O ``ADD COLUMN`` é de catálogo: as linhas que já estavam lá continuam lá e o
+    OID não muda, então as views do dbt sobre a raw sobrevivem.
+    """
     conn = pg.connect()
     with conn.cursor() as cur:
-        cur.execute(
-            f"CREATE TABLE {SCHEMA}.legada "
-            "(a TEXT, arquivo_origem TEXT, data_carga TIMESTAMP)"
-        )
+        cur.execute(f"CREATE TABLE {SCHEMA}.sem_carimbo (a TEXT)")
+        cur.execute(f"INSERT INTO {SCHEMA}.sem_carimbo (a) VALUES ('velha')")
     conn.commit()
     conn.close()
-
-    path = bronze(tmp_path, "a\n1\n")
-    pg.copy_csv(path, "legada", schema=SCHEMA, filename=path.name)
-
-    assert query(
-        pg,
-        f"SELECT a, arquivo_origem, loaded_at_utc IS NOT NULL FROM {SCHEMA}.legada",
-    ) == [("1", "f.csv", True)]
-
-
-def test_data_carga_vira_loaded_at_utc_preservando_os_valores(pg, tmp_path):
-    """Rename de catálogo: o carimbo antigo continua lá, com o nome novo."""
-    conn = pg.connect()
-    with conn.cursor() as cur:
-        cur.execute(
-            f"CREATE TABLE {SCHEMA}.renomeia (a TEXT, "
-            "data_carga TIMESTAMP NOT NULL DEFAULT now())"
-        )
-        cur.execute(f"INSERT INTO {SCHEMA}.renomeia (a) VALUES ('velha')")
-    conn.commit()
-    conn.close()
-    oid = query(pg, f"SELECT '{SCHEMA}.renomeia'::regclass::oid")
+    oid = query(pg, f"SELECT '{SCHEMA}.sem_carimbo'::regclass::oid")
 
     pg.copy_csv(
-        bronze(tmp_path, "a\nnova\n"), "renomeia", schema=SCHEMA, write="append"
+        bronze(tmp_path, "a\nnova\n"), "sem_carimbo", schema=SCHEMA, write="append"
     )
 
     colunas = query(
         pg,
         "SELECT column_name FROM information_schema.columns "
-        f"WHERE table_schema = '{SCHEMA}' AND table_name = 'renomeia'",
+        f"WHERE table_schema = '{SCHEMA}' AND table_name = 'sem_carimbo'",
     )
     assert {c[0] for c in colunas} == {"a", "loaded_at_utc"}
     assert query(
         pg,
-        f"SELECT count(*), count(*) FILTER (WHERE loaded_at_utc IS NULL) "
-        f"FROM {SCHEMA}.renomeia",
+        "SELECT count(*), count(*) FILTER (WHERE loaded_at_utc IS NULL) "
+        f"FROM {SCHEMA}.sem_carimbo",
     ) == [(2, 0)]
-    # sem recreate: o OID é o mesmo, então as views do dbt sobrevivem ao rename
-    assert query(pg, f"SELECT '{SCHEMA}.renomeia'::regclass::oid") == oid
+    assert query(pg, f"SELECT '{SCHEMA}.sem_carimbo'::regclass::oid") == oid
 
 
 def test_carimbo_e_utc_mesmo_com_a_sessao_em_outro_fuso(pg, tmp_path):

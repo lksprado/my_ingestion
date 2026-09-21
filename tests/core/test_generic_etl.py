@@ -160,9 +160,9 @@ def test_load_table_repassa_a_merge_key_do_yaml(monkeypatch, tmp_path):
     assert _FakeCopy.chamadas[0]["merge_key"] == ["date"]
 
 
-def test_load_table_com_so_cabecalho_nao_tem_caso_especial(monkeypatch, tmp_path):
-    # O COPY de um CSV só com cabeçalho cria a tabela e insere 0 linhas: o
-    # branch que existia para isso no _load_table deixou de ser necessário.
+def test_load_table_com_so_cabecalho_cria_tabela_vazia(monkeypatch, tmp_path):
+    # O COPY de um CSV só com cabeçalho cria a tabela e insere 0 linhas, sem
+    # que o _load_table precise de caso especial.
     _FakeCopy.chamadas = []
     monkeypatch.setattr(etl_module, "PostgresClient", _FakeCopy)
 
