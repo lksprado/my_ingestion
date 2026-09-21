@@ -237,8 +237,7 @@ consequências que valem por si:
 - a tabela **nunca é recriada**, então as views do dbt sobre a raw sobrevivem, os
   grants ficam e o OID é estável — é o que torna possível sincronizar prod → dev;
 - DDL no Postgres é transacional, então falha no meio do `COPY` faz rollback e a
-  tabela **continua com os dados anteriores** (o caminho antigo, em chunks, deixava
-  a tabela parcial);
+  tabela **continua com os dados anteriores**, nunca parcial;
 - `TRUNCATE` pega `ACCESS EXCLUSIVE`. A carga usa `SET LOCAL lock_timeout = '30s'`
   para falhar rápido em vez de empilhar fila na frente de um `dbt build`.
 
@@ -255,14 +254,11 @@ num servidor fora de UTC (`now()` puro grava a hora local dele). O `DEFAULT` de
 `arquivo_origem` só é reescrito quando muda de valor, porque o `ALTER` pega
 `ACCESS EXCLUSIVE`.
 
-A coluna chamava-se `data_carga` até esta mudança. `ensure_loaded_at` faz a
-migração sozinha na primeira carga de cada tabela (`RENAME COLUMN`, operação de
-catálogo: nada é reescrito e as views do dbt sobrevivem), e
-`scripts/loaded_at_migra.sh {sandbox|models|prod} [--dry-run]` faz o schema
-inteiro de uma vez — o que **precisa** acontecer nos três bancos antes do próximo
-`raw_copy.sh`, que usa a lista de colunas da origem nos dois lados. Linhas
-gravadas antes da migração ficam como estavam: se aquele servidor não estava em
-UTC, o histórico anterior está no fuso dele.
+Tabela que não tem a coluna (as JSONB da NHL, `raw_apsystem.*`,
+`raw_openweather.openweather_daily`) ganha o `ADD COLUMN` na carga seguinte,
+por `ensure_loaded_at`: é operação de catálogo, nada é reescrito e as views do
+dbt sobrevivem. As linhas que já estavam lá ficam com o instante do `ADD COLUMN`,
+não com o da ingestão que as trouxe.
 
 **NULL vs string vazia no `COPY` (`FORMAT csv`, marcador default `''`):**
 
@@ -275,9 +271,8 @@ UTC, o histórico anterior está no fuso dele.
   preservando a distinção. De quebra, `;`, `"`, quebra de linha e a linha `\.` ficam
   inofensivos.
 
-Único caso em que o COPY diverge do caminho pandas antigo: uma string vazia
-**aspada** (`""`) num bronze produzido fora do `write_bronze` chega como string
-vazia, não como NULL.
+Ponto de atenção: uma string vazia **aspada** (`""`) num bronze produzido fora
+do `write_bronze` chega como string vazia, não como NULL.
 
 **Modos de escrita** (`write` no YAML, `write=` nos métodos):
 
@@ -306,9 +301,8 @@ recreate (rename, `TEXT` ↔ `JSONB`) é gesto manual e logado como WARNING:
 DROP TABLE raw_camara.raw_camara_votacoes CASCADE;
 ```
 
-Tabela legada criada pelo `to_sql` antigo (com o carimbo **sem** `DEFAULT`, ou
-ainda com o nome `data_carga`) é migrada sozinha na primeira carga nova, sem
-recriação.
+Tabela anterior ao carimbo (sem `loaded_at_utc`, ou com ele sem `DEFAULT`) é
+reparada sozinha na carga seguinte, sem recriação.
 
 | Método | Para quê |
 |---|---|
@@ -398,8 +392,8 @@ decide o que é "sem dados" (a câmara usa `dados` não vazio).
 ## `control.py` — carga incremental por arquivo
 
 Uma linha por `(schema, tabela, arquivo)` em `<schema>.<control_table>` diz o que
-já entrou. Era exclusivo do `JsonbLoader` (NHL); agora serve também ao caminho
-tabular, que é onde estão os volumes grandes do legislativo.
+já entrou. Serve aos dois caminhos: o `JsonbLoader` (NHL) e o tabular, que é
+onde estão os volumes grandes do legislativo.
 
 Uma fonte vira incremental por arquivo declarando no YAML, por entidade:
 
