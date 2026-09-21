@@ -129,7 +129,7 @@ def transform_votacoes(cfg: PipelineConfig) -> None:
 
 
 def transform_votos_senadores(cfg: PipelineConfig) -> None:
-    """Sem extract: lê o landing de ``votacoes`` (``options.source_landing_subpath``)."""
+    """Sem extract: lê o landing de ``votacoes`` (`options.source_landing_subpath`)."""
     source = cfg.landing_dir.parent / cfg.options["source_landing_subpath"]
     frames = []
     for f in sorted(source.glob("*.json")):

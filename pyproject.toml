@@ -51,8 +51,8 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "N", "W", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
-# Código de negócio migrado como estava (conformação, não reescrita):
-# mensagens de log longas herdadas dos projetos originais.
+# O comentário com o comando no fim do __main__ (convenção do repo) passa de 88
+# colunas quando o caminho do módulo é longo, e quebrá-lo o torna incolável.
 "src/pipelines/legislativo/**" = ["E501"]
 # Template HTML/CSS embutido — quebrar as linhas prejudica a legibilidade.
 "src/pipelines/financas/fundos_imobiliarios/dividend_report.py" = ["E501"]
