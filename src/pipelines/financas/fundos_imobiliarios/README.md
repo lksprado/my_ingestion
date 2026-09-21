@@ -17,6 +17,33 @@ relatório de dividendos em HTML.
 
 Tudo sob `${LAKE_ROOT}/raw/fii/`, com `<mês>` = `{YYYY}/{MM}`.
 
+## Colunas de saída
+
+`fii_list.csv` (e o `consolidated/fii_list_history.csv`, que é a concatenação
+mensal dele):
+
+| Coluna | O que é |
+|---|---|
+| `extraction_month` | Mês de referência da extração (`YYYY-MM`) |
+| `ticker` | Código do fundo (ex.: `KNCR11`) |
+| `net_worth` | Patrimônio líquido |
+| `p_vp` | Preço sobre valor patrimonial |
+| `dividend_yield_last_12_months` | DY dos últimos 12 meses |
+| `dividend_yield_last_5_years` | DY médio dos últimos 5 anos |
+| `daily_liquidity` | Liquidez diária |
+| `fii_type` | Tipo de fundo (Papel, Tijolo, …) |
+| `variation_12_months` / `two_years_variation` / `variation_5_years` | Variação de preço no período |
+| `name_segment` | Segmento |
+
+Os nomes vêm do atributo `data-name` do HTML (`parse_inv10_rankings_table`), não
+de uma lista fixa: coluna nova no site aparece sozinha no CSV.
+
+`indicadores/{TICKER}.csv` (e `consolidated/indicadores_history.csv`):
+`extraction_month`, `ticker`, `indicator` (P/VP, Dividend Yield, …), `Atual` e
+uma coluna por ano disponível (`2025`, `2024`, …).
+
+`fii_history.csv`: `ticker`, `date`, `close`, `dividend`.
+
 ## Como executar
 
 ```bash
@@ -52,3 +79,9 @@ CSV + HTML em `${LAKE_ROOT}/reports/fii/`.
 - Exceção consciente ao `GenericETL`: não escreve em `raw_*`; usa só `HttpClient`
   e `setup_logger` da `core`.
 - Testes do parser em `tests/financas/test_fii_parser.py`.
+
+## Limitações conhecidas
+
+- `get_fii_history` é chamada sem `start` (`run.py:266`), então cai no default
+  `"2020-01-01"` e **rebaixa a série inteira do yfinance a cada execução**, em vez
+  de buscar só o incremento desde o último mês consolidado.
