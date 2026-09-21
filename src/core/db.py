@@ -53,8 +53,8 @@ RAW_SCHEMA_PREFIX = "raw_"
 # O schema é interpolado em SQL (JsonbLoader, CREATE SCHEMA): só identificador simples.
 _IDENT = re.compile(r"^[a-z][a-z0-9_]*$")
 
-WriteMode = Literal["truncate", "append", "merge"]
-WRITE_MODES: tuple[str, ...] = ("truncate", "append", "merge")
+WriteMode = Literal["truncate", "append"]
+WRITE_MODES: tuple[str, ...] = ("truncate", "append")
 
 # Metadados da carga: não vêm do dado, vêm de DEFAULT no catálogo.
 LOADED_AT_COLUMN = "loaded_at_utc"
@@ -87,7 +87,7 @@ def validate_raw_schema(schema: str | None) -> str:
 
 
 def validate_write_mode(write: str | None) -> str:
-    """Garante um modo de escrita conhecido (``truncate``/``append``/``merge``)."""
+    """Garante um modo de escrita conhecido (``truncate``/``append``)."""
     if write not in WRITE_MODES:
         raise ValueError(f"write={write!r} inválido; use um de {WRITE_MODES}.")
     return write
@@ -261,47 +261,6 @@ def ensure_column_default(
     )
 
 
-# indisunique cobre também a primary key.
-_UNIQUE_INDEX_SQL = """
-    SELECT i.indexrelid::regclass::text
-    FROM pg_index i
-    WHERE i.indrelid = %s::regclass AND i.indisunique
-"""
-
-_INDEX_COLUMNS_SQL = """
-    SELECT a.attname
-    FROM pg_index i
-    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-    WHERE i.indexrelid = %s::regclass
-"""
-
-
-def _ensure_unique_index(
-    cur, schema: str, table: str, colunas: list[str], log: logging.Logger
-) -> None:
-    """Garante índice único sobre ``colunas`` (o que o ``ON CONFLICT`` exige).
-
-    Procura por **conjunto de colunas**, não por nome: as tabelas de openweather e
-    solar já têm índices feitos à mão (``openweather_date_pk`` etc.) e criar um
-    segundo idêntico seria desperdício.
-    """
-    cur.execute(_UNIQUE_INDEX_SQL, (f"{schema}.{table}",))
-    for (indice,) in cur.fetchall():
-        cur.execute(_INDEX_COLUMNS_SQL, (indice,))
-        if {r[0] for r in cur.fetchall()} == set(colunas):
-            return
-    nome = f"{table}_merge_key"
-    cur.execute(
-        sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS {} ON {}.{} ({})").format(
-            sql.Identifier(nome),
-            sql.Identifier(schema),
-            sql.Identifier(table),
-            sql.SQL(", ").join(sql.Identifier(c) for c in colunas),
-        )
-    )
-    log.info(f"🔑 Índice único {nome} em {schema}.{table} ({', '.join(colunas)})")
-
-
 def ensure_loaded_at(
     cur, schema: str, table: str, log: logging.Logger | None = None
 ) -> None:
@@ -332,7 +291,6 @@ def ensure_raw_table(
     tipos: dict[str, str],
     *,
     filename: str | None = None,
-    merge_key: list[str] | None = None,
     log: logging.Logger | None = None,
 ) -> ColumnPlan:
     """Garante schema, tabela e colunas de rastreio; devolve o plano de colunas.
@@ -397,14 +355,11 @@ def ensure_raw_table(
             )
         ensure_column_default(cur, schema, table, "arquivo_origem", filename)
 
-    if merge_key:
-        _ensure_unique_index(cur, schema, table, merge_key, log)
-
     return plano
 
 
 def _copy_sql(destino, columns: list[str], sep: str, header: bool):
-    """``COPY`` para ``destino`` (tabela real ou a temporária do merge)."""
+    """``COPY`` para ``destino``."""
     return sql.SQL(
         "COPY {} ({}) FROM STDIN WITH (FORMAT csv, HEADER {}, DELIMITER {})"
     ).format(
@@ -476,45 +431,6 @@ class PostgresClient:
 
     # ------------------------ carga ------------------------
 
-    def _merge(
-        self,
-        cur,
-        schema: str,
-        table: str,
-        temp: str,
-        colunas: list[str],
-        merge_key: list[str],
-    ) -> int:
-        """``INSERT ... ON CONFLICT DO UPDATE`` da temporária para a tabela.
-
-        ``DISTINCT ON`` não é opcional: o ``ON CONFLICT`` erra com "cannot affect
-        row a second time" se o lote trouxer a mesma chave duas vezes.
-        """
-        atualizar = [c for c in colunas if c not in merge_key]
-        lista = sql.SQL(", ").join(sql.Identifier(c) for c in colunas)
-        chave = sql.SQL(", ").join(sql.Identifier(c) for c in merge_key)
-        cur.execute(
-            sql.SQL(
-                "INSERT INTO {} ({}) SELECT DISTINCT ON ({}) {} FROM {} ORDER BY {} "
-                "ON CONFLICT ({}) DO UPDATE SET {}"
-            ).format(
-                _qualified(schema, table),
-                lista,
-                chave,
-                lista,
-                sql.Identifier(temp),
-                chave,
-                chave,
-                sql.SQL(", ").join(
-                    sql.SQL("{} = EXCLUDED.{}").format(
-                        sql.Identifier(c), sql.Identifier(c)
-                    )
-                    for c in atualizar
-                ),
-            )
-        )
-        return cur.rowcount
-
     def _load(
         self,
         schema: str,
@@ -523,11 +439,10 @@ class PostgresClient:
         tipos: dict[str, str],
         write: str,
         filename: str | None,
-        merge_key: list[str] | None = None,
         after_copy=None,
         copy,
     ) -> None:
-        """DDL + TRUNCATE/COPY (ou COPY + merge) numa transação só.
+        """DDL + TRUNCATE/COPY numa transação só.
 
         ``after_copy(cur)`` roda antes do commit, para quem precisa gravar algo
         junto com a carga — hoje, o registro do manifesto na tabela de controle.
@@ -535,16 +450,6 @@ class PostgresClient:
         DDL no Postgres é transacional, então nada fica visível antes do commit:
         falha no meio devolve a tabela ao estado anterior, nunca vazia ou parcial.
         """
-        if write == "merge":
-            if not merge_key:
-                raise ValueError("write='merge' exige merge_key.")
-            faltam = [c for c in merge_key if c not in tipos]
-            if faltam:
-                raise ValueError(
-                    f"merge_key {faltam} não está(ão) nas colunas do dado "
-                    f"({list(tipos)})."
-                )
-
         conn = self.connect()
         try:
             with conn.cursor() as cur:
@@ -555,41 +460,14 @@ class PostgresClient:
                     table,
                     tipos,
                     filename=filename,
-                    merge_key=merge_key if write == "merge" else None,
                     log=self.logger,
                 )
-                if write == "merge":
-                    # LIKE ... INCLUDING DEFAULTS: a temporária já carimba
-                    # arquivo_origem e loaded_at_utc com os mesmos DEFAULTs do alvo.
-                    temp = f"stg_{table}"[:63]
+                if write == "truncate":
                     cur.execute(
-                        sql.SQL(
-                            "CREATE TEMP TABLE {} (LIKE {} INCLUDING DEFAULTS) "
-                            "ON COMMIT DROP"
-                        ).format(sql.Identifier(temp), _qualified(schema, table))
+                        sql.SQL("TRUNCATE TABLE {}").format(_qualified(schema, table))
                     )
-                    copy(cur, sql.Identifier(temp), plano.copy)
-                    copiadas = cur.rowcount
-                    colunas = plano.copy + list(
-                        c
-                        for c in TRACKING_COLUMNS
-                        if c == LOADED_AT_COLUMN or filename is not None
-                    )
-                    linhas = self._merge(cur, schema, table, temp, colunas, merge_key)
-                    if linhas < copiadas:
-                        self.logger.warning(
-                            f"⚠️ {copiadas - linhas} linha(s) com merge_key repetida "
-                            f"no lote; só a primeira de cada chave entrou."
-                        )
-                else:
-                    if write == "truncate":
-                        cur.execute(
-                            sql.SQL("TRUNCATE TABLE {}").format(
-                                _qualified(schema, table)
-                            )
-                        )
-                    copy(cur, _qualified(schema, table), plano.copy)
-                    linhas = cur.rowcount
+                copy(cur, _qualified(schema, table), plano.copy)
+                linhas = cur.rowcount
                 if after_copy is not None:
                     after_copy(cur)
             conn.commit()
@@ -613,7 +491,6 @@ class PostgresClient:
         sep: str = ";",
         write: str = "truncate",
         filename: str | None = None,
-        merge_key: list[str] | None = None,
         after_copy=None,
     ) -> None:
         """Carrega um CSV em ``schema.table_name`` por ``COPY``, sem pandas.
@@ -632,7 +509,6 @@ class PostgresClient:
                 tipos=tipos,
                 write=write,
                 filename=filename,
-                merge_key=merge_key,
                 after_copy=after_copy,
                 copy=lambda cur, destino, cols: cur.copy_expert(
                     _copy_sql(destino, cols, sep, header=True).as_string(cur), fh
@@ -647,7 +523,6 @@ class PostgresClient:
         schema: str,
         write: str = "truncate",
         filename: str | None = None,
-        merge_key: list[str] | None = None,
     ) -> None:
         """Envia um DataFrame para ``schema.table_name`` por ``COPY``.
 
@@ -664,7 +539,6 @@ class PostgresClient:
             tipos=tipos,
             write=write,
             filename=filename,
-            merge_key=merge_key,
             copy=lambda cur, destino, cols: cur.copy_expert(
                 _copy_sql(destino, cols, ";", header=False).as_string(cur), buffer
             ),
@@ -680,7 +554,6 @@ class PostgresClient:
         write: str = "truncate",
         source_column: str = "arquivo_origem",
         sep: str = ";",
-        merge_key: list[str] | None = None,
     ) -> None:
         """Carrega os arquivos de um diretório (CSV ou JSON) em ``schema.*``.
 
@@ -728,7 +601,6 @@ class PostgresClient:
                         schema=schema,
                         write=write,
                         filename=file.name,
-                        merge_key=merge_key,
                     )
                 else:
                     self.copy_csv(
@@ -738,7 +610,6 @@ class PostgresClient:
                         sep=sep,
                         write=write,
                         filename=file.name,
-                        merge_key=merge_key,
                     )
         self.logger.info(f"✅ Load concluido: {len(files)} arquivo(s)")
 

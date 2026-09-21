@@ -4,8 +4,7 @@ Os YAMLs de fonte seguem a estrutura::
 
     db_schema: raw_<fonte>      # schema destino de todas as tabelas do arquivo
     load: table                 # modo de carga padrão (table | files | jsonb | none)
-    write: truncate             # como escrever (truncate | append | merge)
-    merge_key: [date]           # chave do merge (obrigatória com write: merge)
+    write: truncate             # como escrever (truncate | append)
     bronze_sep: ";"             # separador do bronze (default ";")
     options: {...}              # opções comuns a todos os sources (opcional)
     environments:
@@ -21,7 +20,7 @@ Os YAMLs de fonte seguem a estrutura::
         db_table: ...
         options: {...}          # sobrescreve as opções do topo
 
-``db_schema``, ``load``, ``write``, ``merge_key``, ``bronze_sep`` e ``options``
+``db_schema``, ``load``, ``write``, ``bronze_sep`` e ``options``
 aceitam valor no topo do arquivo (default) e por source (override). Placeholders
 ``${VAR}`` nos paths são resolvidos contra o ambiente e o ``settings``
 (LAKE_ROOT, SEEDS_ROOT).
@@ -84,8 +83,7 @@ class PipelineConfig:
         db_table: tabela destino (só a entidade)
         db_schema: schema destino, obrigatoriamente ``raw_<fonte>``
         load: modo de carga (``table`` | ``files`` | ``jsonb`` | ``none``)
-        write: modo de escrita na tabela (``truncate`` | ``append`` | ``merge``)
-        merge_key: colunas da chave do ``merge`` (índice único criado pela core)
+        write: modo de escrita na tabela (``truncate`` | ``append``)
         bronze_sep: separador do CSV bronze
         options: dict livre com o bloco ``options:`` do YAML
         criar_dirs: cria os diretórios no ``__init__`` (em testes use ``False``)
@@ -104,7 +102,6 @@ class PipelineConfig:
     db_schema: str | None = None
     load: LoadMode = "table"
     write: WriteMode = "truncate"
-    merge_key: list[str] | None = None
     bronze_sep: str = ";"
     options: dict = field(default_factory=dict)
     criar_dirs: bool = True
@@ -113,14 +110,6 @@ class PipelineConfig:
         if self.load not in LOAD_MODES:
             raise ValueError(f"load={self.load!r} inválido; use um de {LOAD_MODES}.")
         validate_write_mode(self.write)
-        if isinstance(self.merge_key, str):
-            self.merge_key = [self.merge_key]
-        if self.write == "merge" and not self.merge_key:
-            raise ValueError("write='merge' exige merge_key no YAML.")
-        if self.merge_key and self.write != "merge":
-            raise ValueError(
-                f"merge_key só faz sentido com write='merge' (write={self.write!r})."
-            )
 
         self.landing_dir = self._to_path(self.landing_dir, self.subpath)
         if self.bronze_dir:
@@ -249,7 +238,6 @@ def _source_dict(config_file: Path | str, source: str, env: str | None) -> dict:
         "db_schema": src_cfg.get("db_schema", cfg.get("db_schema")),
         "load": src_cfg.get("load", cfg.get("load")),
         "write": src_cfg.get("write", cfg.get("write")),
-        "merge_key": src_cfg.get("merge_key", cfg.get("merge_key")),
         "bronze_sep": src_cfg.get("bronze_sep", cfg.get("bronze_sep")),
         "options": {**(cfg.get("options") or {}), **(src_cfg.get("options") or {})},
     }

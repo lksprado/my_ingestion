@@ -155,8 +155,7 @@ source, *, env=None, **overrides)` é a forma de construir (o `env` default vem 
 | `output_param_file` | `str` ou `{arquivo: coluna}` gerado para o próximo pipeline (em `parameter_dir`) |
 | `db_table` / `db_schema` | tabela e schema destino (`raw_<fonte>`) |
 | `load` | de onde carregar: `table` (default) \| `files` \| `jsonb` \| `none` |
-| `write` | como escrever na tabela: `truncate` (default) \| `append` \| `merge` |
-| `merge_key` | colunas da chave do `merge` (obrigatória com ele, recusada sem ele) |
+| `write` | como escrever na tabela: `truncate` (default) \| `append` |
 | `bronze_sep` | separador do bronze (default `;`) |
 | `options` | dict livre do bloco `options:`; a core lê `control_table` (`control.py`), `no_data_file`/`parameter_column`/`blacklist_on_error` (`incremental.py`) e as de load listadas em `etl.py` |
 | `criar_dirs` | cria os diretórios no `__init__` (default `True`; em testes use `False`) |
@@ -173,7 +172,7 @@ merge):
 ```yaml
 db_schema: "raw_camara"
 load: table                       # opcional
-write: truncate                   # opcional (truncate | append | merge)
+write: truncate                   # opcional (truncate | append)
 environments:
   dev:
     base_raw: "${LAKE_ROOT}/raw/demodados/camara"
@@ -280,16 +279,9 @@ do `write_bronze` chega como string vazia, não como NULL.
 |---|---|
 | `truncate` (default) | Full refresh: `TRUNCATE` + `COPY`, numa transação |
 | `append` | Só `COPY`. Para bronze-delta — ver `control.py`; num bronze completo, duplica |
-| `merge` | Upsert: `COPY` para uma temporária + `INSERT ... ON CONFLICT (merge_key) DO UPDATE` |
 
-`merge` exige `merge_key` (uma ou mais colunas, que precisam estar no dado).
-`ensure_raw_table` cria o índice único da chave quando não houver — procurando por
-**conjunto de colunas**, não por nome, para não duplicar os índices feitos à mão
-que openweather e solar já têm. O `INSERT` usa `DISTINCT ON (merge_key)`: sem isso
-o `ON CONFLICT` erra com *cannot affect row a second time* quando o lote traz a
-mesma chave duas vezes; quando isso acontece, sai um WARNING dizendo quantas
-linhas foram descartadas. `arquivo_origem` e `loaded_at_utc` também são atualizados
-no conflito, então a linha sempre reflete a última carga que a tocou.
+Não há upsert: quando a fonte pode reenviar uma linha já carregada, o caminho é
+o full refresh a partir do landing (`truncate`), que é o que clima e solar fazem.
 
 **Drift de colunas** (`plan_columns`, função pura): coluna nova no dado vira
 `ALTER TABLE ADD COLUMN ... TEXT` com WARNING; coluna que sumiu do dado fica fora do
@@ -306,9 +298,9 @@ reparada sozinha na carga seguinte, sem recriação.
 
 | Método | Para quê |
 |---|---|
-| `copy_csv(path, table_name, *, schema, sep=";", write="truncate", filename=None, merge_key=None, after_copy=None)` | Caminho quente: um CSV inteiro por `COPY`, sem pandas |
-| `send_df_to_db(df, table_name, *, schema, write="truncate", filename=None, merge_key=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
-| `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", write="truncate", source_column="arquivo_origem", sep=";", merge_key=None)` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
+| `copy_csv(path, table_name, *, schema, sep=";", write="truncate", filename=None, after_copy=None)` | Caminho quente: um CSV inteiro por `COPY`, sem pandas |
+| `send_df_to_db(df, table_name, *, schema, write="truncate", filename=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
+| `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", write="truncate", source_column="arquivo_origem", sep=";")` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
 | `read_sql(sql_text)` | Resultado como DataFrame (leituras em `staging.*`, `intermediate.*`) |
 | `connect()` | Conexão psycopg2 crua (`copy_expert`, transação explícita) |
 | `alchemy()` | Engine SQLAlchemy (só leitura) |

@@ -91,7 +91,6 @@ class _FakeCopy:
         sep,
         write,
         filename,
-        merge_key=None,
         after_copy=None,
     ):
         _FakeCopy.chamadas.append(
@@ -102,7 +101,6 @@ class _FakeCopy:
                 "sep": sep,
                 "write": write,
                 "filename": filename,
-                "merge_key": merge_key,
             }
         )
 
@@ -123,7 +121,6 @@ def test_load_table_manda_o_bronze_inteiro_num_unico_copy(monkeypatch, tmp_path)
             "sep": ";",
             "write": "truncate",
             "filename": "f.csv",
-            "merge_key": None,
         }
     ]
 
@@ -139,25 +136,6 @@ def test_load_table_usa_o_write_do_yaml(monkeypatch, tmp_path):
     GenericETL(cfg).load()
 
     assert _FakeCopy.chamadas[0]["write"] == "append"
-
-
-def test_load_table_repassa_a_merge_key_do_yaml(monkeypatch, tmp_path):
-    _FakeCopy.chamadas = []
-    monkeypatch.setattr(etl_module, "PostgresClient", _FakeCopy)
-
-    cfg = _cfg(
-        tmp_path,
-        bronze_file="f.csv",
-        db_table="t",
-        db_schema="raw_x",
-        write="merge",
-        merge_key=["date"],
-    )
-    cfg.bronze_filepath.write_text("date;v\n2026-01-01;1\n")
-    GenericETL(cfg).load()
-
-    assert _FakeCopy.chamadas[0]["write"] == "merge"
-    assert _FakeCopy.chamadas[0]["merge_key"] == ["date"]
 
 
 def test_load_table_com_so_cabecalho_cria_tabela_vazia(monkeypatch, tmp_path):
@@ -195,16 +173,13 @@ def test_load_files_uses_bronze_dir_and_sep(monkeypatch, tmp_path):
     class FakePg:
         def __init__(self, log=None): ...
 
-        def load_files_to_table(
-            self, input_dir, *, schema, pattern, write, sep, merge_key=None
-        ):
+        def load_files_to_table(self, input_dir, *, schema, pattern, write, sep):
             called.update(
                 input_dir=Path(input_dir),
                 schema=schema,
                 pattern=pattern,
                 write=write,
                 sep=sep,
-                merge_key=merge_key,
             )
 
     monkeypatch.setattr(etl_module, "PostgresClient", FakePg)
@@ -216,7 +191,6 @@ def test_load_files_uses_bronze_dir_and_sep(monkeypatch, tmp_path):
         "pattern": "*.csv",
         "write": "truncate",
         "sep": ",",
-        "merge_key": None,
     }
 
 
