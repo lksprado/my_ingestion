@@ -207,59 +207,39 @@ def test_ordem_das_colunas_do_bronze_nao_importa(pg, tmp_path):
     assert query(pg, f"SELECT a, b FROM {SCHEMA}.ordem") == [("10", "20")]
 
 
-# ------------------------ tabelas legadas do to_sql ------------------------
+# ------------------------ tabela anterior ao carimbo ------------------------
 
 
-def test_tabela_legada_sem_default_ganha_carimbo(pg, tmp_path):
-    """O ``to_sql`` criava ``data_carga`` sem DEFAULT; sem migrar, viria NULL."""
+def test_tabela_sem_carimbo_ganha_a_coluna_sem_recreate(pg, tmp_path):
+    """Tabela criada antes do carimbo (JSONB da NHL, apsystem, openweather).
+
+    O ``ADD COLUMN`` é de catálogo: as linhas que já estavam lá continuam lá e o
+    OID não muda, então as views do dbt sobre a raw sobrevivem.
+    """
     conn = pg.connect()
     with conn.cursor() as cur:
-        cur.execute(
-            f"CREATE TABLE {SCHEMA}.legada "
-            "(a TEXT, arquivo_origem TEXT, data_carga TIMESTAMP)"
-        )
+        cur.execute(f"CREATE TABLE {SCHEMA}.sem_carimbo (a TEXT)")
+        cur.execute(f"INSERT INTO {SCHEMA}.sem_carimbo (a) VALUES ('velha')")
     conn.commit()
     conn.close()
-
-    path = bronze(tmp_path, "a\n1\n")
-    pg.copy_csv(path, "legada", schema=SCHEMA, filename=path.name)
-
-    assert query(
-        pg,
-        f"SELECT a, arquivo_origem, loaded_at_utc IS NOT NULL FROM {SCHEMA}.legada",
-    ) == [("1", "f.csv", True)]
-
-
-def test_data_carga_vira_loaded_at_utc_preservando_os_valores(pg, tmp_path):
-    """Rename de catálogo: o carimbo antigo continua lá, com o nome novo."""
-    conn = pg.connect()
-    with conn.cursor() as cur:
-        cur.execute(
-            f"CREATE TABLE {SCHEMA}.renomeia (a TEXT, "
-            "data_carga TIMESTAMP NOT NULL DEFAULT now())"
-        )
-        cur.execute(f"INSERT INTO {SCHEMA}.renomeia (a) VALUES ('velha')")
-    conn.commit()
-    conn.close()
-    oid = query(pg, f"SELECT '{SCHEMA}.renomeia'::regclass::oid")
+    oid = query(pg, f"SELECT '{SCHEMA}.sem_carimbo'::regclass::oid")
 
     pg.copy_csv(
-        bronze(tmp_path, "a\nnova\n"), "renomeia", schema=SCHEMA, write="append"
+        bronze(tmp_path, "a\nnova\n"), "sem_carimbo", schema=SCHEMA, write="append"
     )
 
     colunas = query(
         pg,
         "SELECT column_name FROM information_schema.columns "
-        f"WHERE table_schema = '{SCHEMA}' AND table_name = 'renomeia'",
+        f"WHERE table_schema = '{SCHEMA}' AND table_name = 'sem_carimbo'",
     )
     assert {c[0] for c in colunas} == {"a", "loaded_at_utc"}
     assert query(
         pg,
-        f"SELECT count(*), count(*) FILTER (WHERE loaded_at_utc IS NULL) "
-        f"FROM {SCHEMA}.renomeia",
+        "SELECT count(*), count(*) FILTER (WHERE loaded_at_utc IS NULL) "
+        f"FROM {SCHEMA}.sem_carimbo",
     ) == [(2, 0)]
-    # sem recreate: o OID é o mesmo, então as views do dbt sobrevivem ao rename
-    assert query(pg, f"SELECT '{SCHEMA}.renomeia'::regclass::oid") == oid
+    assert query(pg, f"SELECT '{SCHEMA}.sem_carimbo'::regclass::oid") == oid
 
 
 def test_carimbo_e_utc_mesmo_com_a_sessao_em_outro_fuso(pg, tmp_path):
@@ -280,141 +260,6 @@ def test_carimbo_e_utc_mesmo_com_a_sessao_em_outro_fuso(pg, tmp_path):
     conn.close()
     # em São Paulo (UTC-3) o now() puro daria ~10800s de diferença
     assert distancia < 60
-
-
-# ------------------------ write: merge ------------------------
-
-
-def test_merge_insere_e_atualiza_pela_chave(pg, tmp_path):
-    pg.copy_csv(
-        bronze(tmp_path, "date;temp\n2026-01-01;10\n2026-01-02;20\n"),
-        "clima",
-        schema=SCHEMA,
-        write="merge",
-        merge_key=["date"],
-    )
-    pg.copy_csv(
-        bronze(tmp_path, "date;temp\n2026-01-02;22\n2026-01-03;30\n"),
-        "clima",
-        schema=SCHEMA,
-        write="merge",
-        merge_key=["date"],
-    )
-
-    assert query(pg, f"SELECT date, temp FROM {SCHEMA}.clima ORDER BY date") == [
-        ("2026-01-01", "10"),  # intocada
-        ("2026-01-02", "22"),  # atualizada
-        ("2026-01-03", "30"),  # inserida
-    ]
-
-
-def test_merge_cria_indice_unico_da_chave(pg, tmp_path):
-    pg.copy_csv(
-        bronze(tmp_path, "date;temp\n2026-01-01;10\n"),
-        "comindice",
-        schema=SCHEMA,
-        write="merge",
-        merge_key=["date"],
-    )
-    indices = query(
-        pg,
-        "SELECT indexdef FROM pg_indexes "
-        f"WHERE schemaname = '{SCHEMA}' AND tablename = 'comindice'",
-    )
-    assert len(indices) == 1
-    assert "UNIQUE" in indices[0][0] and "(date)" in indices[0][0]
-
-
-def test_merge_reaproveita_indice_unico_existente(pg, tmp_path):
-    """openweather/solar já têm índice feito à mão; não criar um segundo igual."""
-    conn = pg.connect()
-    with conn.cursor() as cur:
-        cur.execute(f"CREATE TABLE {SCHEMA}.jatinha (date TEXT, temp TEXT)")
-        cur.execute(f"CREATE UNIQUE INDEX feito_a_mao ON {SCHEMA}.jatinha (date)")
-    conn.commit()
-    conn.close()
-
-    pg.copy_csv(
-        bronze(tmp_path, "date;temp\n2026-01-01;10\n"),
-        "jatinha",
-        schema=SCHEMA,
-        write="merge",
-        merge_key=["date"],
-    )
-    indices = query(
-        pg,
-        "SELECT indexname FROM pg_indexes "
-        f"WHERE schemaname = '{SCHEMA}' AND tablename = 'jatinha'",
-    )
-    assert [i[0] for i in indices] == ["feito_a_mao"]
-
-
-def test_merge_com_chave_composta(pg, tmp_path):
-    csv = "url;dep;voto\na;1;sim\na;2;nao\n"
-    pg.copy_csv(
-        bronze(tmp_path, csv),
-        "composta",
-        schema=SCHEMA,
-        write="merge",
-        merge_key=["url", "dep"],
-    )
-    pg.copy_csv(
-        bronze(tmp_path, "url;dep;voto\na;2;abstencao\n"),
-        "composta",
-        schema=SCHEMA,
-        write="merge",
-        merge_key=["url", "dep"],
-    )
-    assert query(pg, f"SELECT url, dep, voto FROM {SCHEMA}.composta ORDER BY dep") == [
-        ("a", "1", "sim"),
-        ("a", "2", "abstencao"),
-    ]
-
-
-def test_merge_tolera_chave_repetida_no_lote(pg, tmp_path):
-    # sem DISTINCT ON o Postgres erra "cannot affect row a second time"
-    pg.copy_csv(
-        bronze(tmp_path, "date;temp\n2026-01-01;10\n2026-01-01;11\n"),
-        "repetida",
-        schema=SCHEMA,
-        write="merge",
-        merge_key=["date"],
-    )
-    assert query(pg, f"SELECT count(*) FROM {SCHEMA}.repetida") == [(1,)]
-
-
-def test_merge_atualiza_carimbo_e_arquivo_origem(pg, tmp_path):
-    p1 = bronze(tmp_path, "date;temp\n2026-01-01;10\n", nome="a.csv")
-    pg.copy_csv(
-        p1, "rastro", schema=SCHEMA, write="merge", merge_key=["date"], filename="a.csv"
-    )
-    antes = query(pg, f"SELECT arquivo_origem, loaded_at_utc FROM {SCHEMA}.rastro")
-
-    p2 = bronze(tmp_path, "date;temp\n2026-01-01;11\n", nome="b.csv")
-    pg.copy_csv(
-        p2, "rastro", schema=SCHEMA, write="merge", merge_key=["date"], filename="b.csv"
-    )
-    depois = query(pg, f"SELECT arquivo_origem, loaded_at_utc FROM {SCHEMA}.rastro")
-
-    assert antes[0][0] == "a.csv" and depois[0][0] == "b.csv"
-    assert depois[0][1] > antes[0][1]
-
-
-def test_merge_em_tabela_com_duplicatas_falha_alto(pg, tmp_path):
-    """Criar o índice único sobre dado duplicado tem de quebrar, não passar batido."""
-    pg.copy_csv(
-        bronze(tmp_path, "date;temp\n2026-01-01;10\n2026-01-01;11\n"),
-        "suja",
-        schema=SCHEMA,
-    )
-    with pytest.raises(psycopg2.Error):
-        pg.copy_csv(
-            bronze(tmp_path, "date;temp\n2026-01-02;20\n"),
-            "suja",
-            schema=SCHEMA,
-            write="merge",
-            merge_key=["date"],
-        )
 
 
 def test_jsonb_loader_grava_carimbo(pg, tmp_path):

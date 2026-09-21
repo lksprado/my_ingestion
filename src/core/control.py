@@ -1,12 +1,11 @@
 """Controle de quais arquivos de landing já entraram numa tabela raw.
 
-Generaliza a tabela que o ``JsonbLoader`` mantinha só para a NHL: uma linha por
-``(schema, tabela, arquivo)``, o que torna qualquer carga incremental idempotente
-— arquivo já registrado não volta.
+Uma linha por ``(schema, tabela, arquivo)``, o que torna a carga incremental
+idempotente: arquivo já registrado não volta. Serve tanto ao ``JsonbLoader``
+quanto ao caminho tabular.
 
-Fontes que extraem por ID (legislativo) baixam um JSON por unidade imutável, mas
-o ``transform`` reconstruía o bronze a partir de **todo** o landing e o ``load``
-reescrevia a tabela inteira. Com o controle, o par vira:
+É o que sustenta a carga incremental por arquivo das fontes que baixam um JSON
+por unidade imutável (legislativo):
 
 - ``write_bronze_incremental(cfg, files, parse_fn)`` no transform: só os arquivos
   ainda não registrados entram no bronze, e um **manifesto** ao lado do bronze diz
@@ -15,8 +14,8 @@ reescrevia a tabela inteira. Com o controle, o par vira:
   manifesto **na mesma transação**. Falha em qualquer ponto → rollback, nada
   registrado, o transform seguinte refaz o mesmo delta.
 
-Nessas fontes o bronze passa a ser o delta da última execução, não o histórico
-completo — a tabela raw é que acumula.
+Nessas fontes o bronze é o delta da última execução, não o histórico completo —
+a tabela raw é que acumula.
 """
 
 import csv
@@ -27,12 +26,7 @@ from pathlib import Path
 import pandas as pd
 
 from core.config import PipelineConfig
-from core.db import (
-    LOADED_AT_DEFAULT,
-    PostgresClient,
-    ensure_column_default,
-    validate_raw_schema,
-)
+from core.db import LOADED_AT_DEFAULT, PostgresClient, validate_raw_schema
 from core.io import write_bronze_streaming
 
 logger = logging.getLogger(__name__)
@@ -76,8 +70,6 @@ class IngestionControl:
             );
             """
         )
-        # Tabela de controle criada antes desta regra ficou com o `now()` puro.
-        ensure_column_default(cur, self.schema, self.table, "ingested_at", None)
 
     def ingested(self, cur, table: str) -> set[str]:
         cur.execute(

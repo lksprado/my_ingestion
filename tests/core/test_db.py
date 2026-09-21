@@ -35,33 +35,21 @@ def test_validate_raw_schema_rejects(schema):
         validate_raw_schema(schema)
 
 
-@pytest.mark.parametrize("write", ["truncate", "append", "merge"])
+@pytest.mark.parametrize("write", ["truncate", "append"])
 def test_validate_write_mode_accepts(write):
     assert validate_write_mode(write) == write
 
 
-@pytest.mark.parametrize("write", [None, "", "replace", "upsert"])
+@pytest.mark.parametrize("write", [None, "", "replace", "upsert", "merge"])
 def test_validate_write_mode_rejects(write):
     with pytest.raises(ValueError, match="inválido"):
         validate_write_mode(write)
 
 
-def test_merge_sem_chave_nao_conecta():
+def test_write_invalido_nao_conecta():
     pg = PostgresClient(connection=_Sentinel())
-    with pytest.raises(ValueError, match="exige merge_key"):
+    with pytest.raises(ValueError, match="inválido"):
         pg.send_df_to_db(pd.DataFrame({"a": ["1"]}), "t", schema="raw_x", write="merge")
-
-
-def test_merge_com_chave_fora_do_dado_nao_conecta():
-    pg = PostgresClient(connection=_Sentinel())
-    with pytest.raises(ValueError, match="merge_key"):
-        pg.send_df_to_db(
-            pd.DataFrame({"a": ["1"]}),
-            "t",
-            schema="raw_x",
-            write="merge",
-            merge_key=["inexistente"],
-        )
 
 
 class _Sentinel:
@@ -229,7 +217,7 @@ def test_send_df_to_db_passa_tipos_e_buffer_para_a_carga(monkeypatch):
     captured = {}
     pg = PostgresClient(connection=_Sentinel())
 
-    def fake_load(schema, table, *, tipos, write, filename, copy, merge_key=None):
+    def fake_load(schema, table, *, tipos, write, filename, copy):
         captured.update(
             schema=schema, table=table, tipos=tipos, write=write, filename=filename
         )
@@ -265,7 +253,6 @@ def test_load_files_manda_csv_direto_para_o_copy(tmp_path, monkeypatch):
                 "sep": ";",
                 "write": "truncate",
                 "filename": "acoes.csv",
-                "merge_key": None,
             },
         )
     ]

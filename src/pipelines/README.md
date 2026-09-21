@@ -61,7 +61,7 @@ hardcoded:
 ```yaml
 db_schema: "raw_<fonte>"               # schema de todas as tabelas deste arquivo
 load: table                            # de onde: table (default) | files | jsonb | none
-write: truncate                        # como: truncate (default) | append | merge
+write: truncate                        # como: truncate (default) | append
 
 environments:
   dev:                                 # execução local
@@ -88,18 +88,15 @@ Regras:
 - São só dois ambientes: `dev` (execução local) e `prod` (Airflow), porque o mesmo código roda na
   máquina e no orquestrador. O ativo vem de `ENV` no `.env`.
 - `subpath` evita que entidades da mesma fonte se misturem no mesmo diretório.
-- `landing_file`, `bronze_file` e `base_url` aceitam `{date}`, substituído pela
-  data de hoje. É o **único** placeholder que a core resolve; outros (`{id}`,
-  `{day}`, `{game_id}`) são preservados para o script resolver com `str.format`.
+- `landing_file` e `bronze_file` aceitam `{date}`, substituído pela data de hoje.
+  É o **único** placeholder que a core resolve, e só nesses dois campos; os
+  outros (`{id}`, `{day}`, `{game_id}`, e qualquer um em `base_url`) ficam para
+  o script resolver com `str.format`.
 - `db_schema`, `load`, `write`, `bronze_sep` e `options` valem no topo (default do
   arquivo) e por source (override).
 - `load` diz **de onde** carregar, `write` diz **como** escrever na tabela. O
   default `truncate` é full refresh por `TRUNCATE` + `COPY` numa transação — a
   tabela nunca é recriada, então as views do dbt sobre a raw sobrevivem.
-- `write: merge` + `merge_key: [coluna, ...]` faz upsert pela chave, para fonte
-  incremental por data (openweather, solar). **Meça a chave antes de declarar**:
-  `SELECT chave FROM tabela GROUP BY chave HAVING count(*) > 1` na raw atual tem
-  de devolver zero linhas. A core cria o índice único se não houver.
 - `write: append` + `options.control_table` faz carga incremental por arquivo,
   para landing imutável com milhares de arquivos (legislativo por ID): o transform
   termina em `write_bronze_incremental` e só o que ainda não entrou vai para o

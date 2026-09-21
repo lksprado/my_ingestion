@@ -2,7 +2,7 @@
 # preservam os que o my_analytics lê em _sources.yml; não renomeie.
 # Sources por ID: base_url e landing_file usam o placeholder {id}; o CSV de
 # parâmetros vem de parameter_file (coluna options.parameter_column, default id)
-# e os IDs sem resposta ficam em options.no_data_file (ver legislativo/_common.py).
+# e os IDs sem resposta ficam em options.no_data_file (ver core.extract_by_ids).
 #
 # write: append + options.control_table marca a entidade como incremental por
 # arquivo: o transform só põe no bronze o landing ainda não carregado (bronze-delta

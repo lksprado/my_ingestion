@@ -43,29 +43,16 @@ bronze em `${LAKE_ROOT}/bronze/weather_project/`.
 
 ## Notas
 
-- **A carga é da `core`**, não mais do DAG, e é full refresh: a tabela é função do
-  landing. Os 1.824 JSONs reconstroem as 1.824 linhas em ~8 s. O que evita
-  rebaixar o histórico é o extract, incremental por data.
-- O transform gera `lat`/`lon`, que a tabela não tinha: entram como colunas novas
-  (`ALTER TABLE ADD COLUMN`, com WARNING) na primeira carga. O staging do dbt
-  seleciona coluna a coluna, então isso não o afeta.
-- O índice único `openweather_date_pk` continua no banco e não atrapalha, mas
-  deixou de ser necessário (era do upsert que o DAG fazia).
-- **Um JSON do landing discorda do que foi carregado na época:**
-  `day_summary_2025-03-25.json` traz `"date": "2025-3-25"` (sem zero à esquerda),
-  e a tabela antiga tinha `2025-03-25`. O rebuild passa a refletir o arquivo, que
-  é o certo; `'2025-3-25'::date` converte normalmente, então o staging do dbt não
-  muda. É o tipo de divergência que o full refresh expõe e o upsert escondia.
+- **A carga é full refresh**: a tabela é função do landing, e os ~1.830 JSONs a
+  reconstroem em ~8 s. O que evita rebaixar o histórico é o extract, incremental
+  por data.
+- O índice único `openweather_date_pk` existe no banco e não atrapalha; a carga
+  não depende dele.
+- **`date` não é normalizado**: o valor é o que veio no JSON, e um deles traz
+  `"date": "2025-3-25"` (sem zero à esquerda). A raw é texto, então ele fica
+  assim; `'2025-3-25'::date` converte normalmente e o staging do dbt não muda.
 - O token vai na query string; por isso a URL **não** é logada.
 - `day_summary` exige o plano One Call 3.0 (1000 chamadas/dia grátis). Uma lacuna
   longa consome uma chamada por dia faltante.
 - Placeholder `{day}` no nome do arquivo é resolvido aqui, não pela `core`
   (que só conhece `{date}` = hoje).
-
-## Checklist para o DAG do Airflow (mudou nesta padronização)
-
-- `missing_raw.identify_missing_dates(db)` deixou de existir. Equivalente:
-  `core.missing_dates_from_db(PostgresClient(connection=hook.get_conn()), [sql], control)`,
-  ou simplesmente rodar por etapa: `... openweather_etl --steps extract`
-  e `--steps transform`.
-- Módulo renomeado: `pipelines.clima.openweather.run` → `.openweather_etl`.

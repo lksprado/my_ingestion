@@ -42,10 +42,9 @@ uv run python -m pipelines.legislativo.senado.senado_etl status                 
 ## Notas
 
 - `votacoes` e `votos_orientacao` varrem 2001..2026 a cada extract
-  (`YEARS` e `extract_by_year` no script). Antes da padronização rodavam etapas parciais (só transform /
-  só load); agora `--steps` faz esse papel.
-- `processo` é incremental por ID (`core.extract_by_ids`, default `has_data=bool`)
-  e reconstrói o bronze em streaming.
+  (`YEARS` e `extract_by_year` no script); use `--steps` para rodar só uma etapa.
+- `processo` é incremental por ID no extract (`core.extract_by_ids`, default
+  `has_data=bool`) e incremental por arquivo no transform/load (abaixo).
 - Quebras de linha em colunas de texto são removidas por `core.write_bronze`.
 - Carga full refresh (`write: truncate`): `TRUNCATE` + `COPY` na tabela
   `raw_senado.*`, numa transação e sem recriar a tabela.

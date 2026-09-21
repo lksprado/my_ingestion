@@ -7,7 +7,7 @@ pipelines consomem (CSVs de parâmetros) ou que o dbt consome (seeds).
 
 Busca todos os deputados atuais na API da Câmara e grava `id_deputados.csv`
 (coluna `id`, separador `,`) no `parameter_dir` resolvido a partir do
-`camara_config.yml` — é o arquivo que parametriza o pipeline `camara_deputados`.
+`camara_config.yml` — é o arquivo que parametriza o entidade `deputados` da Câmara.
 
 ```bash
 uv run python -m pipelines.legislativo._params.atualizar_deputados

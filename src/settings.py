@@ -119,10 +119,6 @@ class Settings(BaseSettings):
         return getattr(self.db, self.env)
 
     @property
-    def db_url(self) -> str:
-        return self.db_target.url
-
-    @property
     def models_target(self) -> DbTarget:
         """Banco com os objetos do dbt; em dev, o perfil dev no analytics_dev."""
         if self.env == "dev":

@@ -9,7 +9,7 @@
   ``files`` (cada CSV do bronze_dir → tabela de mesmo nome), ``jsonb`` (JSONs do
   landing → ``JsonbLoader``), ``none`` (o orquestrador carrega). ``load_fn``
   sobrescreve o modo. Como a tabela é escrita vem de ``cfg.write``
-  (``truncate``/``append``/``merge`` + ``cfg.merge_key``); a carga é sempre
+  (``truncate``/``append``); a carga é sempre
   ``COPY``, nunca ``DROP``.
 
 Cada etapa lê e escreve disco, para rodar como task separada no Airflow.
@@ -95,8 +95,8 @@ class GenericETL:
         self.logger.info("✅ Carga concluida")
 
     def _load_table(self) -> None:
-        # O bronze vai inteiro para o COPY: sem pandas, sem chunk, uma transação.
-        # CSV só com cabeçalho cria a tabela vazia, sem caso especial.
+        # O bronze vai inteiro para o COPY, numa transação. CSV só com
+        # cabeçalho cria a tabela e insere 0 linhas: não precisa de caso especial.
         cfg = self.cfg
         schema = validate_raw_schema(cfg.db_schema)
         path = cfg.bronze_filepath
@@ -110,7 +110,6 @@ class GenericETL:
             sep=cfg.bronze_sep,
             write=cfg.write,
             filename=path.name,
-            merge_key=cfg.merge_key,
             after_copy=after_copy,
         )
 
@@ -152,7 +151,6 @@ class GenericETL:
             pattern=cfg.options.get("file_pattern", "*.csv"),
             write=cfg.write,
             sep=cfg.bronze_sep,
-            merge_key=cfg.merge_key,
         )
 
     def _load_jsonb(self) -> None:

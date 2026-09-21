@@ -1,4 +1,4 @@
-"""Pipeline de preços do Atacadão (ex-webscraping-inflation).
+"""Pipeline de preços do Atacadão.
 
 Busca produtos via API GraphQL por keyword e grava CSVs diários no lake:
 ``${LAKE_ROOT}/raw/inflation/atacadao``.

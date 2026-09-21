@@ -30,9 +30,8 @@
 # sem estar: use --full.
 #
 # A lista de colunas vem da ORIGEM e é usada nos dois lados, então os bancos
-# precisam estar no mesmo nome de coluna. Divergência de nome (um lado ainda com
-# a antiga `data_carga`) dá erro de \copy, não cópia completa: migre os bancos
-# antes de sincronizar (scripts/loaded_at_migra.sh).
+# precisam estar no mesmo nome de coluna: divergência dá erro de \copy, não
+# cópia parcial silenciosa.
 #
 # --dry-run mostra a decisão de cada tabela sem mover dado.
 # --full    ignora o delta e copia tudo, tabela a tabela.

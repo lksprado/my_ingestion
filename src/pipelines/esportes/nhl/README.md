@@ -2,7 +2,7 @@
 
 Extrai estatísticas de hóquei das APIs públicas da NHL (`api-web.nhle.com` e
 `api.nhle.com/stats`) e carrega os JSONs **sem transformação** em tabelas JSONB
-(`payload`, `source_filename`) no schema `raw_nhl` (`load: jsonb` no YAML). A
+(`payload`, `source_filename`, `loaded_at_utc`) no schema `raw_nhl` (`load: jsonb` no YAML). A
 normalização acontece no dbt [`my_analytics`](https://github.com/lksprado/my_analytics),
 que consome `raw_nhl` **a jusante**: nenhum passo deste pipeline depende dele.
 
@@ -50,10 +50,9 @@ não `models_target`), só o schema `raw_nhl`:
 | `params_jogadores` | `players` | `player_id` de goleiros e jogadores de linha em `nhl_raw_all_club_stats` na temporada/tipo atuais |
 | `params_jogadores_temporada` | `player_game_log` | os mesmos `player_id` com `season_id`/`game_type_id` |
 
-Elas substituem as views `staging_nhl.vw_stg_request_*` do `my_analytics` e devolvem
-o mesmo conjunto (conferido linha a linha contra as views). A diferença é o critério
-de "já tenho": antes era "existe no staging do dbt", agora é "existe na tabela de
-controle da ingestão" — o metadado que o próprio `JsonbLoader` grava.
+O critério de "já tenho" é a tabela de controle da ingestão — o metadado que o
+próprio `JsonbLoader` grava —, e não um objeto do dbt: nenhuma etapa aqui depende
+de uma execução do `my_analytics`.
 
 `params_jogadores*` derivam a temporada da **agenda** (`games_summary`), não de
 `nhl_raw_all_seasons_id`: o endpoint de seasons já lista a temporada seguinte, que
@@ -126,11 +125,6 @@ Como os `params_*` leem esse mesmo controle, extract e load enxergam o mesmo del
 
 ## Armadilhas
 
-- **`table_schema` legado no controle.** O repo `nhl-extraction` gravava as ~168 mil
-  linhas de controle com `table_schema = 'nhl'`; aqui o schema é `raw_nhl`. Enquanto
-  isso não for corrigido, o controle parece vazio: a carga duplica tudo e os `params_*`
-  pedem a temporada inteira de novo. Rode uma vez por banco:
-  `scripts/nhl_controle_migra.sh` (idempotente).
 - `all_games_summary.json` tem ~33 MB e é serializado em memória antes do COPY.
 - A API devolve 404 para jogos ainda não realizados: o `HttpClient` loga e pula.
   O `params_jogos` já filtra por `gameStateId = 7`.
@@ -139,7 +133,7 @@ Como os `params_*` leem esse mesmo controle, extract e load enxergam o mesmo del
   o `JsonbLoader` direto com os arquivos da pasta.
 - Na entressafra, `players` e `player_game_log` devolvem zero parâmetros: a agenda já
   tem a temporada seguinte, mas `club_stats` ainda é da anterior. Volta ao normal no
-  primeiro jogo realizado. Era assim nas views do dbt também.
+  primeiro jogo realizado.
 - Volumes: `games_details` e `summary_details` têm ~70 mil arquivos cada; a primeira
   carga completa leva horas. Depois disso é só o delta — e `skip_existing` evita
   rebaixar o que já está no landing.

@@ -1,6 +1,6 @@
 # Pipeline: Ranking Políticos
 
-Extrai o ranking de desempenho parlamentar da [API do Politicos.org.br](https://apirest2.politicos.org.br/api/),
+Extrai o ranking de desempenho parlamentar da [API do Ranking dos Políticos](https://ranking.org.br/api/filter-items-ranking),
 que pontua parlamentares por critérios como presença, economia de cota, processos e
 privilégios. ETL em `ranking_politicos_etl.py` (as duas entidades usam o mesmo
 extract/transform); configuração em `ranking_politicos_config.yml`.

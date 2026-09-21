@@ -1,4 +1,4 @@
-"""Parsers de HTML (ex-html_parsers.py de demodados)."""
+"""Parsers de HTML."""
 
 from pathlib import Path
 

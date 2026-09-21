@@ -22,13 +22,12 @@ inteira, sempre em UTC, qualquer que seja o fuso do servidor.
 
 Convenção de NULL no COPY (``FORMAT csv``, marcador default ``''``):
 
-- **caminho do bronze** (``copy_csv``): campo vazio não aspado é NULL, que é
-  exatamente o ``na_values=[""]`` com que o pandas lia esses CSVs antes;
-- **caminho em memória** (``send_df_to_db``): o buffer é serializado com
-  ``csv.QUOTE_NOTNULL``, que aspa tudo que não é ``None``. Assim ``''`` sai como
-  ``""`` (string vazia) e ``None`` sai como campo vazio (NULL), preservando a
-  distinção que o ``to_sql`` fazia. De quebra, como todo valor não nulo sai
-  aspado, ``;``, ``"``, quebra de linha e a linha ``\\.`` ficam imunes.
+- **caminho do bronze** (``copy_csv``): campo vazio não aspado é NULL — e só ele,
+  de modo que ``NA``, ``null`` e ``nan`` seguem texto e ``007`` segue ``007``;
+- **caminho em memória** (``send_df_to_db``): o buffer aspa tudo que não é
+  ``None``. Assim ``''`` sai como ``""`` (string vazia) e ``None`` sai como campo
+  vazio (NULL), preservando a distinção entre os dois. De quebra, como todo valor
+  não nulo sai aspado, ``;``, ``"``, quebra de linha e a linha ``\\.`` ficam imunes.
 """
 
 import csv
@@ -54,24 +53,19 @@ RAW_SCHEMA_PREFIX = "raw_"
 # O schema é interpolado em SQL (JsonbLoader, CREATE SCHEMA): só identificador simples.
 _IDENT = re.compile(r"^[a-z][a-z0-9_]*$")
 
-WriteMode = Literal["truncate", "append", "merge"]
-WRITE_MODES: tuple[str, ...] = ("truncate", "append", "merge")
+WriteMode = Literal["truncate", "append"]
+WRITE_MODES: tuple[str, ...] = ("truncate", "append")
 
 # Metadados da carga: não vêm do dado, vêm de DEFAULT no catálogo.
 LOADED_AT_COLUMN = "loaded_at_utc"
-# Nome antigo, renomeado sozinho na primeira carga (ver ensure_raw_table).
-LOADED_AT_LEGACY_COLUMN = "data_carga"
 TRACKING_COLUMNS: tuple[str, ...] = ("arquivo_origem", LOADED_AT_COLUMN)
 
 # `now()` é timestamptz: gravado numa coluna sem fuso, viraria a hora local do
 # servidor. O `AT TIME ZONE 'utc'` é o que faz o nome da coluna ser verdade em
 # qualquer banco, sem depender do TimeZone da sessão.
 LOADED_AT_DEFAULT = "now() AT TIME ZONE 'utc'"
-# Como o pg_get_expr normaliza a expressão acima — a segunda forma aparece
-# quando o DEFAULT foi escrito como timezone('utc', now()).
-_LOADED_AT_DEFAULT_FORMS = frozenset(
-    {"(now() AT TIME ZONE 'utc'::text)", "timezone('utc'::text, now())"}
-)
+# Como o pg_get_expr normaliza a expressão acima.
+_LOADED_AT_DEFAULT_FORM = "(now() AT TIME ZONE 'utc'::text)"
 
 # Sem isso um TRUNCATE entra na fila na frente dos SELECTs do dbt e segura o
 # banco pelo tempo inteiro do COPY. Melhor falhar rápido e reexecutar.
@@ -251,7 +245,7 @@ def ensure_column_default(
     cur.execute(_COLUMN_DEFAULT_SQL, (f"{schema}.{table}", column))
     atual = cur.fetchone()
     if value is None:
-        if atual and atual[0] in _LOADED_AT_DEFAULT_FORMS:
+        if atual and atual[0] == _LOADED_AT_DEFAULT_FORM:
             return
     else:
         esperado = "'{}'::text".format(value.replace("'", "''"))
@@ -267,85 +261,26 @@ def ensure_column_default(
     )
 
 
-# indisunique cobre também a primary key.
-_UNIQUE_INDEX_SQL = """
-    SELECT i.indexrelid::regclass::text
-    FROM pg_index i
-    WHERE i.indrelid = %s::regclass AND i.indisunique
-"""
-
-_INDEX_COLUMNS_SQL = """
-    SELECT a.attname
-    FROM pg_index i
-    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-    WHERE i.indexrelid = %s::regclass
-"""
-
-
-def _ensure_unique_index(
-    cur, schema: str, table: str, colunas: list[str], log: logging.Logger
-) -> None:
-    """Garante índice único sobre ``colunas`` (o que o ``ON CONFLICT`` exige).
-
-    Procura por **conjunto de colunas**, não por nome: as tabelas de openweather e
-    solar já têm índices feitos à mão (``openweather_date_pk`` etc.) e criar um
-    segundo idêntico seria desperdício.
-    """
-    cur.execute(_UNIQUE_INDEX_SQL, (f"{schema}.{table}",))
-    for (indice,) in cur.fetchall():
-        cur.execute(_INDEX_COLUMNS_SQL, (indice,))
-        if {r[0] for r in cur.fetchall()} == set(colunas):
-            return
-    nome = f"{table}_merge_key"
-    cur.execute(
-        sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS {} ON {}.{} ({})").format(
-            sql.Identifier(nome),
-            sql.Identifier(schema),
-            sql.Identifier(table),
-            sql.SQL(", ").join(sql.Identifier(c) for c in colunas),
-        )
-    )
-    log.info(f"🔑 Índice único {nome} em {schema}.{table} ({', '.join(colunas)})")
-
-
 def ensure_loaded_at(
     cur, schema: str, table: str, log: logging.Logger | None = None
 ) -> None:
     """Garante ``loaded_at_utc`` com o DEFAULT em UTC — tabular e JSONB.
 
-    Três reparos idempotentes, todos de catálogo (nenhuma linha é reescrita):
-
-    - ``data_carga`` (nome antigo) vira ``loaded_at_utc`` por ``RENAME COLUMN``;
-      as views do dbt sobre a raw seguem válidas, porque o Postgres reescreve a
-      dependência sozinho;
-    - tabela sem a coluna (legado do ``to_sql``) ganha o ``ADD COLUMN``, senão
-      ela entraria NULL e quebraria o ``loaded_at_field`` do dbt;
-    - o DEFAULT é acertado para ``now() AT TIME ZONE 'utc'`` (inclusive nas
-      tabelas que ficaram com o ``now()`` puro, em fuso do servidor).
+    Reparo idempotente e de catálogo (nenhuma linha é reescrita): tabela que não
+    tem a coluna ganha o ``ADD COLUMN`` — senão ela entraria NULL e quebraria o
+    ``loaded_at_field`` do dbt — e o DEFAULT é acertado para
+    ``now() AT TIME ZONE 'utc'``. As linhas que já estavam lá ficam com o
+    instante do ``ADD COLUMN``, não com o da ingestão que as trouxe.
     """
     log = log or logger
-    existentes = _table_columns(cur, schema, table)
-    if LOADED_AT_COLUMN not in existentes:
-        if LOADED_AT_LEGACY_COLUMN in existentes:
-            cur.execute(
-                sql.SQL("ALTER TABLE {}.{} RENAME COLUMN {} TO {}").format(
-                    sql.Identifier(schema),
-                    sql.Identifier(table),
-                    sql.Identifier(LOADED_AT_LEGACY_COLUMN),
-                    sql.Identifier(LOADED_AT_COLUMN),
-                )
-            )
-            log.warning(
-                f"🔁 {schema}.{table}.{LOADED_AT_LEGACY_COLUMN} renomeada para "
-                f"{LOADED_AT_COLUMN}"
-            )
-        else:
-            cur.execute(
-                sql.SQL(
-                    f"ALTER TABLE {{}}.{{}} ADD COLUMN {LOADED_AT_COLUMN} "
-                    f"TIMESTAMP DEFAULT ({LOADED_AT_DEFAULT})"
-                ).format(sql.Identifier(schema), sql.Identifier(table))
-            )
+    if LOADED_AT_COLUMN not in _table_columns(cur, schema, table):
+        cur.execute(
+            sql.SQL(
+                f"ALTER TABLE {{}}.{{}} ADD COLUMN {LOADED_AT_COLUMN} "
+                f"TIMESTAMP DEFAULT ({LOADED_AT_DEFAULT})"
+            ).format(sql.Identifier(schema), sql.Identifier(table))
+        )
+        log.warning(f"➕ {schema}.{table}.{LOADED_AT_COLUMN} criada")
     ensure_column_default(cur, schema, table, LOADED_AT_COLUMN, None)
 
 
@@ -356,15 +291,13 @@ def ensure_raw_table(
     tipos: dict[str, str],
     *,
     filename: str | None = None,
-    merge_key: list[str] | None = None,
     log: logging.Logger | None = None,
 ) -> ColumnPlan:
     """Garante schema, tabela e colunas de rastreio; devolve o plano de colunas.
 
     Idempotente e sem DROP: cria o que falta, acrescenta coluna nova do dado e
-    avisa (WARNING) sobre coluna que sumiu ou trocou de tipo — casos em que hoje
-    o ``replace`` "consertava" recriando a tabela, e que agora precisam de um
-    recreate manual (documentado no ``core/README.md``).
+    avisa (WARNING) sobre coluna que sumiu ou trocou de tipo. Rename e troca de
+    tipo exigem recreate manual (documentado no ``core/README.md``).
     """
     log = log or logger
     schema = validate_raw_schema(schema)
@@ -422,14 +355,11 @@ def ensure_raw_table(
             )
         ensure_column_default(cur, schema, table, "arquivo_origem", filename)
 
-    if merge_key:
-        _ensure_unique_index(cur, schema, table, merge_key, log)
-
     return plano
 
 
 def _copy_sql(destino, columns: list[str], sep: str, header: bool):
-    """``COPY`` para ``destino`` (tabela real ou a temporária do merge)."""
+    """``COPY`` para ``destino``."""
     return sql.SQL(
         "COPY {} ({}) FROM STDIN WITH (FORMAT csv, HEADER {}, DELIMITER {})"
     ).format(
@@ -501,45 +431,6 @@ class PostgresClient:
 
     # ------------------------ carga ------------------------
 
-    def _merge(
-        self,
-        cur,
-        schema: str,
-        table: str,
-        temp: str,
-        colunas: list[str],
-        merge_key: list[str],
-    ) -> int:
-        """``INSERT ... ON CONFLICT DO UPDATE`` da temporária para a tabela.
-
-        ``DISTINCT ON`` não é opcional: o ``ON CONFLICT`` erra com "cannot affect
-        row a second time" se o lote trouxer a mesma chave duas vezes.
-        """
-        atualizar = [c for c in colunas if c not in merge_key]
-        lista = sql.SQL(", ").join(sql.Identifier(c) for c in colunas)
-        chave = sql.SQL(", ").join(sql.Identifier(c) for c in merge_key)
-        cur.execute(
-            sql.SQL(
-                "INSERT INTO {} ({}) SELECT DISTINCT ON ({}) {} FROM {} ORDER BY {} "
-                "ON CONFLICT ({}) DO UPDATE SET {}"
-            ).format(
-                _qualified(schema, table),
-                lista,
-                chave,
-                lista,
-                sql.Identifier(temp),
-                chave,
-                chave,
-                sql.SQL(", ").join(
-                    sql.SQL("{} = EXCLUDED.{}").format(
-                        sql.Identifier(c), sql.Identifier(c)
-                    )
-                    for c in atualizar
-                ),
-            )
-        )
-        return cur.rowcount
-
     def _load(
         self,
         schema: str,
@@ -548,29 +439,17 @@ class PostgresClient:
         tipos: dict[str, str],
         write: str,
         filename: str | None,
-        merge_key: list[str] | None = None,
         after_copy=None,
         copy,
     ) -> None:
-        """DDL + TRUNCATE/COPY (ou COPY + merge) numa transação só.
+        """DDL + TRUNCATE/COPY numa transação só.
 
         ``after_copy(cur)`` roda antes do commit, para quem precisa gravar algo
         junto com a carga — hoje, o registro do manifesto na tabela de controle.
 
         DDL no Postgres é transacional, então nada fica visível antes do commit:
-        falha no meio devolve a tabela ao estado anterior, em vez de deixá-la
-        vazia ou parcial como o caminho em chunks deixava.
+        falha no meio devolve a tabela ao estado anterior, nunca vazia ou parcial.
         """
-        if write == "merge":
-            if not merge_key:
-                raise ValueError("write='merge' exige merge_key.")
-            faltam = [c for c in merge_key if c not in tipos]
-            if faltam:
-                raise ValueError(
-                    f"merge_key {faltam} não está(ão) nas colunas do dado "
-                    f"({list(tipos)})."
-                )
-
         conn = self.connect()
         try:
             with conn.cursor() as cur:
@@ -581,41 +460,14 @@ class PostgresClient:
                     table,
                     tipos,
                     filename=filename,
-                    merge_key=merge_key if write == "merge" else None,
                     log=self.logger,
                 )
-                if write == "merge":
-                    # LIKE ... INCLUDING DEFAULTS: a temporária já carimba
-                    # arquivo_origem e loaded_at_utc com os mesmos DEFAULTs do alvo.
-                    temp = f"stg_{table}"[:63]
+                if write == "truncate":
                     cur.execute(
-                        sql.SQL(
-                            "CREATE TEMP TABLE {} (LIKE {} INCLUDING DEFAULTS) "
-                            "ON COMMIT DROP"
-                        ).format(sql.Identifier(temp), _qualified(schema, table))
+                        sql.SQL("TRUNCATE TABLE {}").format(_qualified(schema, table))
                     )
-                    copy(cur, sql.Identifier(temp), plano.copy)
-                    copiadas = cur.rowcount
-                    colunas = plano.copy + list(
-                        c
-                        for c in TRACKING_COLUMNS
-                        if c == LOADED_AT_COLUMN or filename is not None
-                    )
-                    linhas = self._merge(cur, schema, table, temp, colunas, merge_key)
-                    if linhas < copiadas:
-                        self.logger.warning(
-                            f"⚠️ {copiadas - linhas} linha(s) com merge_key repetida "
-                            f"no lote; só a primeira de cada chave entrou."
-                        )
-                else:
-                    if write == "truncate":
-                        cur.execute(
-                            sql.SQL("TRUNCATE TABLE {}").format(
-                                _qualified(schema, table)
-                            )
-                        )
-                    copy(cur, _qualified(schema, table), plano.copy)
-                    linhas = cur.rowcount
+                copy(cur, _qualified(schema, table), plano.copy)
+                linhas = cur.rowcount
                 if after_copy is not None:
                     after_copy(cur)
             conn.commit()
@@ -639,7 +491,6 @@ class PostgresClient:
         sep: str = ";",
         write: str = "truncate",
         filename: str | None = None,
-        merge_key: list[str] | None = None,
         after_copy=None,
     ) -> None:
         """Carrega um CSV em ``schema.table_name`` por ``COPY``, sem pandas.
@@ -658,7 +509,6 @@ class PostgresClient:
                 tipos=tipos,
                 write=write,
                 filename=filename,
-                merge_key=merge_key,
                 after_copy=after_copy,
                 copy=lambda cur, destino, cols: cur.copy_expert(
                     _copy_sql(destino, cols, sep, header=True).as_string(cur), fh
@@ -673,7 +523,6 @@ class PostgresClient:
         schema: str,
         write: str = "truncate",
         filename: str | None = None,
-        merge_key: list[str] | None = None,
     ) -> None:
         """Envia um DataFrame para ``schema.table_name`` por ``COPY``.
 
@@ -690,7 +539,6 @@ class PostgresClient:
             tipos=tipos,
             write=write,
             filename=filename,
-            merge_key=merge_key,
             copy=lambda cur, destino, cols: cur.copy_expert(
                 _copy_sql(destino, cols, ";", header=False).as_string(cur), buffer
             ),
@@ -706,7 +554,6 @@ class PostgresClient:
         write: str = "truncate",
         source_column: str = "arquivo_origem",
         sep: str = ";",
-        merge_key: list[str] | None = None,
     ) -> None:
         """Carrega os arquivos de um diretório (CSV ou JSON) em ``schema.*``.
 
@@ -754,7 +601,6 @@ class PostgresClient:
                         schema=schema,
                         write=write,
                         filename=file.name,
-                        merge_key=merge_key,
                     )
                 else:
                     self.copy_csv(
@@ -764,12 +610,11 @@ class PostgresClient:
                         sep=sep,
                         write=write,
                         filename=file.name,
-                        merge_key=merge_key,
                     )
         self.logger.info(f"✅ Load concluido: {len(files)} arquivo(s)")
 
     def read_sql(self, sql_text: str) -> pd.DataFrame:
-        """Resultado de uma query como DataFrame (leituras: staging, intermediate)."""
+        """Resultado de uma query como DataFrame (leituras em objetos do dbt)."""
         if self.external_connection:
             return pd.read_sql(sql_text, con=self.external_connection)
         # text(): '%' literal (LIKE) não vira placeholder do driver.

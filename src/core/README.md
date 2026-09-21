@@ -21,14 +21,20 @@ from core import (
     load_yaml,  # config.py
     HttpClient,  # http.py
     PostgresClient,
-    validate_raw_schema,  # db.py
+    validate_raw_schema,
+    validate_write_mode,  # db.py
     JsonbLoader,  # jsonb.py
+    IngestionControl,
+    write_bronze_incremental,
+    write_manifest,
+    read_manifest,  # control.py
     write_bronze,
-    write_bronze_streaming,  # io.py
+    write_bronze_streaming,
     reset_bronze,
     list_files,
     concat_files_to_df,
     concat_landing,
+    integral_floats_to_int,
     write_csv,  # io.py
     missing_dates,
     missing_dates_from_db,  # incremental.py (por data)
@@ -149,10 +155,9 @@ source, *, env=None, **overrides)` é a forma de construir (o `env` default vem 
 | `output_param_file` | `str` ou `{arquivo: coluna}` gerado para o próximo pipeline (em `parameter_dir`) |
 | `db_table` / `db_schema` | tabela e schema destino (`raw_<fonte>`) |
 | `load` | de onde carregar: `table` (default) \| `files` \| `jsonb` \| `none` |
-| `write` | como escrever na tabela: `truncate` (default) \| `append` \| `merge` |
-| `merge_key` | colunas da chave do `merge` (obrigatória com ele, recusada sem ele) |
+| `write` | como escrever na tabela: `truncate` (default) \| `append` |
 | `bronze_sep` | separador do bronze (default `;`) |
-| `options` | dict livre do bloco `options:` (a core lê só as chaves listadas em `etl.py`) |
+| `options` | dict livre do bloco `options:`; a core lê `control_table` (`control.py`), `no_data_file`/`parameter_column`/`blacklist_on_error` (`incremental.py`) e as de load listadas em `etl.py` |
 | `criar_dirs` | cria os diretórios no `__init__` (default `True`; em testes use `False`) |
 
 Propriedades `landing_filepath`, `bronze_filepath`, `parameter_filepath` levantam
@@ -167,7 +172,7 @@ merge):
 ```yaml
 db_schema: "raw_camara"
 load: table                       # opcional
-write: truncate                   # opcional (truncate | append | merge)
+write: truncate                   # opcional (truncate | append)
 environments:
   dev:
     base_raw: "${LAKE_ROOT}/raw/demodados/camara"
@@ -231,8 +236,7 @@ consequências que valem por si:
 - a tabela **nunca é recriada**, então as views do dbt sobre a raw sobrevivem, os
   grants ficam e o OID é estável — é o que torna possível sincronizar prod → dev;
 - DDL no Postgres é transacional, então falha no meio do `COPY` faz rollback e a
-  tabela **continua com os dados anteriores** (o caminho antigo, em chunks, deixava
-  a tabela parcial);
+  tabela **continua com os dados anteriores**, nunca parcial;
 - `TRUNCATE` pega `ACCESS EXCLUSIVE`. A carga usa `SET LOCAL lock_timeout = '30s'`
   para falhar rápido em vez de empilhar fila na frente de um `dbt build`.
 
@@ -249,14 +253,11 @@ num servidor fora de UTC (`now()` puro grava a hora local dele). O `DEFAULT` de
 `arquivo_origem` só é reescrito quando muda de valor, porque o `ALTER` pega
 `ACCESS EXCLUSIVE`.
 
-A coluna chamava-se `data_carga` até esta mudança. `ensure_loaded_at` faz a
-migração sozinha na primeira carga de cada tabela (`RENAME COLUMN`, operação de
-catálogo: nada é reescrito e as views do dbt sobrevivem), e
-`scripts/loaded_at_migra.sh {sandbox|models|prod} [--dry-run]` faz o schema
-inteiro de uma vez — o que **precisa** acontecer nos três bancos antes do próximo
-`raw_copy.sh`, que usa a lista de colunas da origem nos dois lados. Linhas
-gravadas antes da migração ficam como estavam: se aquele servidor não estava em
-UTC, o histórico anterior está no fuso dele.
+Tabela que não tem a coluna (as JSONB da NHL, `raw_apsystem.*`,
+`raw_openweather.openweather_daily`) ganha o `ADD COLUMN` na carga seguinte,
+por `ensure_loaded_at`: é operação de catálogo, nada é reescrito e as views do
+dbt sobrevivem. As linhas que já estavam lá ficam com o instante do `ADD COLUMN`,
+não com o da ingestão que as trouxe.
 
 **NULL vs string vazia no `COPY` (`FORMAT csv`, marcador default `''`):**
 
@@ -269,9 +270,8 @@ UTC, o histórico anterior está no fuso dele.
   preservando a distinção. De quebra, `;`, `"`, quebra de linha e a linha `\.` ficam
   inofensivos.
 
-Único caso em que o COPY diverge do caminho pandas antigo: uma string vazia
-**aspada** (`""`) num bronze produzido fora do `write_bronze` chega como string
-vazia, não como NULL.
+Ponto de atenção: uma string vazia **aspada** (`""`) num bronze produzido fora
+do `write_bronze` chega como string vazia, não como NULL.
 
 **Modos de escrita** (`write` no YAML, `write=` nos métodos):
 
@@ -279,16 +279,9 @@ vazia, não como NULL.
 |---|---|
 | `truncate` (default) | Full refresh: `TRUNCATE` + `COPY`, numa transação |
 | `append` | Só `COPY`. Para bronze-delta — ver `control.py`; num bronze completo, duplica |
-| `merge` | Upsert: `COPY` para uma temporária + `INSERT ... ON CONFLICT (merge_key) DO UPDATE` |
 
-`merge` exige `merge_key` (uma ou mais colunas, que precisam estar no dado).
-`ensure_raw_table` cria o índice único da chave quando não houver — procurando por
-**conjunto de colunas**, não por nome, para não duplicar os índices feitos à mão
-que openweather e solar já têm. O `INSERT` usa `DISTINCT ON (merge_key)`: sem isso
-o `ON CONFLICT` erra com *cannot affect row a second time* quando o lote traz a
-mesma chave duas vezes; quando isso acontece, sai um WARNING dizendo quantas
-linhas foram descartadas. `arquivo_origem` e `loaded_at_utc` também são atualizados
-no conflito, então a linha sempre reflete a última carga que a tocou.
+Não há upsert: quando a fonte pode reenviar uma linha já carregada, o caminho é
+o full refresh a partir do landing (`truncate`), que é o que clima e solar fazem.
 
 **Drift de colunas** (`plan_columns`, função pura): coluna nova no dado vira
 `ALTER TABLE ADD COLUMN ... TEXT` com WARNING; coluna que sumiu do dado fica fora do
@@ -300,16 +293,15 @@ recreate (rename, `TEXT` ↔ `JSONB`) é gesto manual e logado como WARNING:
 DROP TABLE raw_camara.raw_camara_votacoes CASCADE;
 ```
 
-Tabela legada criada pelo `to_sql` antigo (com o carimbo **sem** `DEFAULT`, ou
-ainda com o nome `data_carga`) é migrada sozinha na primeira carga nova, sem
-recriação.
+Tabela anterior ao carimbo (sem `loaded_at_utc`, ou com ele sem `DEFAULT`) é
+reparada sozinha na carga seguinte, sem recriação.
 
 | Método | Para quê |
 |---|---|
-| `copy_csv(path, table_name, *, schema, sep=";", write="truncate", filename=None, merge_key=None, after_copy=None)` | Caminho quente: um CSV inteiro por `COPY`, sem pandas |
-| `send_df_to_db(df, table_name, *, schema, write="truncate", filename=None, merge_key=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
-| `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", write="truncate", source_column="arquivo_origem", sep=";", merge_key=None)` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
-| `read_sql(sql)` | Resultado como DataFrame (leituras em `staging.*`, `intermediate.*`) |
+| `copy_csv(path, table_name, *, schema, sep=";", write="truncate", filename=None, after_copy=None)` | Caminho quente: um CSV inteiro por `COPY`, sem pandas |
+| `send_df_to_db(df, table_name, *, schema, write="truncate", filename=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
+| `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", write="truncate", source_column="arquivo_origem", sep=";")` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
+| `read_sql(sql_text)` | Resultado como DataFrame (leituras em `staging.*`, `intermediate.*`) |
 | `connect()` | Conexão psycopg2 crua (`copy_expert`, transação explícita) |
 | `alchemy()` | Engine SQLAlchemy (só leitura) |
 
@@ -392,8 +384,8 @@ decide o que é "sem dados" (a câmara usa `dados` não vazio).
 ## `control.py` — carga incremental por arquivo
 
 Uma linha por `(schema, tabela, arquivo)` em `<schema>.<control_table>` diz o que
-já entrou. Era exclusivo do `JsonbLoader` (NHL); agora serve também ao caminho
-tabular, que é onde estão os volumes grandes do legislativo.
+já entrou. Serve aos dois caminhos: o `JsonbLoader` (NHL) e o tabular, que é
+onde estão os volumes grandes do legislativo.
 
 Uma fonte vira incremental por arquivo declarando no YAML, por entidade:
 
@@ -439,7 +431,7 @@ uv run python scripts/controle_semear.py <fonte>_config.yml <entidade>
 | Peça | Para quê |
 |---|---|
 | `IngestionControl(db, *, schema, table)` | `ensure`/`ingested`/`register`/`clear`/`pending` sobre a tabela de controle |
-| `write_bronze_incremental(cfg, files, parse_fn)` | Fim do transform incremental: bronze-delta + manifesto |
+| `write_bronze_incremental(cfg, files, parse_fn, log=None)` | Fim do transform incremental: bronze-delta + manifesto |
 | `write_manifest(cfg, files)` / `read_manifest(cfg)` | O manifesto, se você precisar mexer nele |
 | `control_for(cfg)` | `IngestionControl` da entidade, ou `None` se o YAML não pediu |
 
@@ -447,7 +439,8 @@ uv run python scripts/controle_semear.py <fonte>_config.yml <entidade>
 
 ## `jsonb.py` — `JsonbLoader`
 
-Carga de JSON bruto em tabela `(payload JSONB, source_filename TEXT)` via `COPY`,
+Carga de JSON bruto em tabela `(payload JSONB, source_filename TEXT, loaded_at_utc
+TIMESTAMP)` via `COPY`,
 para fontes cuja normalização fica no dbt (NHL). O `GenericETL` chama isto no modo
 `load: jsonb`; use direto só para recargas manuais.
 

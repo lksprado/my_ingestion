@@ -35,8 +35,9 @@ def test_db_target_follows_env(monkeypatch):
     assert s.db_target.name == "ingestion_sandbox"
     assert s.db_target.port == 5435
     # Senha com caracteres especiais é escapada na URL.
-    assert s.db_url.startswith("postgresql+psycopg2://u:p%40ss%2Fword@localhost:5435/")
-    assert s.db_url.endswith("/ingestion_sandbox")
+    url = s.db_target.url
+    assert url.startswith("postgresql+psycopg2://u:p%40ss%2Fword@localhost:5435/")
+    assert url.endswith("/ingestion_sandbox")
 
 
 def test_dev_env_requires_ingestion_sandbox(monkeypatch):

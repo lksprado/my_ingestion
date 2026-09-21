@@ -55,18 +55,10 @@ bronze em `${LAKE_ROOT}/bronze/solar_project/`.
   fonte de verdade: os 1.821 JSONs reconstroem as 1.819 linhas de
   `solar_daily_energy` e as 43.656 de `solar_hourly_energy` em ~16 s.
 - Os índices únicos `solar_daily_energy_date_pk` e
-  `solar_hourly_energy_datetime_pk` continuam no banco e não atrapalham, mas
-  deixaram de ser necessários (eram do upsert que o DAG fazia).
+  `solar_hourly_energy_datetime_pk` existem no banco e não atrapalham; a carga
+  não depende deles.
 - O Selenium roda **com janela** por padrão (`headless: false` no YAML), porque o
   portal se comporta mal em headless.
-- `all_dfs.csv` (consolidado intermediário) **não é mais gravado**; há um resquício
-  dele em `bronze/solar_project/` que pode ser apagado à mão.
+- Sobrou um `all_dfs.csv` em `bronze/solar_project/` que nenhuma etapa lê nem
+  regrava; pode ser apagado à mão.
 - Testes dos parsers em `tests/energia/test_solar_parsers.py`.
-
-## Checklist para o DAG do Airflow (mudou nesta padronização)
-
-- `missing_raw.identify_missing_dates(db)` deixou de existir. Equivalente:
-  `core.missing_dates_from_db(PostgresClient(connection=hook.get_conn()), sqls, control)`,
-  ou rodar por etapa com `--steps`.
-- Módulo renomeado: `pipelines.energia.solar.run` → `.solar_etl` (entidades
-  `daily_energy` e `hourly_energy`).

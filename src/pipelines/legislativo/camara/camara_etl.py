@@ -115,7 +115,7 @@ def transform_dados_abertos_streaming(cfg: PipelineConfig, url_col: str) -> None
 
 
 def extract_deputados(cfg: PipelineConfig) -> None:
-    """Ficha de cada deputado de ``id_deputados.csv`` (full refresh, sem incremental)."""
+    """Ficha de cada deputado de ``id_deputados.csv`` (full refresh)."""
     ids = read_ids(cfg.parameter_filepath, "id")
     tasks = [(cfg.url_base.format(id=i), cfg.landing_file.format(id=i)) for i in ids]
     HttpClient(logger).fetch_and_save_many(
