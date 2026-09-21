@@ -11,7 +11,7 @@ ETL em `camara_etl.py` (todas as entidades); configuração em `camara_config.ym
 | `deputados` | Perfil de cada deputado | `raw_camara.raw_camara_deputados` |
 | `votacoes` | Votações em plenário (trimestre corrente) | `raw_camara.raw_camara_votacoes` |
 | `votos_deputados` | Como cada deputado votou | `raw_camara.raw_camara_votos_deputados` |
-| `votos_orientacao` | Orientação de bancada por votação | `raw_camara.raw_camara_raw_camara_votacoes_orientacao` |
+| `votos_orientacao` | Orientação de bancada por votação | `raw_camara.raw_camara_votacoes_orientacao` |
 | `proposicao_tema` | Temas de cada proposição | `raw_camara.raw_camara_proposicao_tema` |
 | `proposicao` | Detalhe das proposições votadas | `raw_camara.raw_camara_proposicao` |
 
@@ -53,10 +53,10 @@ uv run python -m pipelines.legislativo.camara.camara_etl proposicao --steps tran
 - **Divergência registrada:** `votos_orientacao` tem `blacklist_on_error: false`
   (timeout **não** entra no "sem dados"); os outros quatro registram timeout como
   "sem dados" e nunca mais tentam. Decidir um comportamento único é pendência.
-- **Bronze em streaming (rebuild):** `votos_deputados`, `proposicao` e
-  `proposicao_tema` reconstroem o bronze inteiro a cada transform, um arquivo por
-  vez (`core.write_bronze_streaming`). Antes era append incremental; o rebuild é
-  mais lento por execução, mas sem estado paralelo ao landing.
+- **Bronze em streaming:** `votos_deputados`, `proposicao` e `proposicao_tema`
+  montam o bronze um arquivo por vez (`core.write_bronze_incremental`, que cai
+  no `write_bronze_streaming` quando a entidade não tem `control_table`), porque
+  o landing tem milhares de JSONs e não cabe em memória de uma vez.
 - Carga full refresh (`write: truncate`): `TRUNCATE` + `COPY` na tabela
   `raw_camara.*`, numa transação e sem recriar a tabela. Vale para `legislaturas`,
   `deputados` (a ficha muda com o tempo), `votacoes` (o bronze concatena todo o

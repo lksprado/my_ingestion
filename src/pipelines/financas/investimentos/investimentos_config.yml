@@ -28,8 +28,9 @@ sources:
     options:
       # Abas por planilha. A URL de cada planilha vem de URL_FINANCE__<CHAVE> no .env.
       # header_row: índice 0-based da linha de cabeçalho em get_all_values().
-      # A PRIMEIRA planilha é a primária (abas viram <aba>.csv -> raw_google.<aba>);
-      # as demais sufixam a chave (<aba>_<chave>.csv -> raw_google.<aba>_<chave>).
+      # A PRIMEIRA planilha é a primária (abas viram <aba>.csv ->
+      # raw_google_sheets.<aba>); as demais sufixam a chave
+      # (<aba>_<chave>.csv -> raw_google_sheets.<aba>_<chave>).
       sheets:
         lucas_jessica:
           - {name: LUC-Consolidado, header_row: 3}

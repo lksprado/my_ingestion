@@ -39,10 +39,12 @@ só recebe raw por cópia. O único pipeline que lê objeto do dbt é o
 ```bash
 scripts/raw_copy.sh seed raw_nhl       # analytics_dev -> sandbox: antes de testar um incremental
 scripts/raw_copy.sh promote raw_nhl    # sandbox -> analytics_dev: raw validada, para modelar no dbt
+scripts/raw_copy.sh pull raw_nhl       # analytics_prod -> analytics_dev: para a raw de dev não envelhecer
 ```
 
-A cópia troca tabela a tabela. Views do dbt sobre a raw caem junto (`CASCADE`) e voltam no
-próximo `dbt build`.
+A cópia é `TRUNCATE` + `COPY` tabela a tabela, nunca `DROP`: as views do dbt sobre a raw
+sobrevivem. Por tabela ele decide sozinho entre completa e só o delta; `--dry-run` mostra a
+decisão e `--full` força a completa.
 
 - **Pipeline novo:** siga [`src/pipelines/README.md`](src/pipelines/README.md) (onde colocar, YAML, esqueleto, checklist).
 - **Biblioteca compartilhada** (`core`): [`src/core/README.md`](src/core/README.md).

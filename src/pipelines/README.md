@@ -88,9 +88,10 @@ Regras:
 - São só dois ambientes: `dev` (execução local) e `prod` (Airflow), porque o mesmo código roda na
   máquina e no orquestrador. O ativo vem de `ENV` no `.env`.
 - `subpath` evita que entidades da mesma fonte se misturem no mesmo diretório.
-- `landing_file`, `bronze_file` e `base_url` aceitam `{date}`, substituído pela
-  data de hoje. É o **único** placeholder que a core resolve; outros (`{id}`,
-  `{day}`, `{game_id}`) são preservados para o script resolver com `str.format`.
+- `landing_file` e `bronze_file` aceitam `{date}`, substituído pela data de hoje.
+  É o **único** placeholder que a core resolve, e só nesses dois campos; os
+  outros (`{id}`, `{day}`, `{game_id}`, e qualquer um em `base_url`) ficam para
+  o script resolver com `str.format`.
 - `db_schema`, `load`, `write`, `bronze_sep` e `options` valem no topo (default do
   arquivo) e por source (override).
 - `load` diz **de onde** carregar, `write` diz **como** escrever na tabela. O

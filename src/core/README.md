@@ -21,14 +21,20 @@ from core import (
     load_yaml,  # config.py
     HttpClient,  # http.py
     PostgresClient,
-    validate_raw_schema,  # db.py
+    validate_raw_schema,
+    validate_write_mode,  # db.py
     JsonbLoader,  # jsonb.py
+    IngestionControl,
+    write_bronze_incremental,
+    write_manifest,
+    read_manifest,  # control.py
     write_bronze,
-    write_bronze_streaming,  # io.py
+    write_bronze_streaming,
     reset_bronze,
     list_files,
     concat_files_to_df,
     concat_landing,
+    integral_floats_to_int,
     write_csv,  # io.py
     missing_dates,
     missing_dates_from_db,  # incremental.py (por data)
@@ -152,7 +158,7 @@ source, *, env=None, **overrides)` é a forma de construir (o `env` default vem 
 | `write` | como escrever na tabela: `truncate` (default) \| `append` \| `merge` |
 | `merge_key` | colunas da chave do `merge` (obrigatória com ele, recusada sem ele) |
 | `bronze_sep` | separador do bronze (default `;`) |
-| `options` | dict livre do bloco `options:` (a core lê só as chaves listadas em `etl.py`) |
+| `options` | dict livre do bloco `options:`; a core lê `control_table` (`control.py`), `no_data_file`/`parameter_column`/`blacklist_on_error` (`incremental.py`) e as de load listadas em `etl.py` |
 | `criar_dirs` | cria os diretórios no `__init__` (default `True`; em testes use `False`) |
 
 Propriedades `landing_filepath`, `bronze_filepath`, `parameter_filepath` levantam
@@ -309,7 +315,7 @@ recriação.
 | `copy_csv(path, table_name, *, schema, sep=";", write="truncate", filename=None, merge_key=None, after_copy=None)` | Caminho quente: um CSV inteiro por `COPY`, sem pandas |
 | `send_df_to_db(df, table_name, *, schema, write="truncate", filename=None, merge_key=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
 | `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", write="truncate", source_column="arquivo_origem", sep=";", merge_key=None)` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
-| `read_sql(sql)` | Resultado como DataFrame (leituras em `staging.*`, `intermediate.*`) |
+| `read_sql(sql_text)` | Resultado como DataFrame (leituras em `staging.*`, `intermediate.*`) |
 | `connect()` | Conexão psycopg2 crua (`copy_expert`, transação explícita) |
 | `alchemy()` | Engine SQLAlchemy (só leitura) |
 
@@ -439,7 +445,7 @@ uv run python scripts/controle_semear.py <fonte>_config.yml <entidade>
 | Peça | Para quê |
 |---|---|
 | `IngestionControl(db, *, schema, table)` | `ensure`/`ingested`/`register`/`clear`/`pending` sobre a tabela de controle |
-| `write_bronze_incremental(cfg, files, parse_fn)` | Fim do transform incremental: bronze-delta + manifesto |
+| `write_bronze_incremental(cfg, files, parse_fn, log=None)` | Fim do transform incremental: bronze-delta + manifesto |
 | `write_manifest(cfg, files)` / `read_manifest(cfg)` | O manifesto, se você precisar mexer nele |
 | `control_for(cfg)` | `IngestionControl` da entidade, ou `None` se o YAML não pediu |
 
@@ -447,7 +453,8 @@ uv run python scripts/controle_semear.py <fonte>_config.yml <entidade>
 
 ## `jsonb.py` — `JsonbLoader`
 
-Carga de JSON bruto em tabela `(payload JSONB, source_filename TEXT)` via `COPY`,
+Carga de JSON bruto em tabela `(payload JSONB, source_filename TEXT, loaded_at_utc
+TIMESTAMP)` via `COPY`,
 para fontes cuja normalização fica no dbt (NHL). O `GenericETL` chama isto no modo
 `load: jsonb`; use direto só para recargas manuais.
 

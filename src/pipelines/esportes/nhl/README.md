@@ -2,7 +2,7 @@
 
 Extrai estatísticas de hóquei das APIs públicas da NHL (`api-web.nhle.com` e
 `api.nhle.com/stats`) e carrega os JSONs **sem transformação** em tabelas JSONB
-(`payload`, `source_filename`) no schema `raw_nhl` (`load: jsonb` no YAML). A
+(`payload`, `source_filename`, `loaded_at_utc`) no schema `raw_nhl` (`load: jsonb` no YAML). A
 normalização acontece no dbt [`my_analytics`](https://github.com/lksprado/my_analytics),
 que consome `raw_nhl` **a jusante**: nenhum passo deste pipeline depende dele.
 
