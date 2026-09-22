@@ -134,14 +134,21 @@ def fetch_to_csv(
     url: str,
     filename: str,
     http: HttpClient | None = None,
-) -> None:
-    """Baixa ``url``, parseia e grava o CSV (``;``) em ``landing_dir/filename``."""
+) -> int | None:
+    """Baixa ``url``, parseia e grava o CSV (``;``) em ``landing_dir/filename``.
+
+    Devolve o número de linhas parseadas (``None`` se o HTTP falhou). Parse vazio
+    não grava arquivo.
+    """
     html = (http or HttpClient(logger)).get_text(url)
     if html is None:
         logger.warning(f"⚠️ Sem resposta de {url}")
-        return
+        return None
     df = parser(make_bs_object(response=html))
+    if df.empty:
+        return 0
     df.to_csv(cfg.landing_dir / filename, sep=";", index=False)
+    return len(df)
 
 
 def extract_page(
@@ -152,17 +159,24 @@ def extract_page(
 
 
 def extract_paginas(cfg: PipelineConfig) -> None:
-    """Todas as páginas de consultas públicas (``options.pages``)."""
+    """As primeiras ``options.pages`` páginas da pesquisa de matérias.
+
+    Para antes se uma página vier vazia (fim da listagem). A URL tem de ser a de
+    ``pesquisamateria``: ``principalmateria`` ignora ``?p=`` e repete a mesma página.
+    """
     http = HttpClient(logger)
-    for page in range(1, int(cfg.options.get("pages", 145)) + 1):
+    for page in range(1, int(cfg.options.get("pages", 25)) + 1):
         logger.info(f"Extraindo pagina {page}...")
-        fetch_to_csv(
+        n = fetch_to_csv(
             cfg,
             parse_materias,
             f"{cfg.url_base}{page}",
             cfg.landing_file.format(page=page),
             http=http,
         )
+        if n == 0:
+            logger.info(f"Pagina {page} vazia: fim da listagem.")
+            break
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
