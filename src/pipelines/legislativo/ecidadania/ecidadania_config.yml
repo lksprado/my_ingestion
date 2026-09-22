@@ -27,10 +27,10 @@ sources:
     db_table: "raw_ecidadania_mais_votados"
 
   paginas:
-    base_url: "https://www12.senado.leg.br/ecidadania/principalmateria?p="
+    base_url: "https://www12.senado.leg.br/ecidadania/pesquisamateria?p="
     subpath: "paginas"
     landing_file: "consultas_publicas_{date}_page_{page}.csv"
     bronze_file: "ecidadania_paginas_consolidado.csv"
     db_table: "raw_ecidadania_paginas"
     options:
-      pages: 145
+      pages: 25
