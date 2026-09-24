@@ -24,12 +24,16 @@ environments:
     base_parameters: "/usr/local/airflow/mylake/raw/demodados/camara/parameters"
 
 sources:
-  legislaturas:
-    base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados?idLegislatura=57&ordem=ASC&ordenarPor=nome"
+  legislaturas:                  # um JSON por legislatura, com todas as páginas
+    base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados?idLegislatura={legislatura}&ordem=ASC&ordenarPor=nome&itens=100"
     subpath: "legislatura"
-    landing_file: "57_deputados_legislatura.json"
+    landing_file: "{legislatura}_deputados_legislatura.json"
     bronze_file: "legislaturas_deputados.csv"
     db_table: "raw_camara_legislaturas"
+    output_param_file:
+      id_deputados_legislaturas.csv: "id"
+    options:
+      legislaturas: [51, 52, 53, 54, 55, 56, 57]
 
   deputados:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/deputados/{id}"
@@ -37,15 +41,18 @@ sources:
     landing_file: "{id}_deputado.json"
     bronze_file: "parlamento_deputados.csv"
     db_table: "raw_camara_deputados"
-    parameter_file: "id_deputados.csv"
+    parameter_file: "id_deputados.csv"   # atuais (_params/atualizar_deputados): sempre rebaixados
     options:
       workers: 4
+      historico_file: "id_deputados_legislaturas.csv"   # de legislaturas: só os que faltam no landing
 
   votacoes:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/votacoes"
     subpath: "votacoes"
     bronze_file: "camara_votacoes.csv"
     db_table: "raw_camara_votacoes"
+    options:
+      trimestres: 2               # o corrente e o anterior: fecha o que entrou depois da última execução
     output_param_file:
       id_votacoes.csv: "id"
       id_proposicao.csv: "id_proposicao"
@@ -98,3 +105,25 @@ sources:
       parameter_column: "id_proposicao"
       no_data_file: "sem_dados_id_proposicao.csv"
       control_table: "ingestion_control"
+
+  # Arquivos anuais (dadosabertos.camara.leg.br/arquivos): TODAS as proposições,
+  # não só as votadas. Formato do arquivo, diferente da API por ID
+  # (ultimoStatus.* em vez de statusProposicao.*), por isso em tabela própria.
+  # Todos os anos são rebaixados a cada execução: o status de proposição antiga muda.
+  arquivo_proposicoes:
+    base_url: "https://dadosabertos.camara.leg.br/arquivos/proposicoes/json/proposicoes-{ano}.json"
+    subpath: "arquivos/proposicoes"
+    landing_file: "proposicoes-{ano}.json"
+    bronze_file: "camara_arquivo_proposicoes.csv"
+    db_table: "arquivo_proposicoes"
+    options:
+      ano_inicio: 1934            # primeiro ano com arquivo
+
+  arquivo_proposicoes_temas:
+    base_url: "https://dadosabertos.camara.leg.br/arquivos/proposicoesTemas/json/proposicoesTemas-{ano}.json"
+    subpath: "arquivos/proposicoes_temas"
+    landing_file: "proposicoesTemas-{ano}.json"
+    bronze_file: "camara_arquivo_proposicoes_temas.csv"
+    db_table: "arquivo_proposicoes_temas"
+    options:
+      ano_inicio: 1945            # primeiro ano com arquivo

@@ -13,7 +13,9 @@ Busca todos os deputados atuais na API da Câmara e grava `id_deputados.csv`
 uv run python -m pipelines.legislativo._params.atualizar_deputados
 ```
 
-Rode quando a legislatura mudar ou quando houver troca de titularidade.
+Rode quando a legislatura mudar ou quando houver troca de titularidade. Os
+deputados de legislaturas anteriores vêm de outro arquivo,
+`id_deputados_legislaturas.csv`, que a entidade `legislaturas` gera.
 
 ## `dbt_seed_maker.py`
 
