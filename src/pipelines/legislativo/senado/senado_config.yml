@@ -45,6 +45,8 @@ sources:
     subpath: "votos_orientacao"
     bronze_file: "senado_votos_orientacao.csv"
     db_table: "raw_senado_votos_orientacao"
+    options:
+      ano_inicio: 2018            # a API não tem orientação antes disso
 
   senadores:
     base_url: "https://legis.senado.leg.br/dadosabertos/senador/lista/atual?v=4"
@@ -59,6 +61,9 @@ sources:
     bronze_file: "senado_status_consolidado.csv"
     db_table: "raw_senado_status"
     parameter_file: "ecidadania_paginas_consolidado.csv"
+    options:
+      min_votos: 0                # todas as matérias do bronze do e-Cidadania
+      workers: 4
 
   processo:
     base_url: "https://legis.senado.leg.br/dadosabertos/processo?idProcesso={id}&v=1"
@@ -72,3 +77,16 @@ sources:
       parameter_column: "idprocesso"
       no_data_file: "sem_dados_id_processo.csv"
       control_table: "ingestion_control"
+
+  # Todos os processos de cada ano (não só os votados): mesmo esquema da consulta
+  # por ID de ``processo``, em tabela própria. Rebaixa todos os anos a cada
+  # execução, porque situação e tramitação mudam.
+  processos:
+    base_url: "https://legis.senado.leg.br/dadosabertos/processo?ano={ano}&v=1"
+    subpath: "processos"
+    landing_file: "{ano}_processos.json"
+    bronze_file: "senado_processos.csv"
+    db_table: "processos"
+    options:
+      ano_inicio: 1946            # primeiro ano com processos na API
+      tentativas: 3               # a resposta às vezes chega cortada

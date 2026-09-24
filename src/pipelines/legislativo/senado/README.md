@@ -14,6 +14,7 @@ ETL em `senado_etl.py` (todas as entidades); configuração em `senado_config.ym
 | `votos_orientacao` | Orientação de bancada por votação | `raw_senado.raw_senado_votos_orientacao` |
 | `processo` | Detalhe dos processos das votações | `raw_senado.raw_senado_processo` |
 | `status` | Tramitação das proposições do e-Cidadania | `raw_senado.raw_senado_status` |
+| `processos` | **Todos** os processos, listagem anual (1946..) | `raw_senado.processos` |
 
 ## Dependências entre pipelines
 
@@ -41,8 +42,22 @@ uv run python -m pipelines.legislativo.senado.senado_etl status                 
 
 ## Notas
 
-- `votacoes` e `votos_orientacao` varrem 2001..2026 a cada extract
-  (`YEARS` e `extract_by_year` no script); use `--steps` para rodar só uma etapa.
+- `votacoes` e `votos_orientacao` varrem de `options.ano_inicio` (padrão 2001)
+  até o ano corrente a cada extract (`extract_by_year`). `votos_orientacao`
+  começa em 2018, porque a API não tem orientação antes disso. Use `--steps`
+  para rodar só uma etapa.
+- `processos`: `/processo?ano=AAAA` devolve todos os processos do ano, com o
+  mesmo esquema da consulta por ID de `processo`, mas em tabela própria: ~163
+  mil processos, não só os ~2,6 mil votados. Todos os anos são rebaixados a
+  cada execução, porque situação e tramitação mudam (o `processo` por ID
+  congela o primeiro download). A resposta às vezes chega **cortada no meio**
+  (`IncompleteRead`), e o retry do `HttpClient` não cobre isso; o extract
+  tenta até `options.tentativas` (3) vezes por ano. Leva ~3 min.
+- `status` consulta as matérias do bronze do e-Cidadania com pelo menos
+  `options.min_votos` votos (YAML: 0, ou seja, as 25 páginas, ~2.500 matérias;
+  antes eram só as com ≥ 5000 votos). Pula quem já está no landing fora de
+  tramitação, mas quase todas as matérias do e-Cidadania ainda tramitam, então
+  a maior parte é consultada de novo (~6 min com `options.workers: 4`).
 - `processo` é incremental por ID no extract (`core.extract_by_ids`, default
   `has_data=bool`) e incremental por arquivo no transform/load (abaixo).
 - Quebras de linha em colunas de texto são removidas por `core.write_bronze`.
