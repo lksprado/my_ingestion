@@ -59,7 +59,8 @@ uv run python -m pipelines.legislativo.senado.senado_etl status                 
   tramitação, mas quase todas as matérias do e-Cidadania ainda tramitam, então
   a maior parte é consultada de novo (~6 min com `options.workers: 4`).
 - `processo` é incremental por ID no extract (`core.extract_by_ids`, default
-  `has_data=bool`) e incremental por arquivo no transform/load (abaixo).
+  `has_data=bool`, `options.workers: 4` threads) e incremental por arquivo no
+  transform/load (abaixo).
 - Quebras de linha em colunas de texto são removidas por `core.write_bronze`.
 - Carga full refresh (`write: truncate`): `TRUNCATE` + `COPY` na tabela
   `raw_senado.*`, numa transação e sem recriar a tabela.

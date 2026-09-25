@@ -31,8 +31,10 @@ class HttpClient:
         backoff_factor: float = 2.0,
         timeout: int = 30,
         headers: dict | None = None,
+        pool_size: int = 10,
     ):
         self.logger = log or logger
+        self.pool_size = pool_size
         self.timeout = timeout
         self.default_headers = headers or {"Accept": "application/json"}
 
@@ -43,7 +45,8 @@ class HttpClient:
             allowed_methods=["GET", "POST"],
             raise_on_status=False,
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        # pool_maxsize >= threads, senão o urllib3 descarta conexões ("pool is full")
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_maxsize=pool_size)
         self.session = requests.Session()
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
@@ -140,6 +143,11 @@ class HttpClient:
                 _one(url, filename)
             return
 
+        if workers > self.pool_size:
+            self.logger.warning(
+                f"⚠️ workers={workers} > pool_size={self.pool_size}: conexoes "
+                "excedentes serao descartadas; crie o HttpClient com pool_size maior."
+            )
         self.logger.info(
             f"📥 Iniciando extracao com {workers} threads ({len(tasks)} tarefas)..."
         )

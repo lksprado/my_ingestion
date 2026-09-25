@@ -71,3 +71,9 @@ def test_save_json_and_fetch_and_save(monkeypatch, tmp_path):
     assert http.fetch_and_save("http://x", tmp_path, "y") is None
     monkeypatch.setattr(HttpClient, "get_json", lambda self, url, **kw: {"b": 2})
     assert http.fetch_and_save("http://x", tmp_path, "y").name == "y.json"
+
+
+def test_pool_size_sets_adapter_pool_maxsize():
+    client = HttpClient(pool_size=20)
+    assert client.session.get_adapter("https://x")._pool_maxsize == 20
+    assert HttpClient().session.get_adapter("https://x")._pool_maxsize == 10

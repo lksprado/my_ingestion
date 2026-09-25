@@ -67,6 +67,7 @@ sources:
     write: append                 # incremental: um JSON por votação, imutável
     options:
       no_data_file: "sem_dados_id_votacao.csv"
+      workers: 4                  # threads de requisição (core.extract_by_ids)
       control_table: "ingestion_control"
 
   votos_orientacao:
@@ -78,6 +79,7 @@ sources:
     parameter_file: "id_votacoes.csv"
     options:
       no_data_file: "sem_dados_id_votacao_orientacao.csv"
+      workers: 4                  # threads de requisição (core.extract_by_ids)
       blacklist_on_error: false   # timeout não entra na lista (diverge dos demais)
 
   proposicao_tema:
@@ -91,6 +93,7 @@ sources:
     options:
       parameter_column: "id_proposicao"
       no_data_file: "sem_dados_id_proposicao_tema.csv"
+      workers: 4                  # threads de requisição (core.extract_by_ids)
       control_table: "ingestion_control"
 
   proposicao:
@@ -104,6 +107,7 @@ sources:
     options:
       parameter_column: "id_proposicao"
       no_data_file: "sem_dados_id_proposicao.csv"
+      workers: 4                  # threads de requisição (core.extract_by_ids)
       control_table: "ingestion_control"
 
   # Arquivos anuais (dadosabertos.camara.leg.br/arquivos): TODAS as proposições,
