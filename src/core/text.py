@@ -84,14 +84,27 @@ def sanitize_values(
     return df
 
 
+_NEWLINES = re.compile(r"[\r\n]+")
+
+
 def strip_newlines(df: pd.DataFrame) -> pd.DataFrame:
-    """Troca CR/LF por espaço nas colunas texto (CSV ``;`` não sobrevive a eles)."""
+    """Troca CR/LF por espaço nas colunas texto (CSV ``;`` não sobrevive a eles).
+
+    Coluna ``str`` é tratada vetorizada, e só nas linhas que têm quebra; coluna
+    ``object`` (texto misturado com dict/list) vai valor a valor, e o que não é
+    ``str`` fica como está.
+    """
     df = df.copy()
-    pattern = re.compile(r"[\r\n]+")
     for col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[col]):
+        s = df[col]
+        if pd.api.types.is_numeric_dtype(s):
             continue
-        df[col] = df[col].map(
-            lambda v: pattern.sub(" ", v) if isinstance(v, str) else v
-        )
+        if isinstance(s.dtype, pd.StringDtype):
+            tem = s.str.contains(_NEWLINES.pattern, regex=True, na=False)
+            if tem.any():
+                df.loc[tem, col] = s[tem].str.replace(
+                    _NEWLINES.pattern, " ", regex=True
+                )
+            continue
+        df[col] = s.map(lambda v: _NEWLINES.sub(" ", v) if isinstance(v, str) else v)
     return df

@@ -122,6 +122,7 @@ sources:
     db_table: "arquivo_proposicoes"
     options:
       ano_inicio: 1934            # primeiro ano com arquivo
+      transform_workers: 4        # processos no parse (write_bronze_streaming)
 
   arquivo_proposicoes_temas:
     base_url: "https://dadosabertos.camara.leg.br/arquivos/proposicoesTemas/json/proposicoesTemas-{ano}.json"
@@ -131,3 +132,4 @@ sources:
     db_table: "arquivo_proposicoes_temas"
     options:
       ano_inicio: 1945            # primeiro ano com arquivo
+      transform_workers: 4        # processos no parse (write_bronze_streaming)

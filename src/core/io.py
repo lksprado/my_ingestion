@@ -6,9 +6,13 @@
 """
 
 import logging
+import multiprocessing
 import os
 import tempfile
-from collections.abc import Callable, Iterable
+import traceback
+from collections import deque
+from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -150,10 +154,59 @@ def write_bronze(cfg: PipelineConfig, df: pd.DataFrame | None) -> Path | None:
     return path
 
 
+ParseFn = Callable[[Path], pd.DataFrame | None]
+
+
+def _parse_prepared(
+    parse_fn: ParseFn, file: Path
+) -> tuple[pd.DataFrame | None, str | None]:
+    """``(df preparado ou None, traceback ou None)`` de um arquivo.
+
+    Fica no nível do módulo para ir aos processos do pool; a exceção volta como
+    texto para o processo principal logar e seguir.
+    """
+    try:
+        df = parse_fn(file)
+    except Exception:
+        return None, traceback.format_exc()
+    if df is None or df.empty:
+        return None, None
+    return _prepare(df), None
+
+
+def _prepared_frames(
+    files: Iterable[Path], parse_fn: ParseFn, workers: int
+) -> Iterator[tuple[Path, pd.DataFrame | None, str | None]]:
+    """``_parse_prepared`` de cada arquivo, na ordem de ``files``.
+
+    Com ``workers > 1`` os arquivos são processados num pool de processos, com
+    no máximo ``2 * workers`` em andamento: a escrita é sequencial, e sem esse
+    limite os DataFrames prontos se acumulariam na memória à espera dela. O pool
+    usa ``forkserver``: ``fork`` de um processo com threads (as do pyarrow, por
+    exemplo) pode travar o filho.
+    """
+    if workers <= 1:
+        for file in files:
+            yield file, *_parse_prepared(parse_fn, file)
+        return
+    contexto = multiprocessing.get_context("forkserver")
+    with ProcessPoolExecutor(workers, mp_context=contexto) as pool:
+        pendentes = deque()
+        for file in files:
+            pendentes.append((file, pool.submit(_parse_prepared, parse_fn, file)))
+            if len(pendentes) >= 2 * workers:
+                file_, fut = pendentes.popleft()
+                yield file_, *fut.result()
+        while pendentes:
+            file_, fut = pendentes.popleft()
+            yield file_, *fut.result()
+
+
 def write_bronze_streaming(
     cfg: PipelineConfig,
     files: Iterable[Path],
-    parse_fn: Callable[[Path], pd.DataFrame | None],
+    parse_fn: ParseFn,
+    workers: int | None = None,
 ) -> Path | None:
     """Reconstrói ``cfg.bronze_filepath`` um arquivo por vez (memória limitada).
 
@@ -163,7 +216,14 @@ def write_bronze_streaming(
     arquivo é logada e o arquivo pulado. A escrita vai para um temporário e
     substitui o bronze atomicamente; sem nenhum dado, o bronze anterior é
     preservado e a função devolve ``None``.
+
+    ``workers`` (default: ``options.transform_workers`` do YAML, senão 1) > 1
+    faz o parse em paralelo num pool de processos; a saída é a mesma, na mesma
+    ordem. Aí ``parse_fn`` tem de ser picklável: função de módulo ou
+    ``functools.partial`` dela, não lambda.
     """
+    if workers is None:
+        workers = int(cfg.options.get("transform_workers", 1))
     bronze_path = cfg.bronze_filepath
     bronze_path.parent.mkdir(parents=True, exist_ok=True)
     header: list[str] | None = None
@@ -175,15 +235,12 @@ def write_bronze_streaming(
     os.close(fd)
     try:
         with open(tmp_name, "w", encoding="utf-8", newline="") as out:
-            for file in files:
-                try:
-                    df = parse_fn(file)
-                except Exception:
-                    logger.error(f"❌ Erro ao transformar {file}", exc_info=True)
+            for file, df, erro in _prepared_frames(files, parse_fn, workers):
+                if erro:
+                    logger.error(f"❌ Erro ao transformar {file}\n{erro}")
                     continue
-                if df is None or df.empty:
+                if df is None:
                     continue
-                df = _prepare(df)
                 if header is None:
                     header = list(df.columns)
                     df.to_csv(out, sep=cfg.bronze_sep, index=False, header=True)

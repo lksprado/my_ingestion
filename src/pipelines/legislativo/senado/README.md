@@ -52,7 +52,8 @@ uv run python -m pipelines.legislativo.senado.senado_etl status                 
   cada execução, porque situação e tramitação mudam (o `processo` por ID
   congela o primeiro download). A resposta às vezes chega **cortada no meio**
   (`IncompleteRead`), e o retry do `HttpClient` não cobre isso; o extract
-  tenta até `options.tentativas` (3) vezes por ano. Leva ~3 min.
+  tenta até `options.tentativas` (3) vezes por ano. Leva ~3 min. O transform
+  faz o parse em 4 processos (`options.transform_workers`).
 - `status` consulta as matérias do bronze do e-Cidadania com pelo menos
   `options.min_votos` votos (YAML: 0, ou seja, as 25 páginas, ~2.500 matérias;
   antes eram só as com ≥ 5000 votos). Pula quem já está no landing fora de

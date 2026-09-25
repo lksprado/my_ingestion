@@ -244,9 +244,7 @@ consequências que valem por si:
 - `TRUNCATE` pega `ACCESS EXCLUSIVE`. A carga usa `SET LOCAL lock_timeout = '30s'`
   para falhar rápido em vez de empilhar fila na frente de um `dbt build`.
 
-**Na raw os dados são sempre texto.** Toda coluna vira `TEXT`; a exceção é a coluna
-cujos valores são objetos JSON (dict/list), gravada como `JSONB` (`to_raw_frame`
-decide). A tipagem é responsabilidade do dbt (staging). O `JsonbLoader` (NHL) já
+**Na raw os dados são sempre texto.** Toda coluna do bronze vira `TEXT`. A tipagem é responsabilidade do dbt (staging). O `JsonbLoader` (NHL) já
 grava `payload JSONB`.
 
 **As colunas de rastreio não viajam no stream.** `arquivo_origem` (quando você passa
@@ -263,16 +261,11 @@ por `ensure_loaded_at`: é operação de catálogo, nada é reescrito e as views
 dbt sobrevivem. As linhas que já estavam lá ficam com o instante do `ADD COLUMN`,
 não com o da ingestão que as trouxe.
 
-**NULL vs string vazia no `COPY` (`FORMAT csv`, marcador default `''`):**
-
-- *bronze* (`copy_csv`): campo vazio não aspado é NULL — exatamente o
-  `na_values=[""]` com que o pandas lia esses CSVs. `007` continua `007`, `NA` e
-  `null` continuam texto. O que o `write_bronze` gera é compatível campo a campo
-  (verificado por teste de round-trip em `tests/core/test_copy_load.py`);
-- *memória* (`send_df_to_db`): `df_to_csv_buffer` aspa **todo** valor não nulo, então
-  `''` sai como `""` (string vazia) e `None` sai como campo vazio (NULL),
-  preservando a distinção. De quebra, `;`, `"`, quebra de linha e a linha `\.` ficam
-  inofensivos.
+**NULL vs string vazia no `COPY` (`FORMAT csv`, marcador default `''`):** campo
+vazio não aspado é NULL — exatamente o `na_values=[""]` com que o pandas lia esses
+CSVs. `007` continua `007`, `NA` e `null` continuam texto. O que o `write_bronze`
+gera é compatível campo a campo (verificado por teste de round-trip em
+`tests/core/test_copy_load.py`).
 
 Ponto de atenção: uma string vazia **aspada** (`""`) num bronze produzido fora
 do `write_bronze` chega como string vazia, não como NULL.
@@ -303,8 +296,7 @@ reparada sozinha na carga seguinte, sem recriação.
 | Método | Para quê |
 |---|---|
 | `copy_csv(path, table_name, *, schema, sep=";", write="truncate", filename=None, after_copy=None)` | Caminho quente: um CSV inteiro por `COPY`, sem pandas |
-| `send_df_to_db(df, table_name, *, schema, write="truncate", filename=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
-| `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", write="truncate", source_column="arquivo_origem", sep=";")` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
+| `load_files_to_table(input_dir, *, schema, pattern="*.csv", write="truncate", sep=";")` | `load: files`: cada CSV do diretório vira a tabela de mesmo nome (stem), por `copy_csv` |
 | `read_sql(sql_text)` | Resultado como DataFrame (leituras em `staging.*`, `intermediate.*`) |
 | `connect()` | Conexão psycopg2 crua (`copy_expert`, transação explícita) |
 | `alchemy()` | Engine SQLAlchemy (só leitura) |
@@ -324,13 +316,21 @@ pandas promoveu a float sai `123`, não `123.0`), cria o diretório e grava
 `None`: warning, não grava, bronze anterior preservado.
 
 ```python
-write_bronze_streaming(cfg, files, parse_fn) -> Path | None
+write_bronze_streaming(cfg, files, parse_fn, workers=None) -> Path | None
 ```
 Mesma coisa, um arquivo por vez (memória limitada): `parse_fn(file)` devolve o
 DataFrame daquele arquivo (ou `None` para pular); cabeçalho fixado no primeiro,
 demais alinhados (colunas extras descartadas com warning); exceção num arquivo é
 logada e pulada; escrita em temporário + `os.replace`. É um **rebuild** completo:
 quem quiser incrementalidade filtra `files` antes.
+
+`workers` (default `options.transform_workers` do YAML, senão 1) > 1 faz o parse
+e o preparo em paralelo num pool de processos (`forkserver`), com no máximo
+`2 * workers` arquivos em andamento; a escrita continua sequencial e na ordem
+de `files`, então o bronze sai **idêntico** ao de `workers=1`. Aí `parse_fn`
+tem de ser picklável: função de módulo ou `functools.partial` dela, não lambda.
+Vale para landings com arquivos grandes (os anuais da Câmara: 62 s → 24 s com 4
+workers). `options.workers` é outra coisa: são as threads HTTP do extract.
 
 ```python
 concat_landing(cfg, parse_fn, pattern="*.json") -> DataFrame
@@ -468,7 +468,9 @@ sanitize_values(df, *, exclude=(), case="upper", space="keep", alfanum="remove")
 strip_newlines(df) -> DataFrame
 normalize_string(s) -> str        # "Ações Ordinárias" -> "acoes_ordinarias"
 ```
-Todas devolvem cópia. `write_bronze` já aplica `sanitize_columns` e
+Todas devolvem cópia. `strip_newlines` é vetorizado nas colunas `str` (com o
+`pyarrow` instalado, strings em Arrow) e vai valor a valor só nas `object`
+mistas, onde dict/list ficam intactos. `write_bronze` já aplica `sanitize_columns` e
 `strip_newlines`; chame `sanitize_columns` explicitamente só quando a lógica do
 transform depende do nome sanitizado, e `sanitize_values(exclude=[...])` para
 normalizar valores preservando URLs/e-mails/datas.

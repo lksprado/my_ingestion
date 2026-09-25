@@ -13,26 +13,19 @@ tabela nunca é recriada, então as views do dbt sobre a raw sobrevivem, o OID �
 estável (o que torna possível sincronizar prod → dev) e uma falha no meio faz
 rollback preservando os dados anteriores.
 
-Na raw os dados são sempre texto: toda coluna é ``TEXT`` (a tipagem é do dbt) —
-exceto colunas cujos valores são objetos JSON (dict/list), gravadas como
-``JSONB``. As colunas de rastreio ``arquivo_origem`` e ``loaded_at_utc`` nunca
-viajam no stream do COPY: vêm de ``DEFAULT`` no catálogo, então ``loaded_at_utc``
-é o ``now() AT TIME ZONE 'utc'`` da transação — um valor só para a carga
-inteira, sempre em UTC, qualquer que seja o fuso do servidor.
+Na raw os dados são sempre texto: toda coluna é ``TEXT`` (a tipagem é do dbt);
+o ``JSONB`` fica com o ``JsonbLoader``. As colunas de rastreio ``arquivo_origem``
+e ``loaded_at_utc`` nunca viajam no stream do COPY: vêm de ``DEFAULT`` no
+catálogo, então ``loaded_at_utc`` é o ``now() AT TIME ZONE 'utc'`` da transação —
+um valor só para a carga inteira, sempre em UTC, qualquer que seja o fuso do
+servidor.
 
-Convenção de NULL no COPY (``FORMAT csv``, marcador default ``''``):
-
-- **caminho do bronze** (``copy_csv``): campo vazio não aspado é NULL — e só ele,
-  de modo que ``NA``, ``null`` e ``nan`` seguem texto e ``007`` segue ``007``;
-- **caminho em memória** (``send_df_to_db``): o buffer aspa tudo que não é
-  ``None``. Assim ``''`` sai como ``""`` (string vazia) e ``None`` sai como campo
-  vazio (NULL), preservando a distinção entre os dois. De quebra, como todo valor
-  não nulo sai aspado, ``;``, ``"``, quebra de linha e a linha ``\\.`` ficam imunes.
+Convenção de NULL no COPY (``FORMAT csv``, marcador default ``''``): campo vazio
+não aspado é NULL — e só ele, de modo que ``NA``, ``null`` e ``nan`` seguem texto
+e ``007`` segue ``007``; ``""`` (aspado) é string vazia.
 """
 
 import csv
-import io
-import json
 import logging
 import re
 from dataclasses import dataclass
@@ -93,92 +86,7 @@ def validate_write_mode(write: str | None) -> str:
     return write
 
 
-# Leitura de CSV/JSON para a raw: tudo como texto, e só a célula vazia vira NULL
-# (sem "NA", "null", "nan"... virando nulo nem "007" virando 7).
-READ_CSV_AS_TEXT = {"dtype": str, "keep_default_na": False, "na_values": [""]}
-
-
-def _is_json_obj(value) -> bool:
-    return isinstance(value, dict | list)
-
-
-def _cell_to_text(value) -> str | None:
-    if _is_json_obj(value):
-        return json.dumps(value, ensure_ascii=False)
-    if value is None or (not isinstance(value, str) and pd.isna(value)):
-        return None
-    return value if isinstance(value, str) else str(value)
-
-
-def to_raw_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
-    """``(df, tipos)`` para a carga: toda coluna ``TEXT``, exceto JSON -> ``JSONB``.
-
-    Coluna em que todo valor não nulo é dict/list vira ``JSONB`` (nulos -> NULL) e
-    mantém os objetos, serializados na hora de escrever o buffer. Nas demais, cada
-    valor vira ``str`` (dict/list soltos em ``json.dumps``) e nulos viram NULL.
-    """
-    out = pd.DataFrame(index=df.index)
-    tipos: dict[str, str] = {}
-    for col in df.columns:
-        values = df[col].astype(object)
-        if pd.api.types.infer_dtype(values, skipna=True) in ("string", "empty"):
-            # caminho rápido: CSV lido com READ_CSV_AS_TEXT já é str ou NaN
-            out[col] = values.where(values.notna(), None)
-            tipos[col] = "TEXT"
-            continue
-        present = values[values.map(lambda v: _is_json_obj(v) or not pd.isna(v))]
-        if len(present) and present.map(_is_json_obj).all():
-            cells = [v if _is_json_obj(v) else None for v in values]
-            tipos[col] = "JSONB"
-        else:
-            cells = [_cell_to_text(v) for v in values]
-            tipos[col] = "TEXT"
-        # dtype=object: None fica None (Series.map devolveria NaN)
-        out[col] = pd.Series(cells, index=df.index, dtype=object)
-    return out, tipos
-
-
-# ------------------------ serialização para COPY ------------------------
-
-
-def _csv_field(value: str | None) -> str:
-    """Campo para ``COPY ... FORMAT csv``: ``None`` vazio (NULL), resto aspado.
-
-    Aspar todo valor não nulo é o que preserva a diferença entre NULL e string
-    vazia — e, de quebra, torna ``;``, ``"``, quebra de linha e a linha ``\\.``
-    inofensivos, sem depender de heurística de quoting.
-    """
-    if value is None:
-        return ""
-    return '"' + value.replace('"', '""') + '"'
-
-
-def df_to_csv_buffer(
-    df: pd.DataFrame, tipos: dict[str, str], sep: str = ";"
-) -> io.StringIO:
-    """Serializa um DataFrame já normalizado para ``COPY ... FORMAT csv``.
-
-    Colunas ``JSONB`` saem como texto JSON compacto. Não usa ``csv.writer``: ele
-    aspa o campo único vazio (para a linha não ficar em branco), e isso faria o
-    NULL de uma tabela de **uma** coluna virar string vazia. Linha em branco é
-    justamente como o COPY representa esse NULL.
-    """
-    buffer = io.StringIO()
-    jsonb = [tipos.get(col) == "JSONB" for col in df.columns]
-    for row in df.itertuples(index=False, name=None):
-        buffer.write(
-            sep.join(
-                _csv_field(
-                    json.dumps(v, ensure_ascii=False, separators=(",", ":"))
-                    if is_json and v is not None
-                    else v
-                )
-                for v, is_json in zip(row, jsonb, strict=True)
-            )
-        )
-        buffer.write("\n")
-    buffer.seek(0)
-    return buffer
+# ------------------------ CSV ------------------------
 
 
 def read_csv_header(path: Path | str, sep: str = ";") -> list[str]:
@@ -515,52 +423,18 @@ class PostgresClient:
                 ),
             )
 
-    def send_df_to_db(
-        self,
-        df: pd.DataFrame,
-        table_name: str,
-        *,
-        schema: str,
-        write: str = "truncate",
-        filename: str | None = None,
-    ) -> None:
-        """Envia um DataFrame para ``schema.table_name`` por ``COPY``.
-
-        Dados como ``TEXT`` (JSON como ``JSONB``), ver ``to_raw_frame``.
-        ``arquivo_origem`` (se ``filename``) e ``loaded_at_utc`` vêm de DEFAULT.
-        """
-        schema = validate_raw_schema(schema)
-        validate_write_mode(write)
-        df, tipos = to_raw_frame(df)
-        buffer = df_to_csv_buffer(df, tipos)
-        self._load(
-            schema,
-            table_name,
-            tipos=tipos,
-            write=write,
-            filename=filename,
-            copy=lambda cur, destino, cols: cur.copy_expert(
-                _copy_sql(destino, cols, ";", header=False).as_string(cur), buffer
-            ),
-        )
-
     def load_files_to_table(
         self,
         input_dir: Path | str,
         *,
         schema: str,
-        table_name: str | None = None,
         pattern: str = "*.csv",
         write: str = "truncate",
-        source_column: str = "arquivo_origem",
         sep: str = ";",
     ) -> None:
-        """Carrega os arquivos de um diretório (CSV ou JSON) em ``schema.*``.
+        """Cada CSV de ``input_dir`` vira a tabela de mesmo nome (stem), por ``COPY``.
 
-        - ``table_name`` definido: concatena tudo numa única tabela, com
-          ``source_column`` rastreando o arquivo de origem linha a linha.
-        - ``table_name=None``: cada arquivo vira a tabela de mesmo nome (stem);
-          os CSVs vão direto para o ``COPY``, sem passar por pandas.
+        É o ``load: files``: um ``copy_csv`` por arquivo, com ``arquivo_origem``.
         """
         schema = validate_raw_schema(schema)
         validate_write_mode(write)
@@ -569,48 +443,15 @@ class PostgresClient:
         if not files:
             self.logger.warning(f"⚠️ Nenhum arquivo ({pattern}) em {input_dir}")
             return
-
-        def _read_json(file: Path) -> pd.DataFrame:
-            return pd.read_json(
-                file, encoding="utf-8", dtype=False, convert_dates=False
-            )
-
-        if table_name:
-            dfs = []
-            for file in files:
-                if file.suffix.lower() == ".json":
-                    df = _read_json(file)
-                else:
-                    df = pd.read_csv(
-                        file, sep=sep, encoding="utf-8", **READ_CSV_AS_TEXT
-                    )
-                df[source_column] = file.name
-                dfs.append(df)
-            self.send_df_to_db(
-                pd.concat(dfs, ignore_index=True),
-                table_name,
+        for file in files:
+            self.copy_csv(
+                file,
+                file.stem,
                 schema=schema,
+                sep=sep,
                 write=write,
+                filename=file.name,
             )
-        else:
-            for file in files:
-                if file.suffix.lower() == ".json":
-                    self.send_df_to_db(
-                        _read_json(file),
-                        file.stem,
-                        schema=schema,
-                        write=write,
-                        filename=file.name,
-                    )
-                else:
-                    self.copy_csv(
-                        file,
-                        file.stem,
-                        schema=schema,
-                        sep=sep,
-                        write=write,
-                        filename=file.name,
-                    )
         self.logger.info(f"✅ Load concluido: {len(files)} arquivo(s)")
 
     def read_sql(self, sql_text: str) -> pd.DataFrame:
