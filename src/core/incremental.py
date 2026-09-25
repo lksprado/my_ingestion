@@ -7,13 +7,15 @@ Por ID (legislativo): compara três conjuntos — todos os IDs, os já baixados 
 os que a API nunca respondeu (CSV "sem dados") — e devolve só os pendentes.
 ``extract_by_ids`` monta o loop inteiro a partir do YAML: ``base_url`` e
 ``landing_file`` com o placeholder ``{id}``, ``parameter_file`` com os IDs e, em
-``options``, ``no_data_file``, ``parameter_column`` (default ``id``) e
-``blacklist_on_error`` (default ``true``).
+``options``, ``no_data_file``, ``parameter_column`` (default ``id``),
+``blacklist_on_error`` (default ``true``) e ``workers`` (default ``1``; > 1 faz
+as requisições em threads).
 """
 
 import csv
 import logging
 from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -174,7 +176,9 @@ def extract_by_ids(
 
     Pendente = ``parameter_file`` menos os já no landing e os do ``no_data_file``.
     Resposta em que ``has_data`` é falso vai para o ``no_data_file``; erro/timeout
-    também, salvo ``options.blacklist_on_error: false``.
+    também, salvo ``options.blacklist_on_error: false``. Com ``options.workers``
+    > 1 as requisições (e o ``save_json``, um arquivo por ID) rodam em threads; o
+    ``no_data_file`` é sempre escrito pela thread principal.
     """
     opts = cfg.options
     no_data = cfg.parameter_dir / opts["no_data_file"]
@@ -183,16 +187,42 @@ def extract_by_ids(
     ids = read_ids(cfg.parameter_filepath, opts.get("parameter_column", "id"))
     todo = pending_ids(ids, landing_ids(cfg.landing_dir, suffix), no_data)
     blacklist_on_error = bool(opts.get("blacklist_on_error", True))
-    http = http or HttpClient(logger)
+    workers = int(opts.get("workers", 1))
+    http = http or HttpClient(logger, pool_size=max(10, workers))
 
-    for id_ in todo:
+    def fetch(id_: str) -> bool | None:
+        """True = salvo, False = sem dados, None = erro/timeout."""
         data = http.get_json(cfg.url_base.format(id=id_))
-        if data is not None and has_data(data):
-            http.save_json(data, cfg.landing_dir, cfg.landing_file.format(id=id_))
-        elif data is None:
+        if data is None:
+            return None
+        if not has_data(data):
+            return False
+        http.save_json(data, cfg.landing_dir, cfg.landing_file.format(id=id_))
+        return True
+
+    def record(id_: str, result: bool | None) -> None:
+        if result is None:
             logger.warning(f"⚠️ Erro/timeout para {id_}.")
             if blacklist_on_error:
                 mark_no_data(no_data, id_)
-        else:
+        elif result is False:
             logger.warning(f"⚠️ Sem dados para {id_}; registrado em {no_data.name}.")
             mark_no_data(no_data, id_)
+
+    if workers <= 1:
+        for id_ in todo:
+            record(id_, fetch(id_))
+        return
+
+    logger.info(f"📥 {len(todo)} ID(s) com {workers} threads...")
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(fetch, id_): id_ for id_ in todo}
+        for n, fut in enumerate(as_completed(futures), start=1):
+            id_ = futures[fut]
+            try:
+                record(id_, fut.result())
+            except Exception as e:
+                # Falha inesperada não entra no "sem dados": volta como pendente.
+                logger.error(f"❌ Erro em {id_}: {e}", exc_info=True)
+            if n % 500 == 0:
+                logger.info(f"📊 {n}/{len(todo)} ID(s) concluídos.")

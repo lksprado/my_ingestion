@@ -217,6 +217,10 @@ HttpClient(log=None, retries=5, backoff_factor=2.0, timeout=30, headers=None)
 | `fetch_and_save(url, output_dir, filename)` | `get_json` + `save_json` |
 | `fetch_and_save_many(tasks, output_dir, workers=1)` | Lista de `(url, filename)`; threads se `workers > 1` |
 
+`HttpClient(pool_size=10)` é o `pool_maxsize` do adapter: com mais threads que
+conexões o urllib3 descarta as excedentes ("Connection pool is full"), então
+quem usa `workers > 10` cria o client com `pool_size >= workers`.
+
 ---
 
 ## `db.py` — `PostgresClient`
@@ -376,7 +380,9 @@ O padrão dos "três conjuntos": todos os IDs menos os já no landing menos os q
 API nunca respondeu. `extract_by_ids` monta o loop inteiro a partir do YAML:
 placeholder `{id}` em `base_url`/`landing_file`, `parameter_file` com os IDs e, em
 `options`, `no_data_file`, `parameter_column` (default `id`) e `blacklist_on_error`
-(default `true`: erro/timeout também entra no "sem dados"). `has_data(resposta)`
+(default `true`: erro/timeout também entra no "sem dados") e `workers` (default
+`1`; > 1 requisita em threads, com o "sem dados" escrito só pela thread principal;
+exceção inesperada numa thread é logada e o ID volta como pendente). `has_data(resposta)`
 decide o que é "sem dados" (a câmara usa `dados` não vazio).
 
 ---

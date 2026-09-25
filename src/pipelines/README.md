@@ -218,7 +218,8 @@ comparar três conjuntos e requisitar só a diferença: todos os IDs
 (`parameter_file`), os já no `landing_dir`, e os que a API não respondeu
 (`options.no_data_file`). `core.pending_ids`/`mark_no_data` fazem a conta;
 `core.extract_by_ids(cfg, has_data=...)` monta o loop inteiro a partir do YAML
-(placeholder `{id}` em `base_url`/`landing_file`).
+(placeholder `{id}` em `base_url`/`landing_file`). `options.workers` (default 1)
+faz as requisições em threads; mantenha baixo (4) para não cair em 429 da API.
 
 **Extração incremental por data.** `core.missing_dates_from_db(db, sqls, control)`
 descobre no Postgres até onde os dados vão e devolve as datas faltantes. Veja

@@ -176,3 +176,35 @@ def test_extract_by_ids_custom_has_data(tmp_path):
     http = FakeHttp({"http://api/7/votos": {"dados": []}})
     extract_by_ids(cfg, has_data=lambda d: bool(d.get("dados")), http=http)
     assert http.saved == []
+
+
+class RaisingHttp(FakeHttp):
+    def get_json(self, url):
+        if url == "http://api/5/votos":
+            raise RuntimeError("boom")
+        return super().get_json(url)
+
+
+def test_extract_by_ids_with_workers_matches_sequential(tmp_path):
+    cfg = _ids_cfg(tmp_path, workers=4)
+    ids = list(range(1, 41))
+    cfg.parameter_filepath.write_text("id\n" + "\n".join(map(str, ids)) + "\n")
+    # pares têm dado, ímpares vêm vazios
+    http = FakeHttp(
+        {f"http://api/{i}/votos": [{"x": i}] if i % 2 == 0 else [] for i in ids}
+    )
+    extract_by_ids(cfg, http=http)
+
+    assert sorted(http.saved) == sorted(f"{i}_votos.json" for i in ids if i % 2 == 0)
+    lines = (cfg.parameter_dir / "sem_dados.csv").read_text().splitlines()
+    assert lines[0] == "id"
+    assert sorted(lines[1:], key=int) == [str(i) for i in ids if i % 2]
+
+
+def test_extract_by_ids_thread_exception_does_not_blacklist(tmp_path):
+    cfg = _ids_cfg(tmp_path, workers=2)
+    cfg.parameter_filepath.write_text("id\n5\n6\n")
+    http = RaisingHttp({"http://api/6/votos": [{"x": 1}]})
+    extract_by_ids(cfg, http=http)
+    assert http.saved == ["6_votos.json"]
+    assert not (cfg.parameter_dir / "sem_dados.csv").exists()

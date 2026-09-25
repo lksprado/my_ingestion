@@ -76,6 +76,7 @@ sources:
     options:
       parameter_column: "idprocesso"
       no_data_file: "sem_dados_id_processo.csv"
+      workers: 4                  # threads de requisição (core.extract_by_ids)
       control_table: "ingestion_control"
 
   # Todos os processos de cada ano (não só os votados): mesmo esquema da consulta
