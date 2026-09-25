@@ -184,8 +184,8 @@ landing tem milhares de arquivos). Ele sanitiza nomes de coluna, remove quebras 
 linha dos valores, grava inteiros sem `.0`, grava com `cfg.bronze_sep` (`;`) e
 preserva o bronze anterior se não houver dado. Não chame `to_csv` direto.
 
-**A raw é texto.** Todo load tabular grava as colunas como `TEXT` (colunas de
-objetos JSON como `JSONB`); não tipe nada no transform pensando no banco, e deixe o
+**A raw é texto.** Todo load tabular grava as colunas como `TEXT`, por `COPY` do
+bronze CSV; não tipe nada no transform pensando no banco, e deixe o
 cast para o staging do dbt. Com `load: files` e `write_csv` próprio, passe o
 DataFrame por `integral_floats_to_int` antes (ver `investimentos_b3`).
 

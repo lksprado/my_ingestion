@@ -244,9 +244,7 @@ consequências que valem por si:
 - `TRUNCATE` pega `ACCESS EXCLUSIVE`. A carga usa `SET LOCAL lock_timeout = '30s'`
   para falhar rápido em vez de empilhar fila na frente de um `dbt build`.
 
-**Na raw os dados são sempre texto.** Toda coluna vira `TEXT`; a exceção é a coluna
-cujos valores são objetos JSON (dict/list), gravada como `JSONB` (`to_raw_frame`
-decide). A tipagem é responsabilidade do dbt (staging). O `JsonbLoader` (NHL) já
+**Na raw os dados são sempre texto.** Toda coluna do bronze vira `TEXT`. A tipagem é responsabilidade do dbt (staging). O `JsonbLoader` (NHL) já
 grava `payload JSONB`.
 
 **As colunas de rastreio não viajam no stream.** `arquivo_origem` (quando você passa
@@ -263,16 +261,11 @@ por `ensure_loaded_at`: é operação de catálogo, nada é reescrito e as views
 dbt sobrevivem. As linhas que já estavam lá ficam com o instante do `ADD COLUMN`,
 não com o da ingestão que as trouxe.
 
-**NULL vs string vazia no `COPY` (`FORMAT csv`, marcador default `''`):**
-
-- *bronze* (`copy_csv`): campo vazio não aspado é NULL — exatamente o
-  `na_values=[""]` com que o pandas lia esses CSVs. `007` continua `007`, `NA` e
-  `null` continuam texto. O que o `write_bronze` gera é compatível campo a campo
-  (verificado por teste de round-trip em `tests/core/test_copy_load.py`);
-- *memória* (`send_df_to_db`): `df_to_csv_buffer` aspa **todo** valor não nulo, então
-  `''` sai como `""` (string vazia) e `None` sai como campo vazio (NULL),
-  preservando a distinção. De quebra, `;`, `"`, quebra de linha e a linha `\.` ficam
-  inofensivos.
+**NULL vs string vazia no `COPY` (`FORMAT csv`, marcador default `''`):** campo
+vazio não aspado é NULL — exatamente o `na_values=[""]` com que o pandas lia esses
+CSVs. `007` continua `007`, `NA` e `null` continuam texto. O que o `write_bronze`
+gera é compatível campo a campo (verificado por teste de round-trip em
+`tests/core/test_copy_load.py`).
 
 Ponto de atenção: uma string vazia **aspada** (`""`) num bronze produzido fora
 do `write_bronze` chega como string vazia, não como NULL.
@@ -303,8 +296,7 @@ reparada sozinha na carga seguinte, sem recriação.
 | Método | Para quê |
 |---|---|
 | `copy_csv(path, table_name, *, schema, sep=";", write="truncate", filename=None, after_copy=None)` | Caminho quente: um CSV inteiro por `COPY`, sem pandas |
-| `send_df_to_db(df, table_name, *, schema, write="truncate", filename=None)` | Grava um DataFrame (tudo `TEXT`, JSON como `JSONB`) |
-| `load_files_to_table(input_dir, *, schema, table_name=None, pattern="*.csv", write="truncate", source_column="arquivo_origem", sep=";")` | Diretório inteiro: com `table_name`, tudo numa tabela; sem, uma tabela por arquivo (stem) |
+| `load_files_to_table(input_dir, *, schema, pattern="*.csv", write="truncate", sep=";")` | `load: files`: cada CSV do diretório vira a tabela de mesmo nome (stem), por `copy_csv` |
 | `read_sql(sql_text)` | Resultado como DataFrame (leituras em `staging.*`, `intermediate.*`) |
 | `connect()` | Conexão psycopg2 crua (`copy_expert`, transação explícita) |
 | `alchemy()` | Engine SQLAlchemy (só leitura) |

@@ -87,28 +87,6 @@ def test_copy_csv_com_so_cabecalho_cria_tabela_vazia(pg, tmp_path):
     assert query(pg, f"SELECT count(*) FROM {SCHEMA}.vazia") == [(0,)]
 
 
-def test_send_df_to_db_grava_json_como_jsonb(pg):
-    df = pd.DataFrame({"n": ["1"], "j": [{"k": "v", "l": [1, 2]}]})
-    pg.send_df_to_db(df, "comjson", schema=SCHEMA)
-
-    assert query(pg, f"SELECT j ->> 'k', j -> 'l' ->> 1 FROM {SCHEMA}.comjson") == [
-        ("v", "2")
-    ]
-
-
-def test_send_df_to_db_distingue_nulo_de_string_vazia(pg):
-    df = pd.DataFrame({"a": [None, "", "x"]}, dtype=object)
-    pg.send_df_to_db(df, "nulos", schema=SCHEMA)
-
-    assert query(
-        pg, f"SELECT a IS NULL, a FROM {SCHEMA}.nulos ORDER BY a NULLS FIRST"
-    ) == [
-        (True, None),
-        (False, ""),
-        (False, "x"),
-    ]
-
-
 # ------------------------ colunas de rastreio ------------------------
 
 
@@ -125,8 +103,8 @@ def test_loaded_at_utc_e_um_so_para_a_carga_inteira(pg, tmp_path):
     ) == [(1, 0, 1, "f.csv")]
 
 
-def test_sem_filename_nao_cria_coluna_de_arquivo(pg):
-    pg.send_df_to_db(pd.DataFrame({"a": ["1"]}), "semarquivo", schema=SCHEMA)
+def test_sem_filename_nao_cria_coluna_de_arquivo(pg, tmp_path):
+    pg.copy_csv(bronze(tmp_path, "a\n1\n"), "semarquivo", schema=SCHEMA)
     colunas = query(
         pg,
         "SELECT column_name FROM information_schema.columns "

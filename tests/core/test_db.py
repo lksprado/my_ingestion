@@ -5,17 +5,14 @@ O que emite SQL (``ensure_raw_table``, ``COPY``) só é testável com conexão r
 ``test_copy_load.py`` (``@pytest.mark.integration``); aqui fica tudo que é puro.
 """
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from core.db import (
     ColumnPlan,
     PostgresClient,
-    df_to_csv_buffer,
     plan_columns,
     read_csv_header,
-    to_raw_frame,
     validate_raw_schema,
     validate_write_mode,
 )
@@ -46,12 +43,6 @@ def test_validate_write_mode_rejects(write):
         validate_write_mode(write)
 
 
-def test_write_invalido_nao_conecta():
-    pg = PostgresClient(connection=_Sentinel())
-    with pytest.raises(ValueError, match="inválido"):
-        pg.send_df_to_db(pd.DataFrame({"a": ["1"]}), "t", schema="raw_x", write="merge")
-
-
 class _Sentinel:
     """Dublê que levanta em qualquer uso, provando que a validação vem antes."""
 
@@ -59,16 +50,11 @@ class _Sentinel:
         raise AssertionError(f"não deveria ser usado ({name})")
 
 
-def test_send_df_validates_before_connecting():
-    pg = PostgresClient(connection=_Sentinel())
-    with pytest.raises(ValueError, match="raw_<fonte>"):
-        pg.send_df_to_db(pd.DataFrame({"a": [1]}), "t", schema="raw")
-
-
-def test_send_df_validates_write_mode_before_connecting():
+@pytest.mark.parametrize("write", ["merge", "replace"])
+def test_copy_csv_validates_write_mode_before_reading(tmp_path, write):
     pg = PostgresClient(connection=_Sentinel())
     with pytest.raises(ValueError, match="inválido"):
-        pg.send_df_to_db(pd.DataFrame({"a": [1]}), "t", schema="raw_x", write="replace")
+        pg.copy_csv(tmp_path / "nao_existe.csv", "t", schema="raw_x", write=write)
 
 
 def test_copy_csv_validates_before_reading(tmp_path):
@@ -141,34 +127,7 @@ def test_plan_columns_detecta_coluna_nova_e_sumida():
     assert plano.missing == ["antiga"]  # rastreio não conta como sumida
 
 
-# ------------------------ serialização para COPY ------------------------
-
-
-def test_df_to_csv_buffer_distingue_nulo_de_string_vazia():
-    df = pd.DataFrame({"a": [None, "", "x"]}, dtype=object)
-    df, tipos = to_raw_frame(df)
-    # campo vazio SEM aspas = NULL no COPY; "" = string vazia
-    assert df_to_csv_buffer(df, tipos).getvalue() == '\n""\n"x"\n'
-
-
-def test_df_to_csv_buffer_protege_separador_aspas_e_ponto_barra():
-    df = pd.DataFrame({"a": ["a;b", 'as"pas', "\\."]}, dtype=object)
-    df, tipos = to_raw_frame(df)
-    assert df_to_csv_buffer(df, tipos).getvalue() == '"a;b"\n"as""pas"\n"\\."\n'
-
-
-def test_df_to_csv_buffer_serializa_jsonb_como_texto_compacto():
-    df = pd.DataFrame({"j": [{"a": 1}, None]})
-    df, tipos = to_raw_frame(df)
-    assert tipos == {"j": "JSONB"}
-    assert df_to_csv_buffer(df, tipos).getvalue() == '"{""a"":1}"\n\n'
-
-
-def test_df_to_csv_buffer_mantem_nulo_em_tabela_de_uma_coluna():
-    # csv.writer aspa o campo unico vazio; aqui a linha fica em branco, que e
-    # como o COPY representa NULL numa tabela de uma coluna so.
-    df, tipos = to_raw_frame(pd.DataFrame({"a": [None, ""]}, dtype=object))
-    assert df_to_csv_buffer(df, tipos).getvalue() == '\n""\n'
+# ------------------------ CSV ------------------------
 
 
 def test_read_csv_header_ignora_bom_e_desaspa(tmp_path):
@@ -182,55 +141,6 @@ def test_read_csv_header_rejeita_arquivo_vazio(tmp_path):
     path.write_text("", encoding="utf-8")
     with pytest.raises(ValueError, match="sem cabeçalho"):
         read_csv_header(path, ";")
-
-
-# ------------------------ tipagem da raw ------------------------
-
-
-def test_to_raw_frame_everything_text_except_json():
-    df = pd.DataFrame(
-        {
-            "s": ["007", np.nan, "x"],
-            "i": [1, 2, 3],
-            "f": [1.5, np.nan, 2.0],
-            "b": [True, False, None],
-            "d": pd.to_datetime(["2026-01-01", None, "2026-01-03"]),
-            "j": [{"a": 1}, None, [1, 2]],
-            "mix": [{"a": 1}, "x", None],
-            "vazia": [None, None, None],
-        }
-    )
-    out, tipos = to_raw_frame(df)
-
-    assert tipos == {c: "TEXT" for c in df.columns if c != "j"} | {"j": "JSONB"}
-    assert out["s"].tolist() == ["007", None, "x"]
-    assert out["i"].tolist() == ["1", "2", "3"]
-    assert out["f"].tolist() == ["1.5", None, "2.0"]
-    assert out["b"].tolist() == ["True", "False", None]
-    assert out["d"].tolist() == ["2026-01-01 00:00:00", None, "2026-01-03 00:00:00"]
-    assert out["j"].tolist() == [{"a": 1}, None, [1, 2]]
-    assert out["mix"].tolist() == ['{"a": 1}', "x", None]
-    assert out["vazia"].tolist() == [None, None, None]
-
-
-def test_send_df_to_db_passa_tipos_e_buffer_para_a_carga(monkeypatch):
-    captured = {}
-    pg = PostgresClient(connection=_Sentinel())
-
-    def fake_load(schema, table, *, tipos, write, filename, copy):
-        captured.update(
-            schema=schema, table=table, tipos=tipos, write=write, filename=filename
-        )
-
-    monkeypatch.setattr(pg, "_load", fake_load)
-    df = pd.DataFrame({"n": [1], "j": [{"k": "v"}]})
-    pg.send_df_to_db(df, "t", schema="raw_x", filename="f.csv")
-
-    assert captured["tipos"] == {"n": "TEXT", "j": "JSONB"}
-    assert captured["write"] == "truncate"
-    assert captured["filename"] == "f.csv"
-    # colunas de rastreio não entram no stream: vêm de DEFAULT no catálogo
-    assert list(df.columns) == ["n", "j"]  # DataFrame do chamador intacto
 
 
 def test_load_files_manda_csv_direto_para_o_copy(tmp_path, monkeypatch):
