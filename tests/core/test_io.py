@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -87,6 +88,63 @@ def test_streaming_without_data_preserves_previous(cfg, tmp_path):
     assert write_bronze_streaming(cfg, _files(tmp_path, 2), lambda f: None) is None
     assert cfg.bronze_filepath.read_text() == "x;y\n1;2\n"
     assert not list(cfg.bronze_dir.glob(".b_*.tmp"))
+
+
+def _parse_json_frame(f: Path) -> pd.DataFrame | None:
+    """Parser picklável para o pool: o JSON do arquivo vira o DataFrame."""
+    data = json.loads(f.read_text())
+    if data == "erro":
+        raise RuntimeError("boom")
+    return pd.DataFrame(data) if data else None
+
+
+def test_streaming_with_workers_matches_sequential(tmp_path):
+    conteudos = [
+        {"A": [1, 2], "B": ["x\ny", None]},
+        None,
+        "erro",
+        {"B": ["z"], "A": [3], "extra": [9]},
+        {"A": [4.0]},
+    ] * 3
+    files = []
+    for i, c in enumerate(conteudos):
+        f = tmp_path / f"f{i:02d}.json"
+        f.write_text(json.dumps(c))
+        files.append(f)
+
+    saidas = []
+    for workers in (1, 2):
+        cfg = PipelineConfig(
+            landing_dir=tmp_path,
+            bronze_dir=tmp_path / f"brz{workers}",
+            bronze_file="b.csv",
+        )
+        write_bronze_streaming(cfg, files, _parse_json_frame, workers=workers)
+        saidas.append(cfg.bronze_filepath.read_text())
+    assert saidas[0] == saidas[1]
+    assert saidas[0].splitlines()[:3] == ["a;b", "1;x y", "2;"]
+
+
+def test_streaming_workers_from_options(tmp_path, monkeypatch):
+    usados = []
+    import core.io as cio
+
+    original = cio._prepared_frames
+
+    def espiao(files, parse_fn, workers):
+        usados.append(workers)
+        return original(files, parse_fn, workers)
+
+    monkeypatch.setattr(cio, "_prepared_frames", espiao)
+    cfg = PipelineConfig(
+        landing_dir=tmp_path,
+        bronze_dir=tmp_path / "brz",
+        bronze_file="b.csv",
+        options={"transform_workers": 3},
+    )
+    write_bronze_streaming(cfg, [], _parse_json_frame)
+    write_bronze_streaming(cfg, [], _parse_json_frame, workers=1)
+    assert usados == [3, 1]
 
 
 def test_concat_landing_skips_errors_and_empty(tmp_path):

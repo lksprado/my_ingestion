@@ -324,13 +324,21 @@ pandas promoveu a float sai `123`, não `123.0`), cria o diretório e grava
 `None`: warning, não grava, bronze anterior preservado.
 
 ```python
-write_bronze_streaming(cfg, files, parse_fn) -> Path | None
+write_bronze_streaming(cfg, files, parse_fn, workers=None) -> Path | None
 ```
 Mesma coisa, um arquivo por vez (memória limitada): `parse_fn(file)` devolve o
 DataFrame daquele arquivo (ou `None` para pular); cabeçalho fixado no primeiro,
 demais alinhados (colunas extras descartadas com warning); exceção num arquivo é
 logada e pulada; escrita em temporário + `os.replace`. É um **rebuild** completo:
 quem quiser incrementalidade filtra `files` antes.
+
+`workers` (default `options.transform_workers` do YAML, senão 1) > 1 faz o parse
+e o preparo em paralelo num pool de processos (`forkserver`), com no máximo
+`2 * workers` arquivos em andamento; a escrita continua sequencial e na ordem
+de `files`, então o bronze sai **idêntico** ao de `workers=1`. Aí `parse_fn`
+tem de ser picklável: função de módulo ou `functools.partial` dela, não lambda.
+Vale para landings com arquivos grandes (os anuais da Câmara: 62 s → 24 s com 4
+workers). `options.workers` é outra coisa: são as threads HTTP do extract.
 
 ```python
 concat_landing(cfg, parse_fn, pattern="*.json") -> DataFrame
@@ -468,7 +476,9 @@ sanitize_values(df, *, exclude=(), case="upper", space="keep", alfanum="remove")
 strip_newlines(df) -> DataFrame
 normalize_string(s) -> str        # "Ações Ordinárias" -> "acoes_ordinarias"
 ```
-Todas devolvem cópia. `write_bronze` já aplica `sanitize_columns` e
+Todas devolvem cópia. `strip_newlines` é vetorizado nas colunas `str` (com o
+`pyarrow` instalado, strings em Arrow) e vai valor a valor só nas `object`
+mistas, onde dict/list ficam intactos. `write_bronze` já aplica `sanitize_columns` e
 `strip_newlines`; chame `sanitize_columns` explicitamente só quando a lógica do
 transform depende do nome sanitizado, e `sanitize_values(exclude=[...])` para
 normalizar valores preservando URLs/e-mails/datas.

@@ -46,3 +46,18 @@ def test_sanitize_values_keeps_nulls():
 def test_strip_newlines_only_text_columns():
     df = pd.DataFrame({"t": ["a\r\nb\nc"], "n": [1]})
     assert strip_newlines(df)["t"].tolist() == ["a b c"]
+
+
+def test_strip_newlines_str_and_mixed_object_columns():
+    df = pd.DataFrame(
+        {
+            "t": pd.Series(["a\nb", None, "c", "d\r\n\ne"], dtype="str"),
+            "misto": pd.Series(["x\ny", {"k": "v\n"}, None, 1], dtype=object),
+        }
+    )
+    out = strip_newlines(df)
+    assert out["t"].tolist()[0] == "a b"
+    assert pd.isna(out["t"].iloc[1])
+    assert out["t"].tolist()[2:] == ["c", "d e"]
+    assert out["misto"].tolist() == ["x y", {"k": "v\n"}, None, 1]
+    assert df["t"].iloc[0] == "a\nb"  # não altera o original

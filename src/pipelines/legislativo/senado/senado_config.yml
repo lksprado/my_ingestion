@@ -91,3 +91,4 @@ sources:
     options:
       ano_inicio: 1946            # primeiro ano com processos na API
       tentativas: 3               # a resposta às vezes chega cortada
+      transform_workers: 4        # processos no parse (write_bronze_streaming)
