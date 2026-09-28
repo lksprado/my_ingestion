@@ -50,8 +50,8 @@ from core import (
 )
 ```
 
-Parsers vêm do submódulo: `from core.parsers.json import normalize_json_object`,
-`from core.parsers.html import make_bs_object`.
+Parser de JSON vem do submódulo: `from core.parsers.json import normalize_json_object`.
+HTML é `BeautifulSoup(html, "html.parser")` direto.
 
 ---
 
@@ -151,7 +151,7 @@ source, *, env=None, **overrides)` é a forma de construir (o `env` default vem 
 | `subpath` | subpasta aplicada a landing/bronze |
 | `landing_file` / `bronze_file` | nomes de arquivo; `{date}` vira a data de hoje, outros placeholders são preservados |
 | `parameter_file` | CSV de entrada que parametriza a extração |
-| `output_param_file` | `str` ou `{arquivo: coluna}` gerado para o próximo pipeline (em `parameter_dir`) |
+| `output_param_file` | `{arquivo: coluna}` gerado para o próximo pipeline (em `parameter_dir`) |
 | `db_table` / `db_schema` | tabela e schema destino (`raw_<fonte>`) |
 | `load` | de onde carregar: `table` (default) \| `files` \| `jsonb` \| `none` |
 | `write` | como escrever na tabela: `truncate` (default) \| `append` |
@@ -161,8 +161,8 @@ source, *, env=None, **overrides)` é a forma de construir (o `env` default vem 
 
 Propriedades `landing_filepath`, `bronze_filepath`, `parameter_filepath` levantam
 `ValueError` com mensagem clara se o campo não foi configurado.
-`write_output_params(df, default_column=None)` exporta os valores únicos de uma
-coluna (ou de várias, com o dict) para `parameter_dir`.
+`write_output_params(df)` exporta, para cada `{arquivo: coluna}` de
+`output_param_file`, os valores únicos da coluna em `parameter_dir`.
 
 Formato do YAML (`db_schema`, `load`, `write`, `bronze_sep` e `options` valem no
 topo como default do arquivo e podem ser sobrescritos por source; `options` faz
@@ -217,18 +217,23 @@ Nenhum método levanta exceção de rede: **logam e devolvem `None`**. Sempre te
 retorno.
 
 ```python
-HttpClient(log=None, retries=5, backoff_factor=2.0, timeout=30, headers=None)
+HttpClient(log=None, retries=5, backoff_factor=2.0, timeout=30, pool_size=10)
 # scraping de site: HttpClient(logger, retries=3, backoff_factor=0.5, timeout=10)
 ```
 
 | Método | Para quê |
 |---|---|
-| `request(url, *, method="GET", mode="auto", headers=None, data=None, timeout=None, **kw)` | Requisição genérica; `mode` = `json` \| `text` \| `auto` (decide pelo Content-Type) |
+| `request(url, *, method="GET", mode="json", headers=None, data=None, timeout=None, **kw)` | Requisição genérica; `mode` = `json` \| `text` |
 | `get_json(url, **kw)` | GET que espera JSON (`params=` para query string) |
+| `get_json_status(url, **kw)` | `(dado, status)`: separa 404 (`(None, 404)`) de timeout (`(None, None)`) |
 | `get_text(url, **kw)` | GET que devolve HTML/texto, com User-Agent de browser |
 | `save_json(data, output_dir, filename)` | Grava JSON indentado (sufixo `.json` garantido); `None` se `data` for `None` |
 | `fetch_and_save(url, output_dir, filename)` | `get_json` + `save_json` |
-| `fetch_and_save_many(tasks, output_dir, workers=1)` | Lista de `(url, filename)`; threads se `workers > 1` |
+| `fetch_and_save_many(tasks, output_dir, workers=1)` | Lista de `(url, filename)`; threads se `workers > 1`; devolve o número de falhas |
+
+Fora da classe: `ensure_some_success(total, failures, what, log=None)` fecha um
+extract com várias requisições (nenhum sucesso levanta, parcial avisa) e
+`redact(texto)` mascara parâmetros de credencial numa URL ou mensagem.
 
 `HttpClient(pool_size=10)` é o `pool_maxsize` do adapter: com mais threads que
 conexões o urllib3 descarta as excedentes ("Connection pool is full"), então
@@ -238,10 +243,10 @@ quem usa `workers > 10` cria o client com `pool_size >= workers`.
 
 ## `db.py` — `PostgresClient`
 
-A conexão vem de `settings.db_target` (perfil `DB__<ENV>__*` do `.env`) ou de um
-`DbTarget`, `connection` ou `engine` injetado — no Airflow,
-`PostgresClient(connection=hook.get_conn())`. Com injeção a `core` nem importa o
-`settings`.
+A conexão vem de `settings.db_target` (perfil `DB__<ENV>__*` do `.env`, ou das
+variáveis de ambiente de mesmo nome — é assim no Airflow, onde o `build_etl` roda
+com o perfil `DB__PROD__*`) ou de um `DbTarget` ou `connection` psycopg2 injetado.
+Com injeção a `core` nem importa o `settings` (testes).
 
 **Schema é obrigatório em toda escrita** e precisa ser `raw_<fonte>`
 (`validate_raw_schema`).
@@ -349,7 +354,7 @@ Vale para landings com arquivos grandes (os anuais da Câmara: 62 s → 24 s com
 workers). `options.workers` é outra coisa: são as threads HTTP do extract.
 
 ```python
-concat_landing(cfg, parse_fn, pattern="*.json") -> DataFrame
+concat_landing(cfg, parse_fn, pattern="*.json", landing_dir=None) -> DataFrame
 ```
 Aplica `parse_fn(file)` a cada arquivo do landing e concatena (exceção loga e pula o
 arquivo; `None`/vazio é ignorado). É o "um DataFrame por arquivo" antes do `write_bronze`.
@@ -362,7 +367,7 @@ tabela: sem isso, um CSV antigo viraria tabela fantasma.
 
 ```python
 list_files(input_dir, pattern="*") -> list[Path]                   # rglob ordenado
-concat_files_to_df(input_dir, pattern="*.csv", sep=",", source_column=None) -> DataFrame
+concat_files_to_df(input_dir, pattern="*.csv", sep=",") -> DataFrame
 write_csv(df, output_dir, filename, sep=";") -> Path               # seeds, exceções
 integral_floats_to_int(df) -> DataFrame   # use antes de write_csv num bronze de load: files
 ```
@@ -505,8 +510,8 @@ controle. Tudo numa transação.
 ## `text.py`
 
 ```python
-sanitize_columns(df, cols=None, *, case="lower", space="replace", alfanum="replace") -> DataFrame
-sanitize_values(df, *, exclude=(), case="upper", space="keep", alfanum="remove") -> DataFrame
+sanitize_columns(df) -> DataFrame                 # sem acento, minúsculo, só [a-z0-9_]
+sanitize_values(df, *, exclude=()) -> DataFrame   # sem acento/pontuação, maiúsculo
 strip_newlines(df) -> DataFrame
 normalize_string(s) -> str        # "Ações Ordinárias" -> "acoes_ordinarias"
 ```
@@ -534,9 +539,8 @@ entrypoint chama `setup_logger()` — `run_source` já faz isso. Assim o
 ## `parsers/`
 
 ```python
-normalize_json_object(filepath, key=None) -> DataFrame   # pd.json_normalize(sep=".")
+normalize_json_object(filepath, key=None) -> DataFrame   # pd.json_normalize(sep="."); erro sobe
 flatten_children(records, parent_cols, child_key) -> list[dict]  # uma linha por filho
-make_bs_object(input_file=None, response=None) -> BeautifulSoup
 ```
 
 ---

@@ -216,7 +216,7 @@ votos_deputados:
     no_data_file: sem_dados_id_votacao.csv
 ```
 
-No transform do produtor: `cfg.write_output_params(df, default_column="id")`.
+No transform do produtor: `cfg.write_output_params(df)`.
 Documente a ordem de execução resultante no README da fonte.
 
 **Extração incremental por ID.** Para fontes com milhares de IDs, o padrão é

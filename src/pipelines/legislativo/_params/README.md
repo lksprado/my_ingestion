@@ -48,9 +48,3 @@ e só derruba com `--confirmar`, pulando qualquer tabela que tenha dependente ou
 cujo dado não esteja todo preservado no seed.
 
 Grava com `sep=","` e `index=False` — o dbt exige esse formato para seeds.
-
-## CSVs nesta pasta
-
-`full_id_votacoes.csv` e `full_votos_deputados_id.csv` são listas de IDs
-capturadas em execuções anteriores, mantidas como ponto de partida para
-reprocessamentos.

@@ -1,8 +1,9 @@
 """Cliente Postgres único do monorepo.
 
-A conexão vem de ``settings.db_target`` (perfil ``DB__<ENV>__*`` do .env) ou de
-um ``DbTarget``/``connection``/``engine`` injetado — assim a ``core`` importa sem
-.env (testes, Airflow com ``PostgresClient(connection=hook.get_conn())``).
+A conexão vem de ``settings.db_target`` (perfil ``DB__<ENV>__*`` do .env, ou das
+variáveis de ambiente de mesmo nome — é assim no Airflow) ou de um ``DbTarget``
+ou ``connection`` psycopg2 injetado; com injeção a ``core`` não importa o
+``settings`` (testes).
 
 Toda escrita exige ``schema`` explícito começando com ``raw_`` (``raw_<fonte>``);
 ``validate_raw_schema`` centraliza a regra.
@@ -294,16 +295,14 @@ class PostgresClient:
         self,
         target: "DbTarget | None" = None,
         *,
-        connection=None,  # conexão externa (psycopg2 / PostgresHook.get_conn())
-        engine=None,  # engine externa (sqlalchemy)
+        connection=None,  # conexão psycopg2 externa (testes, transação do chamador)
         log: logging.Logger | None = None,
     ):
         self.external_connection = connection
-        self.external_engine = engine
-        self.engine = engine
+        self.engine = None
         self.logger = log or logger
 
-        if target is None and not connection and not engine:
+        if target is None and not connection:
             target = _default_target()
         self.target = target
 
@@ -330,9 +329,7 @@ class PostgresClient:
             raise ConnectionError("Falha ao conectar no Postgres.") from e
 
     def alchemy(self):
-        """Engine SQLAlchemy (injetada ou criada a partir do perfil). Só leitura."""
-        if self.external_engine:
-            return self.external_engine
+        """Engine SQLAlchemy criada a partir do perfil. Só leitura."""
         if self.engine is None:
             self.engine = create_engine(self.target.url)
         return self.engine

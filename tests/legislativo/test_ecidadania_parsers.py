@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 import pandas as pd
+from bs4 import BeautifulSoup
 
-from core.parsers.html import make_bs_object
 from pipelines.legislativo.ecidadania import ecidadania_etl
 from pipelines.legislativo.ecidadania.ecidadania_etl import (
     extract_paginas,
@@ -30,7 +30,7 @@ HTML = """
 
 
 def test_parse_materias():
-    df = parse_materias(make_bs_object(response=HTML))
+    df = parse_materias(BeautifulSoup(HTML, "html.parser"))
     assert len(df) == 2
     row = df.iloc[0]
     assert (row["sigla"], row["numero"], row["ano"]) == ("PL", "1234", "2024")
@@ -42,7 +42,7 @@ def test_parse_materias():
 
 
 def test_parse_big_numbers():
-    df = parse_big_numbers(make_bs_object(response=HTML))
+    df = parse_big_numbers(BeautifulSoup(HTML, "html.parser"))
     assert df.iloc[0][
         ["total_proposicoes_votadas", "total_pessoas_votaram"]
     ].tolist() == [
@@ -52,7 +52,7 @@ def test_parse_big_numbers():
 
 
 def test_parsers_empty_on_missing_container():
-    soup = make_bs_object(response="<html><body>nada</body></html>")
+    soup = BeautifulSoup("<html><body>nada</body></html>", "html.parser")
     assert parse_materias(soup).empty
     assert parse_big_numbers(soup).empty
 

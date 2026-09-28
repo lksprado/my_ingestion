@@ -32,14 +32,10 @@ def list_files(input_dir: Path | str, pattern: str = "*") -> list[Path]:
 
 
 def concat_files_to_df(
-    input_dir: Path | str,
-    pattern: str = "*.csv",
-    sep: str = ",",
-    source_column: str | None = None,
+    input_dir: Path | str, pattern: str = "*.csv", sep: str = ","
 ) -> pd.DataFrame:
-    """Concatena CSV/JSON de um diretório num único DataFrame.
+    """Concatena os CSVs de um diretório num único DataFrame.
 
-    ``source_column`` adiciona uma coluna com o nome do arquivo de origem.
     Diretório sem arquivos devolve DataFrame vazio (com warning).
     """
     input_dir = Path(input_dir)
@@ -47,31 +43,26 @@ def concat_files_to_df(
     if not files:
         logger.warning(f"⚠️ Nenhum arquivo ({pattern}) em {input_dir}")
         return pd.DataFrame()
-
-    dfs = []
-    for file in files:
-        if file.suffix.lower() == ".json":
-            df = pd.read_json(file, encoding="utf-8")
-        else:
-            df = pd.read_csv(file, sep=sep, encoding="utf-8", low_memory=False)
-        if source_column:
-            df[source_column] = file.name
-        dfs.append(df)
-    return pd.concat(dfs, ignore_index=True)
+    return pd.concat(
+        (pd.read_csv(f, sep=sep, encoding="utf-8", low_memory=False) for f in files),
+        ignore_index=True,
+    )
 
 
 def concat_landing(
     cfg: PipelineConfig,
     parse_fn: Callable[[Path], pd.DataFrame | None],
     pattern: str = "*.json",
+    landing_dir: Path | None = None,
 ) -> pd.DataFrame:
     """Aplica ``parse_fn`` a cada arquivo do landing e concatena.
 
     Exceção num arquivo é logada e o arquivo pulado; ``None``/vazio é ignorado.
-    Sem nenhum dado, devolve DataFrame vazio.
+    Sem nenhum dado, devolve DataFrame vazio. ``landing_dir`` lê o landing de
+    outra entidade (default: ``cfg.landing_dir``).
     """
     frames = []
-    for f in sorted(cfg.landing_dir.glob(pattern)):
+    for f in sorted((landing_dir or cfg.landing_dir).glob(pattern)):
         try:
             df = parse_fn(f)
         except Exception:

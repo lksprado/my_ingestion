@@ -85,7 +85,7 @@ class PipelineConfig:
         subpath: subpasta aplicada a landing/bronze
         landing_file / bronze_file: nomes de arquivo; aceitam ``{date}``
         parameter_file: CSV de entrada que parametriza a extração
-        output_param_file: str ou ``{arquivo: coluna}`` gerado para o próximo pipeline
+        output_param_file: ``{arquivo: coluna}`` gerado para o próximo pipeline
         db_table: tabela destino (só a entidade)
         db_schema: schema destino, obrigatoriamente ``raw_<fonte>``
         load: modo de carga (``table`` | ``files`` | ``jsonb`` | ``none``)
@@ -103,7 +103,7 @@ class PipelineConfig:
     landing_file: str | None = None
     bronze_file: str | None = None
     parameter_file: str | None = None
-    output_param_file: str | dict[str, str] | None = None
+    output_param_file: dict[str, str] | None = None
     db_table: str | None = None
     db_schema: str | None = None
     load: LoadMode = "table"
@@ -181,11 +181,10 @@ class PipelineConfig:
             raise ValueError("parameter_file não configurado na PipelineConfig.")
         return Path(self.parameter_dir) / self.parameter_file
 
-    def write_output_params(self, df, default_column: str | None = None) -> None:
-        """Exporta CSV(s) de parâmetros em ``parameter_dir`` a partir de ``df``.
+    def write_output_params(self, df) -> None:
+        """Exporta os CSVs de ``output_param_file`` (``{arquivo: coluna}``).
 
-        ``output_param_file`` pode ser ``str`` (exporta ``default_column``) ou
-        ``dict {arquivo: coluna}``. Cada saída recebe os valores únicos da coluna;
+        Cada arquivo em ``parameter_dir`` recebe os valores únicos da coluna;
         coluna ausente é pulada com warning.
         """
         if not self.output_param_file:
@@ -193,18 +192,8 @@ class PipelineConfig:
         if not self.parameter_dir:
             raise ValueError("parameter_dir não configurado na PipelineConfig.")
 
-        if isinstance(self.output_param_file, dict):
-            exports = dict(self.output_param_file)
-        else:
-            if default_column is None:
-                raise ValueError(
-                    "output_param_file é str; informe default_column para saber "
-                    "qual coluna exportar."
-                )
-            exports = {self.output_param_file: default_column}
-
         Path(self.parameter_dir).mkdir(parents=True, exist_ok=True)
-        for fname, col in exports.items():
+        for fname, col in self.output_param_file.items():
             path = Path(self.parameter_dir) / fname
             if col not in df.columns:
                 logger.warning(
@@ -333,15 +322,10 @@ def validate_config(data: dict) -> list[str]:
 
         out = src.get("output_param_file")
         if out is not None and not (
-            isinstance(out, str)
-            or (
-                isinstance(out, dict)
-                and all(isinstance(v, str) for v in (*out, *out.values()))
-            )
+            isinstance(out, dict)
+            and all(isinstance(v, str) for v in (*out, *out.values()))
         ):
-            errors.append(
-                f"{where}output_param_file: deve ser texto ou {{arquivo: coluna}}"
-            )
+            errors.append(f"{where}output_param_file: deve ser {{arquivo: coluna}}")
 
     return errors
 

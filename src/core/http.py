@@ -66,13 +66,12 @@ class HttpClient:
         retries: int = 5,
         backoff_factor: float = 2.0,
         timeout: int = 30,
-        headers: dict | None = None,
         pool_size: int = 10,
     ):
         self.logger = log or logger
         self.pool_size = pool_size
         self.timeout = timeout
-        self.default_headers = headers or {"Accept": "application/json"}
+        self.default_headers = {"Accept": "application/json"}
 
         retry_strategy = Retry(
             total=retries,
@@ -92,7 +91,7 @@ class HttpClient:
         url: str,
         *,
         method: Literal["GET", "POST"] = "GET",
-        mode: Literal["json", "text", "auto"] = "auto",
+        mode: Literal["json", "text"] = "json",
         headers: dict | None = None,
         data: dict | None = None,
         timeout: int | None = None,
@@ -116,12 +115,7 @@ class HttpClient:
 
             if mode == "text":
                 return response.text, status
-            if mode == "json":
-                return response.json(), status
-            content_type = response.headers.get("Content-Type", "").lower()
-            if "application/json" in content_type:
-                return response.json(), status
-            return response.text, status
+            return response.json(), status
         except ValueError:
             self.logger.error(f"❌ Resposta nao e JSON: {redact(url)}")
         except requests.RequestException as e:
@@ -131,8 +125,8 @@ class HttpClient:
     def request(self, url: str, **kwargs) -> Any | None:
         """Requisição genérica; devolve json/text conforme ``mode`` (None em erro).
 
-        Aceita ``method``, ``mode`` (``json``/``text``/``auto``), ``headers``,
-        ``data``, ``timeout`` e os demais argumentos do ``requests``.
+        Aceita ``method``, ``mode`` (``json``, o default, ou ``text``),
+        ``headers``, ``data``, ``timeout`` e os demais argumentos do ``requests``.
         """
         return self._send(url, **kwargs)[0]
 

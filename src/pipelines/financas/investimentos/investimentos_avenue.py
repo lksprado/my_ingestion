@@ -195,8 +195,8 @@ def norm(s):
     return re.sub(r"\s+", "", s).upper()
 
 
-def parse_file(path):
-    text = get_text(path)
+def parse_file(text, path):
+    """Posições do extrato ``path`` a partir do seu texto (``get_text``)."""
     period_start, period_end = get_period(text)
     account_number = get_account_number(text)
     lines = text.split("\n")
@@ -288,7 +288,7 @@ def parse_file(path):
     return rows, validation
 
 
-def parse_dividends_total(path):
+def parse_dividends_total(text, path):
     """Extrai apenas a linha "Total Dividends And Interest" de um extrato.
 
     Vale para os dois layouts (current/legacy): a linha traz dois numeros lado a
@@ -296,7 +296,6 @@ def parse_dividends_total(path):
     CREDIT (dividendo bruto), posicionais e sem sinal. Guarda ambos positivos,
     como aparecem no PDF. Se a secao nao existir, retorna 0.0/0.0 e loga aviso.
     """
-    text = get_text(path)
     period_start, period_end = get_period(text)
     account_number = get_account_number(text)
     lines = text.split("\n")
@@ -398,13 +397,14 @@ def transform(cfg: PipelineConfig) -> None:
     assets, dividends, issues = [], [], 0
     for f in files:
         person, layout = f.relative_to(cfg.landing_dir).parts[:2]
-        rows, validation = parse_file(str(f))
+        text = get_text(str(f))  # um pdftotext por arquivo, para os dois parsers
+        rows, validation = parse_file(text, str(f))
         for r in rows:
             r.update(person=person, layout=layout)
         assets.extend(rows)
         issues += _validate(f"{person}/{f.name}", validation, rows)
         dividends.append(
-            {**parse_dividends_total(str(f)), "person": person, "layout": layout}
+            {**parse_dividends_total(text, str(f)), "person": person, "layout": layout}
         )
     logger.info(f"Avenue: {issues} divergencia(s) em {len(files)} arquivo(s)")
 

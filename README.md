@@ -77,8 +77,9 @@ estão em [`src/core/README.md`](src/core/README.md); como aplicá-los num pipel
   modo de carga) e o Python descreve *como*. `PipelineConfig`
   ([`core/config.py`](src/core/config.py)) resolve `${LAKE_ROOT}`, o ambiente (`dev`/`prod` por
   `ENV`) e o placeholder `{date}`; o que a `core` não interpreta vai em `options:`.
-- **Injeção de dependência leve:** `PostgresClient()` usa o perfil `DB__<ENV>__*`; no Airflow,
-  `PostgresClient(connection=hook.get_conn())`. O logger também entra por parâmetro (`log=`).
+- **Injeção de dependência leve:** `PostgresClient()` usa o perfil `DB__<ENV>__*` (no Airflow,
+  das variáveis de ambiente); testes injetam um `DbTarget` ou uma `connection`. O logger também
+  entra por parâmetro (`log=`).
 - **Fail-fast:** `validate_raw_schema` ([`core/db.py`](src/core/db.py)) recusa escrita fora de
   `raw_*`, o validator de [`settings.py`](src/settings.py) exige `ingestion_sandbox` em dev e
   campo obrigatório em `Settings` não tem default. Erro de configuração quebra antes de gravar,
