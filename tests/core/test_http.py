@@ -1,5 +1,6 @@
 import json
 
+import pytest
 import requests
 
 from core.http import DEFAULT_USER_AGENT, HttpClient
@@ -71,6 +72,16 @@ def test_save_json_and_fetch_and_save(monkeypatch, tmp_path):
     assert http.fetch_and_save("http://x", tmp_path, "y") is None
     monkeypatch.setattr(HttpClient, "get_json", lambda self, url, **kw: {"b": 2})
     assert http.fetch_and_save("http://x", tmp_path, "y").name == "y.json"
+
+
+def test_save_json_is_atomic(tmp_path):
+    http = HttpClient()
+    path = http.save_json({"a": 1}, tmp_path, "x")
+    # Falha no meio da serialização: o arquivo anterior fica inteiro.
+    with pytest.raises(TypeError):
+        http.save_json({"a": object()}, tmp_path, "x")
+    assert json.loads(path.read_text()) == {"a": 1}
+    assert [p.name for p in tmp_path.iterdir()] == ["x.json"]
 
 
 def test_pool_size_sets_adapter_pool_maxsize():

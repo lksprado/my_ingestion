@@ -107,8 +107,9 @@ Regras:
   `cfg.options` como dict. Documente-as no cabeçalho do YAML.
 - O pre-commit valida a estrutura (`scripts/validar_configs.py`, via
   `core.validate_config`): chave fora do contrato, `load`/`write` inválido,
-  ambiente faltando, schema sem `raw_` e source sem entrada em `ETLS` (ou o
-  contrário) barram o commit. Rode à mão com
+  ambiente faltando, schema sem `raw_`, `write: append` sem
+  `options.control_table` e source sem entrada em `ETLS` (ou o contrário)
+  barram o commit. Rode à mão com
   `uv run python scripts/validar_configs.py [arquivo ...]`.
 
 ---

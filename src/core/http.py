@@ -6,6 +6,8 @@ Nenhum método levanta exceção de rede: em erro, logam e devolvem ``None``
 
 import json
 import logging
+import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Literal
@@ -101,7 +103,11 @@ class HttpClient:
     def save_json(
         self, data: Any | None, output_dir: Path | str, filename: str
     ) -> Path | None:
-        """Salva um objeto JSON em ``output_dir/filename`` (sufixo .json garantido)."""
+        """Salva um objeto JSON em ``output_dir/filename`` (sufixo .json garantido).
+
+        Grava num temporário e troca de uma vez: um processo morto no meio não
+        deixa JSON truncado, que o incremental por ID tomaria por já baixado.
+        """
         if data is None:
             self.logger.warning("⚠️ Sem dados para salvar - retornando None")
             return None
@@ -112,8 +118,17 @@ class HttpClient:
             filename = f"{filename}.json"
 
         filepath = output_dir / filename
-        with filepath.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+        fd, tmp_name = tempfile.mkstemp(
+            dir=output_dir, prefix=f".{filename}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+            os.chmod(tmp_name, 0o664)
+            os.replace(tmp_name, filepath)
+        finally:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
         self.logger.info(f"💾 JSON salvo em: {filepath}")
         return filepath
 

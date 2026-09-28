@@ -296,8 +296,8 @@ def parse_arquivo_anual(path: Path) -> pd.DataFrame | None:
 
 
 def transform_arquivo_anual(cfg: PipelineConfig) -> None:
-    # Ano mais recente primeiro: o streaming fixa o cabeçalho pelo 1º arquivo e
-    # descarta colunas extras dos seguintes, e o esquema novo é o mais completo.
+    # Ano mais recente primeiro: o esquema novo é o mais completo, então o
+    # cabeçalho do streaming quase nunca cresce e o bronze não é regravado.
     arquivos = sorted(cfg.landing_dir.glob("*.json"), reverse=True)
     write_bronze_streaming(cfg, arquivos, parse_arquivo_anual)
 

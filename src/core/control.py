@@ -14,6 +14,9 @@ por unidade imutável (legislativo):
   manifesto **na mesma transação**. Falha em qualquer ponto → rollback, nada
   registrado, o transform seguinte refaz o mesmo delta.
 
+Arquivo cujo parse levanta exceção fica fora do manifesto e volta na execução
+seguinte; arquivo lido sem nenhuma linha é registrado sem passar pelo COPY.
+
 Nessas fontes o bronze é o delta da última execução, não o histórico completo —
 a tabela raw é que acumula.
 """
@@ -22,16 +25,18 @@ import csv
 import logging
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import TypeVar
 
 import pandas as pd
 
 from core.config import PipelineConfig
 from core.db import LOADED_AT_DEFAULT, PostgresClient, validate_raw_schema
-from core.io import write_bronze_streaming
+from core.io import stream_bronze, write_bronze_streaming
 
 logger = logging.getLogger(__name__)
 
 CONTROL_TABLE = "ingestion_control"
+T = TypeVar("T")
 MANIFEST_SUFFIX = ".manifesto.csv"
 
 
@@ -99,24 +104,41 @@ class IngestionControl:
             (self.schema, table),
         )
 
-    def pending(self, files: Iterable[Path], table: str) -> list[Path]:
-        """Arquivos ainda não registrados, em conexão própria (só leitura)."""
-        files = sorted(Path(f) for f in files)
+    def _transaction(self, fn: Callable[..., T]) -> T:
+        """``fn(cur)`` numa conexão própria, depois do ``ensure``, com commit."""
         conn = self.db.connect()
         try:
             with conn.cursor() as cur:
                 self.ensure(cur)
-                ja_feitos = self.ingested(cur, table)
+                result = fn(cur)
             conn.commit()
+            return result
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             if not self.db.external_connection:
                 conn.close()
+
+    def pending(self, files: Iterable[Path], table: str) -> list[Path]:
+        """Arquivos ainda não registrados, em conexão própria (só leitura)."""
+        files = sorted(Path(f) for f in files)
+        ja_feitos = self._transaction(lambda cur: self.ingested(cur, table))
         pendentes = [f for f in files if f.name not in ja_feitos]
         self.logger.info(
             f"{len(pendentes)} arquivo(s) pendente(s) de {len(files)} "
             f"para {self.schema}.{table}."
         )
         return pendentes
+
+    def mark_ingested(self, files: Iterable[Path], table: str) -> None:
+        """Registra ``files`` sem carga, em conexão própria: arquivos sem linhas."""
+        nomes = [Path(f).name for f in files]
+        self._transaction(lambda cur: self.register(cur, table, nomes))
+        self.logger.info(
+            f"📒 {len(nomes)} arquivo(s) sem linhas registrado(s) para "
+            f"{self.schema}.{table}."
+        )
 
 
 # ------------------------ manifesto ------------------------
@@ -167,6 +189,12 @@ def write_bronze_incremental(
 ) -> Path | None:
     """Bronze só com os arquivos de landing ainda não carregados, mais o manifesto.
 
+    O manifesto lista os pendentes lidos sem erro; quem levantou exceção fica de
+    fora e volta na próxima execução. Se nenhum pendente tem linha, não há o que
+    copiar: os lidos são registrados aqui mesmo, o bronze em disco (o delta
+    anterior, já carregado) é apagado e o manifesto sai vazio — assim o load não
+    recarrega bronze velho numa tabela ``append``.
+
     Sem ``options.control_table`` no YAML, cai no ``write_bronze_streaming``
     normal (rebuild completo) — assim a função serve aos dois casos.
     """
@@ -180,6 +208,19 @@ def write_bronze_incremental(
         log.info("✅ Nada novo no landing; bronze-delta vazio.")
         write_manifest(cfg, [])
         return None
-    path = write_bronze_streaming(cfg, pendentes, parse_fn)
-    write_manifest(cfg, pendentes)
-    return path
+
+    result = stream_bronze(cfg, pendentes, parse_fn)
+    if result.failed:
+        nomes = [f.name for f in result.failed]
+        log.error(
+            f"❌ {len(nomes)} arquivo(s) com erro ficam fora do manifesto e voltam "
+            f"na próxima execução: {nomes[:10]}"
+        )
+    if result.path is None:
+        cfg.bronze_filepath.unlink(missing_ok=True)
+        if result.parsed:
+            controle.mark_ingested(result.parsed, cfg.db_table)
+        write_manifest(cfg, [])
+        return None
+    write_manifest(cfg, result.parsed)
+    return result.path
