@@ -31,8 +31,8 @@ uv run python -m pipelines.legislativo.ecidadania.ecidadania_etl paginas    # s�
   HTML bruto não é guardado, então reprocessar após mudança de seletor exige nova
   extração.
 - `paginas` lê as primeiras `options.pages` páginas (25) de
-  `pesquisamateria?p=N`: 100 matérias por página, ordenadas por votos, de 77 páginas
-  hoje. Se uma página vier vazia, para ali. **Armadilha:** `principalmateria?p=N`
+  `pesquisamateria?p=N`: 100 matérias por página, ordenadas por votos. Se uma
+  página vier vazia, para ali. **Armadilha:** `principalmateria?p=N`
   ignora o `p` e devolve sempre as mesmas 3 matérias em destaque; não volte a ela.
 - `paginas` e `mais_votados` usam o mesmo parser (`parse_materias`). Os parsers
   dependem de `#container-consulta-publica`: quando o site muda, logam warning e

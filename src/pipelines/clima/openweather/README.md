@@ -41,8 +41,8 @@ bronze em `${LAKE_ROOT}/bronze/weather_project/`.
 
 ## Notas
 
-- **A carga é full refresh**: a tabela é função do landing, e os ~1.830 JSONs a
-  reconstroem em ~8 s. O que evita rebaixar o histórico é o extract, incremental
+- **A carga é full refresh**: a tabela é função do landing, e um JSON por dia a
+  reconstrói em segundos. O que evita rebaixar o histórico é o extract, incremental
   por data.
 - O índice único `openweather_date_pk` existe no banco e não atrapalha; a carga
   não depende dele.

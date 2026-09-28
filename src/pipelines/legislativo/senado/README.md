@@ -47,18 +47,18 @@ uv run python -m pipelines.legislativo.senado.senado_etl status                 
   começa em 2018, porque a API não tem orientação antes disso. Use `--steps`
   para rodar só uma etapa.
 - `processos`: `/processo?ano=AAAA` devolve todos os processos do ano, com o
-  mesmo esquema da consulta por ID de `processo`, mas em tabela própria: ~163
-  mil processos, não só os ~2,6 mil votados. Todos os anos são rebaixados a
+  mesmo esquema da consulta por ID de `processo`, mas em tabela própria: todos
+  os processos (centenas de milhares), não só os votados. Todos os anos são rebaixados a
   cada execução, porque situação e tramitação mudam (o `processo` por ID
   congela o primeiro download). A resposta às vezes chega **cortada no meio**
   (`IncompleteRead`), e o retry do `HttpClient` não cobre isso; o extract
-  tenta até `options.tentativas` (3) vezes por ano. Leva ~3 min. O transform
-  faz o parse em 4 processos (`options.transform_workers`).
+  tenta até `options.tentativas` (3) vezes por ano. O transform faz o parse
+  em processos paralelos (`options.transform_workers`).
 - `status` consulta as matérias do bronze do e-Cidadania com pelo menos
-  `options.min_votos` votos (YAML: 0, ou seja, as 25 páginas, ~2.500 matérias;
-  antes eram só as com ≥ 5000 votos). Pula quem já está no landing fora de
-  tramitação, mas quase todas as matérias do e-Cidadania ainda tramitam, então
-  a maior parte é consultada de novo (~6 min com `options.workers: 4`).
+  `options.min_votos` votos (0 = todas as matérias que o e-Cidadania trouxe).
+  Pula quem já está no landing fora de tramitação, mas quase todas as matérias
+  do e-Cidadania ainda tramitam, então a maior parte é consultada de novo a
+  cada execução (em `options.workers` threads).
 - `processo` é incremental por ID no extract (`core.extract_by_ids`, default
   `has_data=bool`, `options.workers: 4` threads) e incremental por arquivo no
   transform/load (abaixo).

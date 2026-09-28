@@ -33,8 +33,8 @@ uv run python -m pipelines.legislativo._params.dbt_seed_maker seed_senado_tipos_
 substituir. Como o seed é a fonte de verdade do join no dbt, perder linha é
 perder descrição em dado histórico — por isso, quando o conteúdo baixado tem
 menos linhas que o seed atual, o script avisa e **não grava**. Confira o que
-saiu e use `--forcar` quando a redução for esperada. (Hoje é o caso de
-`tipos_decisao`: a API devolve 32 linhas e o seed tem 36.)
+saiu e use `--forcar` quando a redução for esperada (já aconteceu com
+`tipos_decisao`).
 
 `seed_camara_tipos_proposicao.csv` não sai daqui — é mantido à mão no
 `my_analytics`.

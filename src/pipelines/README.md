@@ -84,7 +84,9 @@ sources:
 
 Regras:
 
-- **Sempre `${LAKE_ROOT}`/`${SEEDS_ROOT}`**, nunca `/media/...` ou `/home/...`.
+- **Em `dev`, sempre `${LAKE_ROOT}`/`${SEEDS_ROOT}`**, nunca `/media/...` ou `/home/...`
+  (o validador barra). Em `prod` o caminho é o do container do Airflow
+  (`/usr/local/airflow/mylake/...`), escrito por extenso.
 - São só dois ambientes: `dev` (execução local) e `prod` (Airflow), porque o mesmo código roda na
   máquina e no orquestrador. O ativo vem de `ENV` no `.env`.
 - `subpath` evita que entidades da mesma fonte se misturem no mesmo diretório.
@@ -230,9 +232,10 @@ partir do YAML (placeholder `{id}` em `base_url`/`landing_file`). Erro transitó
 (default 1) faz as requisições em threads; mantenha baixo (4) para não cair em
 429 da API.
 
-**Extract que falha tem de falhar.** O `HttpClient` devolve `None` em vez de
-levantar, para um item quebrado não derrubar a extração inteira. Quem faz várias
-requisições conta as falhas e termina com `core.ensure_some_success(total,
+**Um item quebrado não derruba o lote, mas extract que falha tem de falhar.** O
+`HttpClient` devolve `None` em erro em vez de levantar exceção: trate o item,
+logue e siga — um ID quebrado não pode derrubar uma extração de horas. Quem faz
+várias requisições conta as falhas e termina com `core.ensure_some_success(total,
 falhas)`: falha parcial vira WARNING, e nenhum sucesso (API fora do ar) levanta.
 Sem isso a task fica verde e o load regrava o bronze antigo com carimbo novo, o
 que esconde a falha até do freshness do dbt.
@@ -241,10 +244,6 @@ que esconde a falha até do freshness do dbt.
 `landing_file`), `core.missing_dates_from_landing(cfg)` devolve os dias sem
 arquivo (buracos dos últimos `options.lookback_days` e tudo depois do último dia
 baixado). Veja `clima/openweather` e `energia/solar`.
-
-**Falhas não abortam o lote.** O `HttpClient` devolve `None` em erro em vez de
-levantar exceção — trate o item, logue e siga. Um ID quebrado não pode derrubar uma
-extração de 4 horas.
 
 **Várias entidades de uma vez.** `<fonte>_etl a b c` roda só essas, em sequência,
 isolando falhas (ex.: os seis dinâmicos da NHL depois do `games_summary`).
@@ -263,9 +262,9 @@ ingestão** e não precisa do `GenericETL`. Hoje são:
   grava um seed.
 
 Mesmo aí, use `HttpClient`, `PostgresClient.read_sql`, `write_csv`,
-`concat_files_to_df` e `setup_logger()` da `core`. Tudo o mais — inclusive fontes
-sem transform (NHL, `load: jsonb`) e sem load (solar/openweather, `load: none`) —
-está no padrão.
+`concat_files_to_df` e `setup_logger()` da `core`. Tudo o mais está no padrão,
+inclusive a fonte sem transform (NHL, `load: jsonb`) e as entidades sem carga
+(`load: none`: `investimentos/fgc` e `vide_editorial/categorias`).
 
 ---
 
@@ -302,8 +301,11 @@ está no padrão.
 - [ ] Rodou de verdade uma vez e conferiu a tabela em `raw_<fonte>.*` do
       `ingestion_sandbox`: contagem esperada, `loaded_at_utc` não nula e
       `count(DISTINCT loaded_at_utc) = 1` (uma carga, um timestamp).
-- [ ] Nenhum caminho absoluto e nenhum segredo no diff (o `pre-commit` roda o
-      gitleaks, mas confira).
+- [ ] Nenhum caminho absoluto fora do bloco `prod` e nenhum segredo no diff (o
+      `pre-commit` roda o gitleaks, mas confira).
+- [ ] A fonte está na tabela **Fontes** do [`README.md`](../../README.md) da raiz.
+- [ ] A DAG no `my_orchestrator` entra **depois** do merge daqui (ver "Ordem
+      entre repos" no README da raiz).
 
 ---
 
