@@ -46,6 +46,12 @@ def test_missing_dates_fills_holes_and_the_tail(tmp_path):
     assert read_dates_csv(cfg.landing_dir / "missing_dates.csv") == got
 
 
+def test_missing_dates_empty_file_counts_as_missing(tmp_path):
+    cfg = _dates_cfg(tmp_path, ["2026-09-10", "2026-09-11", "2026-09-12"])
+    (cfg.landing_dir / "day_summary_2026-09-11.json").write_text("")
+    assert missing_dates_from_landing(cfg, now=NOW) == ["2026-09-11"]
+
+
 def test_missing_dates_old_holes_outside_lookback_are_left(tmp_path):
     cfg = _dates_cfg(
         tmp_path,

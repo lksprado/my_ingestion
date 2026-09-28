@@ -38,10 +38,14 @@ _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def landing_dates(landing_dir: Path, pattern: str) -> set[date]:
-    """Dias (``YYYY-MM-DD`` no nome) dos arquivos de ``landing_dir`` em ``pattern``."""
+    """Dias (``YYYY-MM-DD`` no nome) dos arquivos de ``landing_dir`` em ``pattern``.
+
+    Arquivo vazio não conta: é resto de escrita interrompida, e contá-lo
+    esconderia o buraco para sempre.
+    """
     dias = set()
     for f in landing_dir.glob(pattern):
-        if m := _DATE_RE.search(f.name):
+        if (m := _DATE_RE.search(f.name)) and f.stat().st_size > 0:
             dias.add(date.fromisoformat(m.group(0)))
     return dias
 
