@@ -195,6 +195,18 @@ sources:
 ### `load_yaml(path) -> dict`
 Única forma de ler YAML no projeto.
 
+### `validate_config(data) -> list[str]`
+Valida a estrutura de um `<fonte>_config.yml` já carregado e devolve os erros
+(lista vazia = ok), cada um com o caminho da chave (`sources.votos.load: ...`).
+Rejeita chave desconhecida no topo, nos ambientes e nas sources (`_source_dict`
+ignoraria em silêncio), `load`/`write`/`bronze_sep` inválidos, ambientes que não
+sejam exatamente `dev` e `prod`, `base_raw` ausente, path de `dev` fora de
+`${LAKE_ROOT}`/`${SEEDS_ROOT}`, `db_schema` sem `raw_` quando `load` é
+`table|files|jsonb` e `db_table` ausente com `table|jsonb`. `options` é livre.
+Roda no pre-commit por `scripts/validar_configs.py`, que também confere as
+sources contra as chaves de `ETLS`. Chave nova de YAML entra em
+`TOP_KEYS`/`ENV_KEYS`/`SOURCE_KEYS` ou vai em `options:`.
+
 ---
 
 ## `http.py` — `HttpClient`

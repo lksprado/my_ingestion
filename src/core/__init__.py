@@ -1,6 +1,6 @@
 """Biblioteca compartilhada do monorepo de ingestão."""
 
-from core.config import PipelineConfig, load_yaml
+from core.config import PipelineConfig, load_yaml, validate_config
 from core.control import (
     IngestionControl,
     read_manifest,
@@ -65,6 +65,7 @@ __all__ = [
     "sanitize_columns",
     "sanitize_values",
     "setup_logger",
+    "validate_config",
     "validate_raw_schema",
     "validate_write_mode",
     "write_bronze",

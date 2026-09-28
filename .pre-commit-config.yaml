@@ -22,3 +22,13 @@ repos:
     rev: v8.24.2
     hooks:
       - id: gitleaks
+
+  # Estrutura dos <fonte>_config.yml: chave desconhecida, load/write inválido,
+  # ambiente faltando, schema sem raw_, sources x ETLS. Ver scripts/validar_configs.py.
+  - repo: local
+    hooks:
+      - id: validar-configs-pipeline
+        name: valida os <fonte>_config.yml dos pipelines
+        entry: uv run --no-sync python scripts/validar_configs.py
+        language: system
+        files: ^src/pipelines/.*(_config\.yml|_etl\.py)$
