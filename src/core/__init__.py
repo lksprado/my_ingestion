@@ -9,7 +9,7 @@ from core.control import (
 )
 from core.db import PostgresClient, validate_raw_schema, validate_write_mode
 from core.etl import Etl, GenericETL, build_etl, run_source
-from core.http import HttpClient
+from core.http import HttpClient, ensure_some_success
 from core.incremental import (
     extract_by_ids,
     landing_ids,
@@ -48,6 +48,7 @@ __all__ = [
     "build_etl",
     "concat_files_to_df",
     "concat_landing",
+    "ensure_some_success",
     "extract_by_ids",
     "flatten_children",
     "integral_floats_to_int",

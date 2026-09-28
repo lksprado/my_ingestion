@@ -18,6 +18,7 @@ from core import (
     HttpClient,
     PipelineConfig,
     PostgresClient,
+    ensure_some_success,
     missing_dates_from_db,
     run_source,
     write_bronze,
@@ -73,8 +74,11 @@ def extract(cfg: PipelineConfig) -> None:
         raise ValueError("Ponto ausente (OPENWEATHER_LAT / OPENWEATHER_LON).")
 
     http = HttpClient(logger, retries=3, backoff_factor=1.0, timeout=15)
+    falhas = 0
     for day in dates:
-        logger.info(f"GET day_summary {day}")  # token na query string: URL não é logada
+        # O token vai na query string: não logue a URL; o HttpClient mascara o
+        # appid nos logs de erro.
+        logger.info(f"GET day_summary {day}")
         data = http.get_json(
             cfg.url_base,
             params={
@@ -84,7 +88,11 @@ def extract(cfg: PipelineConfig) -> None:
                 "appid": settings.openweather_api_key,
             },
         )
+        if data is None:
+            falhas += 1
+            continue
         http.save_json(data, cfg.landing_dir, cfg.landing_file.format(day=day))
+    ensure_some_success(len(dates), falhas, "dia(s)", log=logger)
 
 
 def transform(cfg: PipelineConfig) -> None:

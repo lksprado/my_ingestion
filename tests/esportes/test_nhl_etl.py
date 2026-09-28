@@ -97,6 +97,7 @@ def test_extract_groups_by_season_and_formats_templates(monkeypatch, tmp_path):
 
         def fetch_and_save_many(self, tasks, output_dir, workers=1):
             calls.append((Path(output_dir), tasks, workers))
+            return 0
 
     rows = [
         {"player_id": 1, "season_id": 2024},
@@ -131,6 +132,7 @@ def test_extract_pula_arquivo_ja_no_landing(monkeypatch, tmp_path):
 
         def fetch_and_save_many(self, tasks, output_dir, workers=1):
             calls.append(tasks)
+            return 0
 
     monkeypatch.setattr(nhl_etl, "HttpClient", FakeHttp)
     (tmp_path / "raw_1.json").write_text("{}")
@@ -145,6 +147,24 @@ def test_extract_pula_arquivo_ja_no_landing(monkeypatch, tmp_path):
     nhl_etl.extract_dynamic(cfg, params=lambda cfg: [{"game_id": 1}, {"game_id": 2}])
 
     assert calls == [[("https://api/2", "raw_2.json")]]
+
+
+def test_extract_falha_se_nenhum_arquivo_vem(monkeypatch, tmp_path):
+    class FakeHttp:
+        def __init__(self, *a, **k): ...
+
+        def fetch_and_save_many(self, tasks, output_dir, workers=1):
+            return len(tasks)
+
+    monkeypatch.setattr(nhl_etl, "HttpClient", FakeHttp)
+    cfg = PipelineConfig(
+        landing_dir=tmp_path,
+        url_base="https://api/{game_id}",
+        landing_file="raw_{game_id}.json",
+        criar_dirs=False,
+    )
+    with pytest.raises(RuntimeError, match="nenhum sucesso"):
+        nhl_etl.extract_dynamic(cfg, params=lambda cfg: [{"game_id": 1}])
 
 
 def test_extract_sem_nada_pendente_nao_chama_a_api(monkeypatch, tmp_path):

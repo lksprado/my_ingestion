@@ -19,6 +19,7 @@ from core import (
     HttpClient,
     PipelineConfig,
     concat_landing,
+    ensure_some_success,
     run_source,
     write_bronze,
 )
@@ -155,7 +156,8 @@ def extract_page(
     cfg: PipelineConfig, parser: Callable[[BeautifulSoup], pd.DataFrame]
 ) -> None:
     """Uma página (``base_url``) -> ``landing_file``."""
-    fetch_to_csv(cfg, parser, cfg.url_base, cfg.landing_file)
+    if fetch_to_csv(cfg, parser, cfg.url_base, cfg.landing_file) is None:
+        raise RuntimeError(f"Extract falhou: {cfg.url_base}")
 
 
 def extract_paginas(cfg: PipelineConfig) -> None:
@@ -165,6 +167,7 @@ def extract_paginas(cfg: PipelineConfig) -> None:
     ``pesquisamateria``: ``principalmateria`` ignora ``?p=`` e repete a mesma página.
     """
     http = HttpClient(logger)
+    pedidas = falhas = 0
     for page in range(1, int(cfg.options.get("pages", 25)) + 1):
         logger.info(f"Extraindo pagina {page}...")
         n = fetch_to_csv(
@@ -174,9 +177,12 @@ def extract_paginas(cfg: PipelineConfig) -> None:
             cfg.landing_file.format(page=page),
             http=http,
         )
+        pedidas += 1
+        falhas += n is None
         if n == 0:
             logger.info(f"Pagina {page} vazia: fim da listagem.")
             break
+    ensure_some_success(pedidas, falhas, "página(s)", log=logger)
 
 
 def _read_csv(path: Path) -> pd.DataFrame:

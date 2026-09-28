@@ -1,8 +1,9 @@
 """Orquestrador do contrato único: extract → transform → load.
 
 - ``extract``: arquivos brutos em ``cfg.landing_dir``. Sem ``extract_fn``, baixa
-  ``cfg.url_base`` para ``cfg.landing_filepath``; sem ``url_base``, o landing é
-  alimentado por fora (planilha, PDF, outro pipeline) e a etapa é um no-op.
+  ``cfg.url_base`` para ``cfg.landing_filepath`` e falha se o download falhar;
+  sem ``url_base``, o landing é alimentado por fora (planilha, PDF, outro
+  pipeline) e a etapa é um no-op.
 - ``transform``: pré-processamento tabular que termina em ``write_bronze``.
   Sem ``transform_fn`` a etapa é um no-op (fontes JSON → JSONB).
 - ``load``: por ``cfg.load`` — ``table`` (bronze CSV → ``raw_<fonte>.<tabela>``),
@@ -29,7 +30,7 @@ from typing import Literal
 from core.config import PipelineConfig
 from core.control import control_for, manifest_path, read_manifest
 from core.db import PostgresClient, validate_raw_schema
-from core.http import HttpClient
+from core.http import HttpClient, redact
 from core.jsonb import JsonbLoader
 from core.logging import setup_logger
 
@@ -69,10 +70,14 @@ class GenericETL:
         if not self.cfg.url_base:
             self.logger.info("📥 Sem url_base: landing alimentado externamente.")
             return self.cfg.landing_dir
-        self.logger.info(f"📥 Baixando {self.cfg.url_base}")
-        return HttpClient(self.logger).fetch_and_save(
+        self.logger.info(f"📥 Baixando {redact(self.cfg.url_base)}")
+        path = HttpClient(self.logger).fetch_and_save(
             self.cfg.url_base, self.cfg.landing_dir, self.cfg.landing_file
         )
+        if path is None:
+            # Seguir verde deixaria o load regravar o landing antigo com carimbo novo.
+            raise RuntimeError(f"Extract falhou: {redact(self.cfg.url_base)}")
+        return path
 
     # --- TRANSFORM ---
     def transform(self) -> None:

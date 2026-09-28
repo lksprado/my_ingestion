@@ -2,7 +2,9 @@
 # preservam os que o my_analytics lê em _sources.yml; não renomeie.
 # Sources por ID: base_url e landing_file usam o placeholder {id}; o CSV de
 # parâmetros vem de parameter_file (coluna options.parameter_column, default id)
-# e os IDs sem resposta ficam em options.no_data_file (ver core.extract_by_ids).
+# e os IDs que a API diz não ter (sem dado, 404) ficam em options.no_data_file;
+# erro transitório só entra lá depois de options.dias_para_desistir (default 7)
+# dias falhando (ver core.extract_by_ids).
 #
 # write: append + options.control_table marca a entidade como incremental por
 # arquivo: o transform só põe no bronze o landing ainda não carregado (bronze-delta
@@ -80,7 +82,6 @@ sources:
     options:
       no_data_file: "sem_dados_id_votacao_orientacao.csv"
       workers: 4                  # threads de requisição (core.extract_by_ids)
-      blacklist_on_error: false   # timeout não entra na lista (diverge dos demais)
 
   proposicao_tema:
     base_url: "https://dadosabertos.camara.leg.br/api/v2/proposicoes/{id}/temas"

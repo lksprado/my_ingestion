@@ -19,6 +19,7 @@ from core import (
     HttpClient,
     PipelineConfig,
     concat_landing,
+    ensure_some_success,
     extract_by_ids,
     flatten_children,
     run_source,
@@ -87,12 +88,15 @@ def anos(cfg: PipelineConfig, default: int = 2001) -> range:
 def extract_by_year(cfg: PipelineConfig, url: str, filename: str) -> None:
     """Um JSON por ano de ``anos(cfg)``: ``url``/``filename`` com o placeholder ``{y}``."""
     http = HttpClient(logger)
+    falhas = 0
     for y in anos(cfg):
         data = http.get_json(url.format(base=cfg.url_base, y=y))
         if not data:
             logger.warning(f"⚠️ Sem dados para {y}.")
+            falhas += 1
             continue
         http.save_json(data, cfg.landing_dir, filename.format(y=y))
+    ensure_some_success(len(anos(cfg)), falhas, "ano(s)", log=logger)
 
 
 def _normalize_record_path(path: Path, record_path: list[str]) -> pd.DataFrame:
@@ -200,9 +204,10 @@ def extract_status(cfg: PipelineConfig) -> None:
         url = f"{cfg.url_base}?sigla={sigla}&numero={numero}&ano={ano}&v=1"
         tasks.append((url, filename))
     logger.info(f"{len(tasks)} matéria(s) a consultar de {len(params)}.")
-    HttpClient(logger).fetch_and_save_many(
+    falhas = HttpClient(logger).fetch_and_save_many(
         tasks, cfg.landing_dir, workers=int(cfg.options.get("workers", 1))
     )
+    ensure_some_success(len(tasks), falhas, "matéria(s)", log=logger)
 
 
 def _parse_status(path: Path) -> pd.DataFrame | None:
@@ -241,6 +246,7 @@ def extract_processos(cfg: PipelineConfig) -> None:
     """
     http = HttpClient(logger, timeout=180)
     tentativas = int(cfg.options.get("tentativas", 3))
+    falhas = 0
     for ano in anos(cfg):
         url = cfg.url_base.format(ano=ano)
         data = None
@@ -250,8 +256,10 @@ def extract_processos(cfg: PipelineConfig) -> None:
                 break
         if not data:
             logger.warning(f"⚠️ Sem processos para {ano}.")
+            falhas += 1
             continue
         http.save_json(data, cfg.landing_dir, cfg.landing_file.format(ano=ano))
+    ensure_some_success(len(anos(cfg)), falhas, "ano(s)", log=logger)
 
 
 def _parse_processos(path: Path) -> pd.DataFrame | None:

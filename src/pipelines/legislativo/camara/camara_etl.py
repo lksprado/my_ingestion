@@ -20,6 +20,7 @@ from core import (
     HttpClient,
     PipelineConfig,
     concat_landing,
+    ensure_some_success,
     extract_by_ids,
     landing_ids,
     pending_ids,
@@ -121,11 +122,14 @@ def extract_legislaturas(cfg: PipelineConfig) -> None:
     legislatura é pulada e o arquivo anterior fica.
     """
     http = HttpClient(logger)
-    for leg in cfg.options["legislaturas"]:
+    legislaturas = cfg.options["legislaturas"]
+    falhas = 0
+    for leg in legislaturas:
         url = cfg.url_base.format(legislatura=leg)
         first = http.get_json(f"{url}&pagina=1")
         if not first:
             logger.warning(f"⚠️ Sem resposta para a legislatura {leg}.")
+            falhas += 1
             continue
         last = _last_page(first.get("links", []))
         pages = [first] + [
@@ -135,6 +139,7 @@ def extract_legislaturas(cfg: PipelineConfig) -> None:
             logger.warning(
                 f"⚠️ Legislatura {leg} incompleta; mantido o arquivo anterior."
             )
+            falhas += 1
             continue
         data = {
             "dados": [d for page in pages for d in page.get("dados") or []],
@@ -142,6 +147,7 @@ def extract_legislaturas(cfg: PipelineConfig) -> None:
         }
         logger.info(f"Legislatura {leg}: {len(data['dados'])} deputado(s)")
         http.save_json(data, cfg.landing_dir, cfg.landing_file.format(legislatura=leg))
+    ensure_some_success(len(legislaturas), falhas, "legislatura(s)", log=logger)
 
 
 def transform_legislaturas(cfg: PipelineConfig) -> None:
@@ -176,9 +182,10 @@ def extract_deputados(cfg: PipelineConfig) -> None:
     """Ficha de cada deputado de ``deputados_a_baixar`` (full refresh)."""
     ids = deputados_a_baixar(cfg)
     tasks = [(cfg.url_base.format(id=i), cfg.landing_file.format(id=i)) for i in ids]
-    HttpClient(logger).fetch_and_save_many(
+    falhas = HttpClient(logger).fetch_and_save_many(
         tasks, cfg.landing_dir, workers=int(cfg.options.get("workers", 1))
     )
+    ensure_some_success(len(tasks), falhas, "deputado(s)", log=logger)
 
 
 def _parse_deputado(path: Path) -> pd.DataFrame | None:
@@ -235,6 +242,7 @@ def extract_votacoes(cfg: PipelineConfig, desde: int | None = None) -> None:
     trimestre e página, então rebaixar sobrescreve.
     """
     http = HttpClient(logger)
+    total = falhas = 0
     for y, inicio, fim, label in trimestres(
         int(cfg.options.get("trimestres", 1)), desde
     ):
@@ -245,6 +253,8 @@ def extract_votacoes(cfg: PipelineConfig, desde: int | None = None) -> None:
         first = http.get_json(f"{cfg.url_base}?{params}&pagina=1")
         if not first:
             logger.warning(f"⚠️ Sem dados para {y}-{label}.")
+            total += 1
+            falhas += 1
             continue
         last = _last_page(first.get("links", []))
         logger.info(f"{y}-{label}: {last} pagina(s)")
@@ -252,7 +262,9 @@ def extract_votacoes(cfg: PipelineConfig, desde: int | None = None) -> None:
             (f"{cfg.url_base}?{params}&pagina={p}", f"votacoes_{y}_{label}_{p}.json")
             for p in range(1, last + 1)
         ]
-        http.fetch_and_save_many(tasks, cfg.landing_dir)
+        total += len(tasks)
+        falhas += http.fetch_and_save_many(tasks, cfg.landing_dir)
+    ensure_some_success(total, falhas, "página(s) de votações", log=logger)
 
 
 def transform_votacoes(cfg: PipelineConfig) -> None:
@@ -284,9 +296,10 @@ def extract_arquivo_anual(cfg: PipelineConfig) -> None:
     anos = range(int(cfg.options["ano_inicio"]), date.today().year + 1)
     tasks = [(cfg.url_base.format(ano=a), cfg.landing_file.format(ano=a)) for a in anos]
     # Arquivos de ~100 MB: o timeout padrão (30 s) não basta.
-    HttpClient(logger, timeout=300).fetch_and_save_many(
+    falhas = HttpClient(logger, timeout=300).fetch_and_save_many(
         tasks, cfg.landing_dir, workers=int(cfg.options.get("workers", 1))
     )
+    ensure_some_success(len(tasks), falhas, "arquivo(s) anual(is)", log=logger)
 
 
 def parse_arquivo_anual(path: Path) -> pd.DataFrame | None:

@@ -21,15 +21,29 @@ def test_default_extract_downloads_url_base(monkeypatch, tmp_path):
 
         def fetch_and_save(self, url, output_dir, filename):
             called.update(url=url, output_dir=Path(output_dir), filename=filename)
+            return Path(output_dir) / filename
 
     monkeypatch.setattr(etl_module, "HttpClient", FakeHttp)
     cfg = _cfg(tmp_path, url_base="https://api.example/test", landing_file="d.json")
-    GenericETL(cfg).extract()
+    assert GenericETL(cfg).extract() == cfg.landing_dir / "d.json"
     assert called == {
         "url": "https://api.example/test",
         "output_dir": cfg.landing_dir,
         "filename": "d.json",
     }
+
+
+def test_default_extract_fails_when_download_fails(monkeypatch, tmp_path):
+    class FakeHttp:
+        def __init__(self, logger): ...
+
+        def fetch_and_save(self, url, output_dir, filename):
+            return None
+
+    monkeypatch.setattr(etl_module, "HttpClient", FakeHttp)
+    cfg = _cfg(tmp_path, url_base="https://api.example/test", landing_file="d.json")
+    with pytest.raises(RuntimeError, match="Extract falhou"):
+        GenericETL(cfg).extract()
 
 
 def test_default_extract_without_url_base_is_noop(monkeypatch, tmp_path):
