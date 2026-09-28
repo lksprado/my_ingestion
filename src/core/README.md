@@ -455,9 +455,18 @@ primeiro delta traz todo o landing e o `append` duplica a tabela:
 uv run python scripts/controle_semear.py <fonte>_config.yml <entidade>
 ```
 
+**Quando o que já entrou está errado** (ex.: colunas que o bronze-delta
+descartava antes de o cabeçalho crescer), reconstrua a tabela a partir do landing
+inteiro. Sem `--confirmar` só simula e mostra as colunas que a tabela ganharia;
+com ele, `TRUNCATE` + `COPY` + controle refeito numa transação só:
+
+```bash
+uv run python scripts/controle_reconstruir.py <fonte>_config.yml <entidade> [--confirmar]
+```
+
 | Peça | Para quê |
 |---|---|
-| `IngestionControl(db, *, schema, table)` | `ensure`/`ingested`/`register`/`clear`/`pending` sobre a tabela de controle |
+| `IngestionControl(db, *, schema, table)` | `ensure`/`ingested`/`register`/`clear`/`pending`/`mark_ingested` sobre a tabela de controle |
 | `write_bronze_incremental(cfg, files, parse_fn, log=None)` | Fim do transform incremental: bronze-delta + manifesto |
 | `write_manifest(cfg, files)` / `read_manifest(cfg)` | O manifesto, se você precisar mexer nele |
 | `control_for(cfg)` | `IngestionControl` da entidade, ou `None` se o YAML não pediu |
