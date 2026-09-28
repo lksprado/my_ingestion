@@ -23,7 +23,8 @@ Os YAMLs de fonte seguem a estrutura::
 ``db_schema``, ``load``, ``write``, ``bronze_sep`` e ``options``
 aceitam valor no topo do arquivo (default) e por source (override). Placeholders
 ``${VAR}`` nos paths são resolvidos contra o ambiente e o ``settings``
-(LAKE_ROOT, SEEDS_ROOT).
+(LAKE_ROOT, SEEDS_ROOT). ``validate_config`` confere essa estrutura (roda no
+pre-commit por ``scripts/validar_configs.py``).
 """
 
 import logging
@@ -36,7 +37,12 @@ from typing import Literal
 
 import yaml
 
-from core.db import WriteMode, validate_write_mode
+from core.db import (
+    WRITE_MODES,
+    WriteMode,
+    validate_raw_schema,
+    validate_write_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +213,126 @@ class PipelineConfig:
                 continue
             df[[col]].dropna().drop_duplicates().to_csv(path, index=False)
             logger.info(f"📄 IDs exportados para: {path}")
+
+
+_CASCADE_KEYS = frozenset({"db_schema", "load", "write", "bronze_sep", "options"})
+TOP_KEYS = _CASCADE_KEYS | {"environments", "sources"}
+ENV_KEYS = frozenset({"base_raw", "base_bronze", "base_parameters"})
+SOURCE_KEYS = _CASCADE_KEYS | {
+    "base_url",
+    "subpath",
+    "landing_file",
+    "bronze_file",
+    "parameter_file",
+    "output_param_file",
+    "db_table",
+}
+ENVIRONMENTS: tuple[str, ...] = ("dev", "prod")
+_DEV_ROOTS = ("${LAKE_ROOT}", "${SEEDS_ROOT}")
+
+
+def validate_config(data: dict) -> list[str]:
+    """Valida a estrutura de um ``<fonte>_config.yml`` já carregado.
+
+    Devolve a lista de erros (vazia = ok), cada um com o caminho da chave. Pega o
+    que ``_source_dict`` deixaria passar em silêncio (chave digitada errado) e o
+    que só estouraria em runtime (``load``/``write`` inválido, schema sem
+    ``raw_``, ambiente faltando). Chave nova de YAML precisa entrar aqui ou ir
+    em ``options:``.
+    """
+    if not isinstance(data, dict):
+        return ["o arquivo não é um mapeamento YAML"]
+
+    errors: list[str] = []
+
+    def unknown(where: str, keys, allowed) -> None:
+        for k in sorted(set(keys) - allowed):
+            errors.append(f"{where}{k}: chave desconhecida")
+
+    unknown("", data, TOP_KEYS)
+
+    envs = data.get("environments")
+    if not isinstance(envs, dict):
+        errors.append("environments: obrigatório (mapeamento com dev e prod)")
+    else:
+        for name in sorted(set(envs) ^ set(ENVIRONMENTS)):
+            status = "faltando" if name in ENVIRONMENTS else "desconhecido"
+            errors.append(f"environments.{name}: ambiente {status}")
+        for name in ENVIRONMENTS:
+            env = envs.get(name)
+            if name in envs and not isinstance(env, dict):
+                errors.append(f"environments.{name}: deve ser um mapeamento")
+                continue
+            if env is None:
+                continue
+            unknown(f"environments.{name}.", env, ENV_KEYS)
+            if not isinstance(env.get("base_raw"), str):
+                errors.append(f"environments.{name}.base_raw: obrigatório (texto)")
+            for key in sorted(ENV_KEYS & set(env)):
+                value = env[key]
+                if not isinstance(value, str):
+                    errors.append(f"environments.{name}.{key}: deve ser texto")
+                elif name == "dev" and not value.startswith(_DEV_ROOTS):
+                    errors.append(
+                        f"environments.dev.{key}: use ${{LAKE_ROOT}} ou "
+                        f"${{SEEDS_ROOT}}, não caminho absoluto ({value!r})"
+                    )
+
+    if "options" in data and not isinstance(data["options"], dict):
+        errors.append("options: deve ser um mapeamento")
+
+    sources = data.get("sources")
+    if not isinstance(sources, dict) or not sources:
+        errors.append("sources: obrigatório (mapeamento não vazio)")
+        sources = {}
+
+    for name, src in sources.items():
+        where = f"sources.{name}."
+        if not isinstance(src, dict):
+            errors.append(f"sources.{name}: deve ser um mapeamento")
+            continue
+        unknown(where, src, SOURCE_KEYS)
+
+        def effective(key: str, default=None, src=src):
+            return src.get(key, data.get(key, default))
+
+        load = effective("load", "table")
+        if load not in LOAD_MODES:
+            errors.append(f"{where}load: {load!r} inválido; use um de {LOAD_MODES}")
+        write = effective("write", "truncate")
+        if write not in WRITE_MODES:
+            errors.append(f"{where}write: {write!r} inválido; use um de {WRITE_MODES}")
+        sep = effective("bronze_sep", ";")
+        if not (isinstance(sep, str) and len(sep) == 1):
+            errors.append(f"{where}bronze_sep: {sep!r} deve ser um caractere")
+
+        if load in ("table", "files", "jsonb"):
+            try:
+                validate_raw_schema(effective("db_schema"))
+            except ValueError:
+                errors.append(
+                    f"{where}db_schema: load={load} exige db_schema 'raw_<fonte>' "
+                    f"(no topo ou no source), veio {effective('db_schema')!r}"
+                )
+        if load in ("table", "jsonb") and not isinstance(src.get("db_table"), str):
+            errors.append(f"{where}db_table: obrigatório com load={load}")
+
+        if "options" in src and not isinstance(src["options"], dict):
+            errors.append(f"{where}options: deve ser um mapeamento")
+
+        out = src.get("output_param_file")
+        if out is not None and not (
+            isinstance(out, str)
+            or (
+                isinstance(out, dict)
+                and all(isinstance(v, str) for v in (*out, *out.values()))
+            )
+        ):
+            errors.append(
+                f"{where}output_param_file: deve ser texto ou {{arquivo: coluna}}"
+            )
+
+    return errors
 
 
 def _source_dict(config_file: Path | str, source: str, env: str | None) -> dict:

@@ -105,6 +105,11 @@ Regras:
   `append` sobre um bronze completo duplica a tabela.
 - Chaves que só a sua fonte entende vão num bloco `options:` e chegam em
   `cfg.options` como dict. Documente-as no cabeçalho do YAML.
+- O pre-commit valida a estrutura (`scripts/validar_configs.py`, via
+  `core.validate_config`): chave fora do contrato, `load`/`write` inválido,
+  ambiente faltando, schema sem `raw_` e source sem entrada em `ETLS` (ou o
+  contrário) barram o commit. Rode à mão com
+  `uv run python scripts/validar_configs.py [arquivo ...]`.
 
 ---
 
@@ -278,6 +283,8 @@ está no padrão.
       silenciosa mora. Em teste, `PipelineConfig(..., criar_dirs=False)` ou
       `tmp_path`.
 - [ ] `uv run task lint` e `uv run task test` limpos.
+- [ ] O YAML passa em `uv run python scripts/validar_configs.py` (o pre-commit
+      roda, mas só nos arquivos do commit).
 - [ ] O módulo importa isolado:
       `uv run python -c "import pipelines.<domínio>.<fonte>.<fonte>_etl"`.
 - [ ] Rodou de verdade uma vez e conferiu a tabela em `raw_<fonte>.*` do
