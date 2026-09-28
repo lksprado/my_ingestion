@@ -11,7 +11,7 @@ e no Postgres (`raw_<fonte>.<entidade>` no banco do ambiente). Quem agenda é o
 ## Conceitos
 
 | Termo | O que é |
-|---|---|
+| --- | --- |
 | **fonte** | Um sistema de origem (`camara`, `nhl`, `solar`). Uma pasta em `src/pipelines/<domínio>/<fonte>/`, com um `<fonte>_config.yml` e um `<fonte>_etl.py` (as poucas exceções estão marcadas em [Fontes](#fontes)). |
 | **entidade** | Uma tabela de uma fonte (`votacoes`, `deputados`). É a mesma palavra no YAML (`sources:`), no dicionário `ETLS` e na linha de comando. |
 | **landing** | Arquivos brutos como a origem entregou (JSON, HTML, CSV, PDF), em `${LAKE_ROOT}/raw/...`. É a fonte de verdade: bronze e raw são refeitos a partir dele sem bater na API. |
@@ -23,7 +23,7 @@ e no Postgres (`raw_<fonte>.<entidade>` no banco do ambiente). Quem agenda é o
 ## Fontes
 
 | Domínio | Fonte | O que traz | Destino |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | clima | [`openweather`](src/pipelines/clima/openweather/README.md) | Resumo meteorológico diário de um ponto | `raw_openweather` |
 | energia | [`solar`](src/pipelines/energia/solar/README.md) | Produção do sistema solar de casa (portal APsystems, via Selenium) | `raw_apsystem` |
 | esportes | [`nhl`](src/pipelines/esportes/nhl/README.md) | Estatísticas da NHL, JSON bruto em colunas `JSONB` | `raw_nhl` |
@@ -183,7 +183,7 @@ importação: sem ele preenchido no `.env` (qualquer valor serve, o banco tem de
 ## Problemas comuns
 
 | Sintoma | Causa e saída |
-|---|---|
+| --- | --- |
 | `ENV=dev: faltam DB__DEV__... no .env` ao importar qualquer coisa, inclusive nos testes | O `settings.py` valida o perfil de banco na importação. Preencha o `.env` (qualquer valor passa nos testes unitários, que não conectam). |
 | `ENV=dev exige DB__DEV__NAME=ingestion_sandbox` | Em dev a carga só vai para o sandbox, de propósito. Para levar a raw ao `analytics_dev`, use `scripts/raw_copy.sh promote`. |
 | `Schema de escrita inválido` | Falta `db_schema` no YAML, ou ele não começa com `raw_`. Toda escrita exige `raw_<fonte>`. |
