@@ -2,6 +2,7 @@ import json
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from core import PipelineConfig
 from pipelines.legislativo.senado import senado_etl
@@ -64,7 +65,8 @@ def test_extract_processos_tenta_de_novo_resposta_cortada(tmp_path, monkeypatch)
 def test_extract_processos_desiste_depois_das_tentativas(tmp_path, monkeypatch):
     http = FlakyHttp([{"id": 1}], falhas=3)
     monkeypatch.setattr(senado_etl, "HttpClient", lambda *a, **k: http)
-    senado_etl.extract_processos(_processos_cfg(tmp_path))
+    with pytest.raises(RuntimeError, match="nenhum sucesso"):
+        senado_etl.extract_processos(_processos_cfg(tmp_path))
     assert http.saved == [] and list(http.calls.values()) == [3]
 
 

@@ -117,12 +117,21 @@ def test_landing_ids_strips_suffix(tmp_path):
 
 
 class FakeHttp:
+    """Respostas por URL: dado, ``None`` (timeout, sem status) ou um status HTTP."""
+
     def __init__(self, responses: dict):
         self.responses = responses
         self.saved = []
+        self.requested = []
 
-    def get_json(self, url):
-        return self.responses[url]
+    def get_json_status(self, url):
+        self.requested.append(url)
+        resp = self.responses[url]
+        if resp is None:
+            return None, None
+        if isinstance(resp, int):
+            return None, resp
+        return resp, 200
 
     def save_json(self, data, output_dir, filename):
         self.saved.append(filename)
@@ -140,34 +149,73 @@ def _ids_cfg(tmp_path, **options) -> PipelineConfig:
     )
 
 
-def test_extract_by_ids_skips_done_and_blacklists(tmp_path):
+def _sem_dados(cfg) -> list[str]:
+    path = cfg.parameter_dir / "sem_dados.csv"
+    return path.read_text().split()[1:] if path.exists() else []
+
+
+def _erros(cfg) -> list[str]:
+    path = cfg.parameter_dir / "sem_dados_erros.csv"
+    return path.read_text().splitlines() if path.exists() else []
+
+
+def test_extract_by_ids_so_resposta_definitiva_vai_para_sem_dados(tmp_path):
     cfg = _ids_cfg(tmp_path)
-    cfg.parameter_filepath.write_text("id\n1\n2\n3\n4\n")
+    cfg.parameter_filepath.write_text("id\n1\n2\n3\n4\n5\n")
     (cfg.landing_dir / "1_votos.json").write_text("{}")  # já baixado
     http = FakeHttp(
         {
             "http://api/2/votos": [{"x": 1}],
             "http://api/3/votos": [],  # sem dados
-            "http://api/4/votos": None,  # timeout
+            "http://api/4/votos": 404,  # não existe
+            "http://api/5/votos": None,  # timeout: transitório
         }
     )
-    extract_by_ids(cfg, http=http)
+    extract_by_ids(cfg, http=http, today=date(2026, 9, 1))
 
     assert http.saved == ["2_votos.json"]
-    no_data = (cfg.parameter_dir / "sem_dados.csv").read_text().split()
-    assert no_data == ["id", "3", "4"]
+    assert _sem_dados(cfg) == ["3", "4"]
+    assert _erros(cfg) == ["id,desde", "5,2026-09-01"]
 
-    # Segunda rodada: nada pendente, nenhuma requisição.
-    http2 = FakeHttp({})
-    extract_by_ids(cfg, http=http2)
-    assert http2.saved == []
+    # Segunda rodada: só o 5 volta; agora responde e sai da lista de erros.
+    http2 = FakeHttp({"http://api/5/votos": [{"x": 5}]})
+    extract_by_ids(cfg, http=http2, today=date(2026, 9, 2))
+    assert http2.requested == ["http://api/5/votos"]
+    assert _erros(cfg) == []
 
 
-def test_extract_by_ids_without_blacklist_on_error(tmp_path):
-    cfg = _ids_cfg(tmp_path, blacklist_on_error=False)
-    cfg.parameter_filepath.write_text("id\n4\n")
-    extract_by_ids(cfg, http=FakeHttp({"http://api/4/votos": None}))
-    assert not (cfg.parameter_dir / "sem_dados.csv").exists()
+def test_extract_by_ids_desiste_depois_de_dias_falhando(tmp_path):
+    cfg = _ids_cfg(tmp_path, dias_para_desistir=7)
+    cfg.parameter_filepath.write_text("id\n4\n5\n")
+    responses = {"http://api/4/votos": 503, "http://api/5/votos": [{"x": 5}]}
+
+    extract_by_ids(cfg, http=FakeHttp(responses), today=date(2026, 9, 1))
+    # Mesma semana (retry do Airflow, execução seguinte): segue pendente.
+    extract_by_ids(cfg, http=FakeHttp(responses), today=date(2026, 9, 7))
+    assert _sem_dados(cfg) == []
+    assert _erros(cfg) == ["id,desde", "4,2026-09-01"]
+
+    extract_by_ids(cfg, http=FakeHttp(responses), today=date(2026, 9, 8))
+    assert _sem_dados(cfg) == ["4"]
+    assert _erros(cfg) == []
+
+
+def test_extract_by_ids_nenhum_sucesso_falha_a_etapa(tmp_path):
+    cfg = _ids_cfg(tmp_path)
+    cfg.parameter_filepath.write_text("id\n4\n5\n")
+    http = FakeHttp({"http://api/4/votos": None, "http://api/5/votos": 500})
+    with pytest.raises(RuntimeError, match="nenhum sucesso"):
+        extract_by_ids(cfg, http=http, today=date(2026, 9, 1))
+    # Mesmo falhando, os erros ficam anotados para contar os dias.
+    assert _erros(cfg) == ["id,desde", "4,2026-09-01", "5,2026-09-01"]
+    assert _sem_dados(cfg) == []
+
+    # Retry no mesmo dia (Airflow): a API segue fora, segue vermelho.
+    with pytest.raises(RuntimeError, match="nenhum sucesso"):
+        extract_by_ids(cfg, http=http, today=date(2026, 9, 1))
+    # Dias depois, só IDs que já vinham falhando: aviso, não vermelho.
+    extract_by_ids(cfg, http=http, today=date(2026, 9, 3))
+    assert _erros(cfg) == ["id,desde", "4,2026-09-01", "5,2026-09-01"]
 
 
 def test_extract_by_ids_custom_has_data(tmp_path):
@@ -176,13 +224,14 @@ def test_extract_by_ids_custom_has_data(tmp_path):
     http = FakeHttp({"http://api/7/votos": {"dados": []}})
     extract_by_ids(cfg, has_data=lambda d: bool(d.get("dados")), http=http)
     assert http.saved == []
+    assert _sem_dados(cfg) == ["7"]
 
 
 class RaisingHttp(FakeHttp):
-    def get_json(self, url):
+    def get_json_status(self, url):
         if url == "http://api/5/votos":
             raise RuntimeError("boom")
-        return super().get_json(url)
+        return super().get_json_status(url)
 
 
 def test_extract_by_ids_with_workers_matches_sequential(tmp_path):
@@ -196,9 +245,7 @@ def test_extract_by_ids_with_workers_matches_sequential(tmp_path):
     extract_by_ids(cfg, http=http)
 
     assert sorted(http.saved) == sorted(f"{i}_votos.json" for i in ids if i % 2 == 0)
-    lines = (cfg.parameter_dir / "sem_dados.csv").read_text().splitlines()
-    assert lines[0] == "id"
-    assert sorted(lines[1:], key=int) == [str(i) for i in ids if i % 2]
+    assert sorted(_sem_dados(cfg), key=int) == [str(i) for i in ids if i % 2]
 
 
 def test_extract_by_ids_thread_exception_does_not_blacklist(tmp_path):
@@ -207,4 +254,5 @@ def test_extract_by_ids_thread_exception_does_not_blacklist(tmp_path):
     http = RaisingHttp({"http://api/6/votos": [{"x": 1}]})
     extract_by_ids(cfg, http=http)
     assert http.saved == ["6_votos.json"]
-    assert not (cfg.parameter_dir / "sem_dados.csv").exists()
+    assert _sem_dados(cfg) == []
+    assert _erros(cfg) == []  # bug nosso não conta para desistir do ID

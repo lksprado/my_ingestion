@@ -13,7 +13,13 @@ import logging
 import gspread as gp
 import pandas as pd
 
-from core import PipelineConfig, normalize_string, reset_bronze, write_csv
+from core import (
+    PipelineConfig,
+    ensure_some_success,
+    normalize_string,
+    reset_bronze,
+    write_csv,
+)
 from settings import settings
 
 logger = logging.getLogger(__name__)
@@ -42,29 +48,36 @@ def _workbooks(cfg: PipelineConfig) -> list[dict]:
 
 def extract(cfg: PipelineConfig) -> None:
     gc = gp.service_account(filename=str(settings.google_credentials_file))
-    for wb in _workbooks(cfg):
+    workbooks = _workbooks(cfg)
+    total = sum(len(wb["sheets"]) for wb in workbooks)
+    falhas = 0
+    for wb in workbooks:
         url = settings.url_finance.get(wb["key"])
         if not url:
             logger.error(
                 f"URL_FINANCE__{wb['key'].upper()} nao definida; planilha ignorada"
             )
+            falhas += len(wb["sheets"])
             continue
         try:
             workbook = gc.open_by_url(url)
         except Exception:
             logger.exception(f"Falha ao abrir a planilha '{wb['key']}'")
+            falhas += len(wb["sheets"])
             continue
         for sheet in wb["sheets"]:
             try:
                 values = workbook.worksheet(sheet["name"]).get_all_values()
             except gp.exceptions.WorksheetNotFound:
                 logger.warning(f"Aba '{sheet['name']}' nao encontrada em '{wb['key']}'")
+                falhas += 1
                 continue
             path = cfg.landing_dir / cfg.landing_file.format(
                 workbook=wb["key"], sheet=sheet["stem"]
             )
             path.write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
             logger.info(f"💾 {sheet['name']} -> {path.name} ({len(values)} linhas)")
+    ensure_some_success(total, falhas, "aba(s)", log=logger)
 
 
 def _dedupe_header(cells: list) -> list[str]:

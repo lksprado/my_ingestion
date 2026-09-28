@@ -157,7 +157,7 @@ source, *, env=None, **overrides)` é a forma de construir (o `env` default vem 
 | `load` | de onde carregar: `table` (default) \| `files` \| `jsonb` \| `none` |
 | `write` | como escrever na tabela: `truncate` (default) \| `append` |
 | `bronze_sep` | separador do bronze (default `;`) |
-| `options` | dict livre do bloco `options:`; a core lê `control_table` (`control.py`), `no_data_file`/`parameter_column`/`blacklist_on_error` (`incremental.py`) e as de load listadas em `etl.py` |
+| `options` | dict livre do bloco `options:`; a core lê `control_table` (`control.py`), `no_data_file`/`parameter_column`/`dias_para_desistir`/`workers` (`incremental.py`) e as de load listadas em `etl.py` |
 | `criar_dirs` | cria os diretórios no `__init__` (default `True`; em testes use `False`) |
 
 Propriedades `landing_filepath`, `bronze_filepath`, `parameter_filepath` levantam
@@ -391,16 +391,24 @@ pending_ids(all_ids, done_ids, no_data_path=None) -> list[str]   # preserva a or
 mark_no_data(no_data_path, id_) -> None                          # CSV com header "id"
 read_ids(path, column) -> list[str]                              # sem ".0" de float
 landing_ids(landing_dir, suffix) -> set[str]
-extract_by_ids(cfg, has_data=bool, http=None) -> None
+extract_by_ids(cfg, has_data=bool, http=None, today=None) -> None
 ```
 O padrão dos "três conjuntos": todos os IDs menos os já no landing menos os que a
-API nunca respondeu. `extract_by_ids` monta o loop inteiro a partir do YAML:
+API disse não ter. `extract_by_ids` monta o loop inteiro a partir do YAML:
 placeholder `{id}` em `base_url`/`landing_file`, `parameter_file` com os IDs e, em
-`options`, `no_data_file`, `parameter_column` (default `id`) e `blacklist_on_error`
-(default `true`: erro/timeout também entra no "sem dados") e `workers` (default
-`1`; > 1 requisita em threads, com o "sem dados" escrito só pela thread principal;
-exceção inesperada numa thread é logada e o ID volta como pendente). `has_data(resposta)`
-decide o que é "sem dados" (a câmara usa `dados` não vazio).
+`options`, `no_data_file`, `parameter_column` (default `id`), `dias_para_desistir`
+(default `7`) e `workers` (default `1`; > 1 requisita em threads, com os CSVs de
+controle escritos só pela thread principal).
+
+Só resposta definitiva vai para o "sem dados": `has_data(resposta)` falso (a
+câmara usa `dados` não vazio) ou 404/410. Erro transitório (timeout, 5xx, 429 depois
+dos retries) deixa o ID pendente e anota a data da primeira falha em
+`<no_data_file>_erros.csv` (`id,desde`); passado `dias_para_desistir` falhando, o ID
+é desistido e vai para o "sem dados" com WARNING. Exceção inesperada (bug nosso)
+conta como falha mas não para desistir. No fim, `ensure_some_success`: se nenhum
+ID deu certo, levanta `RuntimeError` — contando só os IDs que não vinham falhando
+de dias anteriores, para um ID quebrado conhecido não deixar a etapa vermelha até
+a desistência (o retry do Airflow no mesmo dia continua vermelho).
 
 ---
 

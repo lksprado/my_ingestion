@@ -14,7 +14,14 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from core import Etl, HttpClient, PipelineConfig, run_source, write_bronze
+from core import (
+    Etl,
+    HttpClient,
+    PipelineConfig,
+    ensure_some_success,
+    run_source,
+    write_bronze,
+)
 
 logger = logging.getLogger(__name__)
 CONFIG_FILE = Path(__file__).parent / "vide_editorial_config.yml"
@@ -164,7 +171,7 @@ def extract_livros_em_destaque(cfg: PipelineConfig) -> None:
     http = _http()
     html = http.get_text(cfg.url_base)
     if html is None:
-        return
+        raise RuntimeError(f"Extract falhou: {cfg.url_base}")
     http.save_json(parse_home_sales(html), cfg.landing_dir, cfg.landing_file)
 
 
@@ -184,12 +191,15 @@ def extract_categorias(cfg: PipelineConfig) -> None:
     """Todas as páginas de cada categoria de ``options.hrefs``."""
     http = _http()
     delay = float(cfg.options.get("delay", 1.0))
+    pedidas = falhas = 0
 
     for item in cfg.options["hrefs"]:
         name, link = item["name"], item["link"]
         sep = "&" if "?" in link else "?"
         html = http.get_text(f"{link}{sep}page=1")
+        pedidas += 1
         if html is None:
+            falhas += 1
             continue
         last_page = get_last_page_number(html)
         logger.info(f"{name}: {last_page} pagina(s)")
@@ -201,13 +211,16 @@ def extract_categorias(cfg: PipelineConfig) -> None:
         for page in range(2, last_page + 1):
             sleep(delay)
             html = http.get_text(f"{link}{sep}page={page}")
+            pedidas += 1
             if html is None:
+                falhas += 1
                 continue
             http.save_json(
                 parse_content_pages(html),
                 cfg.landing_dir,
                 cfg.landing_file.format(name=name, page=page),
             )
+    ensure_some_success(pedidas, falhas, "página(s)", log=logger)
 
 
 ETLS = {

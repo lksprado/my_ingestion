@@ -24,6 +24,7 @@ from core import (
     JsonbLoader,
     PipelineConfig,
     PostgresClient,
+    ensure_some_success,
     run_source,
     validate_raw_schema,
 )
@@ -259,8 +260,11 @@ def extract_dynamic(
     workers = int(cfg.options.get("workers", 1))
     total = sum(len(t) for t in groups.values())
     logger.info(f"📥 Extraindo {total} arquivo(s) para {cfg.landing_dir}")
-    for out_dir, tasks in groups.items():
+    falhas = sum(
         http.fetch_and_save_many(tasks, out_dir, workers=workers)
+        for out_dir, tasks in groups.items()
+    )
+    ensure_some_success(total, falhas, "arquivo(s)", log=logger)
 
 
 def latest_season_files(cfg: PipelineConfig) -> list[Path]:

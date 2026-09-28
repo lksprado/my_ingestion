@@ -24,6 +24,7 @@ from core import (
     HttpClient,
     PipelineConfig,
     PostgresClient,
+    ensure_some_success,
     missing_dates_from_db,
     run_source,
     write_bronze,
@@ -132,6 +133,7 @@ def extract(cfg: PipelineConfig) -> None:
         navigate_to_report(driver)
         headers, user_id = session_headers(driver)
         http = HttpClient(logger, retries=3, backoff_factor=1.0, timeout=30)
+        falhas = 0
         for day in dates:
             payload = {
                 "selectedValue": settings.apsystems_equipment_id,
@@ -146,10 +148,14 @@ def extract(cfg: PipelineConfig) -> None:
                 data=payload,
                 headers=headers,
             )
+            if data is None:
+                falhas += 1
+                continue
             http.save_json(data, cfg.landing_dir, cfg.landing_file.format(day=day))
     finally:
         driver.quit()
         logger.info("WebDriver encerrado")
+    ensure_some_success(len(dates), falhas, "dia(s)", log=logger)
 
 
 # ------------------------------ parsers ------------------------------

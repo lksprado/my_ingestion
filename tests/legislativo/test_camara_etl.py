@@ -3,6 +3,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from core import PipelineConfig
 from pipelines.legislativo.camara import camara_etl
@@ -36,8 +37,9 @@ class FakeHttp:
         self.responses = responses
         self.saved = []
 
-    def get_json(self, url):
-        return self.responses[url]
+    def get_json_status(self, url):
+        data = self.responses[url]
+        return data, 200 if data is not None else None
 
     def save_json(self, data, output_dir, filename):
         self.saved.append(filename)
@@ -126,7 +128,9 @@ def test_extract_legislaturas_pula_se_uma_pagina_falha(tmp_path, monkeypatch):
     last = {"rel": "last", "href": f"{url}&pagina=2"}
     http = PagedHttp({f"{url}&pagina=1": {"dados": [{"id": 1}], "links": [last]}})
     monkeypatch.setattr(camara_etl, "HttpClient", lambda *a, **k: http)
-    camara_etl.extract_legislaturas(_leg_cfg(tmp_path))
+    # A única legislatura falhou: nada deu certo, a etapa falha.
+    with pytest.raises(RuntimeError, match="nenhum sucesso"):
+        camara_etl.extract_legislaturas(_leg_cfg(tmp_path))
     assert http.saved == {}
 
 

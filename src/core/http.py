@@ -2,11 +2,18 @@
 
 Nenhum método levanta exceção de rede: em erro, logam e devolvem ``None``
 (um ID quebrado não pode derrubar uma extração longa). Sempre teste o retorno.
+Quem faz várias requisições conta as falhas e chama ``ensure_some_success`` no
+fim: API fora do ar faz a etapa falhar; falha parcial só avisa.
+
+Os logs de erro mascaram o valor de parâmetros com cara de credencial
+(``appid``, ``api_key``, ``token``...): a mensagem das exceções do ``requests``
+traz a URL completa, query string inclusive.
 """
 
 import json
 import logging
 import os
+import re
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -23,6 +30,33 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
+
+_SENSITIVE_PARAM = re.compile(
+    r"([?&;\s][\w.-]*(?:key|token|secret|passw|pwd|appid|auth)[\w.-]*=)[^&\s'\"]+",
+    re.IGNORECASE,
+)
+
+
+def redact(text: str) -> str:
+    """``text`` com o valor de parâmetros sensíveis de URL trocado por ``***``."""
+    return _SENSITIVE_PARAM.sub(r"\1***", str(text))
+
+
+def ensure_some_success(
+    total: int, failures: int, what: str = "requisição(ões)", log=None
+) -> None:
+    """Fim de um extract com várias requisições: nada deu certo → a etapa falha.
+
+    Falha parcial (um ID quebrado, um ano sem arquivo) só vira WARNING: o que
+    faltou fica para a próxima execução, e o resto segue para transform/load.
+    Quando todas falham, a API está fora do ar, e seguir verde deixaria o load
+    regravar o bronze antigo com carimbo novo.
+    """
+    log = log or logger
+    if failures:
+        log.warning(f"⚠️ {failures} de {total} {what} falharam.")
+    if total and failures >= total:
+        raise RuntimeError(f"Extract sem nenhum sucesso: {total} {what} falharam.")
 
 
 class HttpClient:
@@ -53,7 +87,7 @@ class HttpClient:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
-    def request(
+    def _send(
         self,
         url: str,
         *,
@@ -63,9 +97,11 @@ class HttpClient:
         data: dict | None = None,
         timeout: int | None = None,
         **kwargs,
-    ) -> Any | None:
-        """Requisição genérica; devolve json/text conforme ``mode`` (None em erro)."""
+    ) -> tuple[Any | None, int | None]:
+        """``(corpo, status HTTP)``; o corpo é ``None`` em erro e o status é
+        ``None`` quando nem houve resposta (rede, timeout, retries esgotados)."""
         merged_headers = {**self.default_headers, **(headers or {})}
+        status = None
         try:
             response = self.session.request(
                 method=method,
@@ -75,21 +111,35 @@ class HttpClient:
                 timeout=timeout or self.timeout,
                 **kwargs,
             )
+            status = response.status_code
             response.raise_for_status()
 
             if mode == "text":
-                return response.text
+                return response.text, status
             if mode == "json":
-                return response.json()
+                return response.json(), status
             content_type = response.headers.get("Content-Type", "").lower()
             if "application/json" in content_type:
-                return response.json()
-            return response.text
+                return response.json(), status
+            return response.text, status
         except ValueError:
-            self.logger.error(f"❌ Resposta nao e JSON: {url}")
+            self.logger.error(f"❌ Resposta nao e JSON: {redact(url)}")
         except requests.RequestException as e:
-            self.logger.error(f"❌ Erro na requisicao: {url} --- {e}")
-        return None
+            self.logger.error(f"❌ Erro na requisicao: {redact(url)} --- {redact(e)}")
+        return None, status
+
+    def request(self, url: str, **kwargs) -> Any | None:
+        """Requisição genérica; devolve json/text conforme ``mode`` (None em erro).
+
+        Aceita ``method``, ``mode`` (``json``/``text``/``auto``), ``headers``,
+        ``data``, ``timeout`` e os demais argumentos do ``requests``.
+        """
+        return self._send(url, **kwargs)[0]
+
+    def get_json_status(self, url: str, **kwargs) -> tuple[Any | None, int | None]:
+        """GET que espera JSON, com o status: separa "não existe" (404) de erro
+        transitório (5xx, timeout), que o ``get_json`` devolve igual (``None``)."""
+        return self._send(url, mode="json", **kwargs)
 
     def get_json(self, url: str, **kwargs) -> dict | list | None:
         """GET que espera JSON."""
@@ -138,7 +188,7 @@ class HttpClient:
         """Requisita JSON e persiste em disco."""
         data = self.get_json(url, **kwargs)
         if data is None:
-            self.logger.warning(f"⚠️ Nenhum dado de {url}")
+            self.logger.warning(f"⚠️ Nenhum dado de {redact(url)}")
             return None
         return self.save_json(data, output_dir, filename)
 
@@ -147,16 +197,17 @@ class HttpClient:
         tasks: list[tuple[str, str]],
         output_dir: Path | str,
         workers: int = 1,
-    ) -> None:
-        """Requisita e persiste uma lista de (url, filename); threads se workers > 1."""
+    ) -> int:
+        """Requisita e persiste uma lista de (url, filename); threads se workers > 1.
 
-        def _one(url: str, filename: str) -> None:
-            self.fetch_and_save(url, output_dir, filename)
+        Devolve quantas tarefas falharam (para o ``ensure_some_success``).
+        """
+
+        def _one(url: str, filename: str) -> bool:
+            return self.fetch_and_save(url, output_dir, filename) is not None
 
         if workers == 1:
-            for url, filename in tasks:
-                _one(url, filename)
-            return
+            return sum(not _one(url, filename) for url, filename in tasks)
 
         if workers > self.pool_size:
             self.logger.warning(
@@ -166,10 +217,13 @@ class HttpClient:
         self.logger.info(
             f"📥 Iniciando extracao com {workers} threads ({len(tasks)} tarefas)..."
         )
+        failures = 0
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(_one, url, fn): fn for url, fn in tasks}
             for fut in as_completed(futures):
                 try:
-                    fut.result()
+                    failures += not fut.result()
                 except Exception as e:
+                    failures += 1
                     self.logger.error(f"❌ Erro em {futures[fut]}: {e}", exc_info=True)
+        return failures

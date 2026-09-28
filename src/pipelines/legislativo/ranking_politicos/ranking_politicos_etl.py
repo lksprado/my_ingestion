@@ -24,7 +24,11 @@ CONFIG_FILE = Path(__file__).parent / "ranking_politicos_config.yml"
 
 def extract(cfg: PipelineConfig) -> None:
     filename = cfg.landing_file.format(year=date.today().year)
-    HttpClient(logger).fetch_and_save(cfg.url_base, cfg.landing_dir, filename)
+    if (
+        HttpClient(logger).fetch_and_save(cfg.url_base, cfg.landing_dir, filename)
+        is None
+    ):
+        raise RuntimeError(f"Extract falhou: {cfg.url_base}")
 
 
 def transform(cfg: PipelineConfig) -> None:

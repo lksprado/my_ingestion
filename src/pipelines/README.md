@@ -221,11 +221,21 @@ Documente a ordem de execução resultante no README da fonte.
 
 **Extração incremental por ID.** Para fontes com milhares de IDs, o padrão é
 comparar três conjuntos e requisitar só a diferença: todos os IDs
-(`parameter_file`), os já no `landing_dir`, e os que a API não respondeu
-(`options.no_data_file`). `core.pending_ids`/`mark_no_data` fazem a conta;
-`core.extract_by_ids(cfg, has_data=...)` monta o loop inteiro a partir do YAML
-(placeholder `{id}` em `base_url`/`landing_file`). `options.workers` (default 1)
-faz as requisições em threads; mantenha baixo (4) para não cair em 429 da API.
+(`parameter_file`), os já no `landing_dir`, e os que a API disse não ter
+(`options.no_data_file`: sem dado ou 404/410). `core.pending_ids`/`mark_no_data`
+fazem a conta; `core.extract_by_ids(cfg, has_data=...)` monta o loop inteiro a
+partir do YAML (placeholder `{id}` em `base_url`/`landing_file`). Erro transitório
+(timeout, 5xx) deixa o ID pendente e só o desiste depois de
+`options.dias_para_desistir` (default 7) dias falhando. `options.workers`
+(default 1) faz as requisições em threads; mantenha baixo (4) para não cair em
+429 da API.
+
+**Extract que falha tem de falhar.** O `HttpClient` devolve `None` em vez de
+levantar, para um item quebrado não derrubar a extração inteira. Quem faz várias
+requisições conta as falhas e termina com `core.ensure_some_success(total,
+falhas)`: falha parcial vira WARNING, e nenhum sucesso (API fora do ar) levanta.
+Sem isso a task fica verde e o load regrava o bronze antigo com carimbo novo, o
+que esconde a falha até do freshness do dbt.
 
 **Extração incremental por data.** `core.missing_dates_from_db(db, sqls, control)`
 descobre no Postgres até onde os dados vão e devolve as datas faltantes. Veja

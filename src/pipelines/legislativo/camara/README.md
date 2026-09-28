@@ -96,11 +96,12 @@ nominal.
   numeração.
 - **Extração por ID** (`votos_*`, `proposicao*`): `base_url` e `landing_file` usam o
   placeholder `{id}`; `core.extract_by_ids` requisita só os IDs que não estão no
-  landing nem no CSV `options.no_data_file` (IDs que a API não respondeu), em 4
+  landing nem no CSV `options.no_data_file` (IDs sem dado ou com 404), em 4
   threads (`options.workers`). Se a API começar a devolver 429, baixe esse número.
-- **Divergência registrada:** `votos_orientacao` tem `blacklist_on_error: false`
-  (timeout **não** entra no "sem dados"); os outros quatro registram timeout como
-  "sem dados" e nunca mais tentam. Decidir um comportamento único é pendência.
+  Timeout e 5xx não entram no "sem dados": o ID fica pendente, a data da primeira
+  falha vai para `<no_data_file>_erros.csv`, e só depois de 7 dias falhando
+  (`options.dias_para_desistir`) ele é desistido. Se nenhum ID der certo numa
+  execução (API fora do ar), o extract falha.
 - **Bronze em streaming:** `votos_deputados`, `proposicao` e `proposicao_tema`
   montam o bronze um arquivo por vez (`core.write_bronze_incremental`, que cai
   no `write_bronze_streaming` quando a entidade não tem `control_table`), porque
