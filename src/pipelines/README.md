@@ -237,9 +237,10 @@ falhas)`: falha parcial vira WARNING, e nenhum sucesso (API fora do ar) levanta.
 Sem isso a task fica verde e o load regrava o bronze antigo com carimbo novo, o
 que esconde a falha até do freshness do dbt.
 
-**Extração incremental por data.** `core.missing_dates_from_db(db, sqls, control)`
-descobre no Postgres até onde os dados vão e devolve as datas faltantes. Veja
-`clima/openweather` e `energia/solar`.
+**Extração incremental por data.** Com um JSON por dia no landing (`{day}` em
+`landing_file`), `core.missing_dates_from_landing(cfg)` devolve os dias sem
+arquivo (buracos dos últimos `options.lookback_days` e tudo depois do último dia
+baixado). Veja `clima/openweather` e `energia/solar`.
 
 **Falhas não abortam o lote.** O `HttpClient` devolve `None` em erro em vez de
 levantar exceção — trate o item, logue e siga. Um ID quebrado não pode derrubar uma

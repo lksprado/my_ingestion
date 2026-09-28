@@ -2,7 +2,7 @@
 # Padrão das demais fontes: o landing acumula um JSON por dia, o transform
 # reconstrói o bronze a partir dele e a carga é full refresh (write: truncate,
 # o default). O que evita rebaixar o histórico é o extract, incremental por data
-# (high-water mark na própria tabela), não a carga.
+# (core.missing_dates_from_landing: dias sem JSON no landing), não a carga.
 # bronze_sep "," é o formato histórico deste CSV; nada fora daqui o lê.
 # ``{day}`` em landing_file é resolvido pelo pipeline (data requisitada).
 db_schema: "raw_openweather"
@@ -21,8 +21,8 @@ sources:
     base_url: "https://api.openweathermap.org/data/3.0/onecall/day_summary"
     landing_file: "day_summary_{day}.json"
     bronze_file: "all_dfs.csv"
-    db_table: "openweather_daily"          # high-water mark: MAX(options.date_column)
+    db_table: "openweather_daily"
     options:
       # lat/lon do ponto vêm do .env (OPENWEATHER_LAT / OPENWEATHER_LON)
       control_file: "missing_dates.csv"
-      date_column: "date"
+      lookback_days: 30           # dias para trás em que um dia sem JSON é pedido de novo

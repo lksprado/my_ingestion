@@ -2,7 +2,7 @@
 # Padrão das demais fontes: o landing acumula um JSON por dia, cada entidade
 # reconstrói seu bronze a partir dele e a carga é full refresh (write: truncate,
 # o default). O que evita rebaixar o histórico é o extract, incremental por data
-# (high-water mark nas próprias tabelas), não a carga.
+# (core.missing_dates_from_landing: dias sem JSON no landing), não a carga.
 # Schema raw_apsystem preservado: é o que o my_analytics lê.
 # bronze_sep "," é o formato histórico destes CSVs; nada fora daqui os lê.
 # ``{day}`` em landing_file é resolvido pelo pipeline (data requisitada).
@@ -13,10 +13,9 @@ db_schema: "raw_apsystem"
 bronze_sep: ","
 options:
   control_file: "missing_dates.csv"
-  # tabelas do high-water mark e sua coluna de data: o extract parte do menor MAX
-  watermarks:
-    solar_daily_energy: "date"
-    solar_hourly_energy: "datetime"
+  # dias para trás em que um dia sem JSON é pedido de novo (default 30); o que
+  # vem depois do último dia baixado é sempre pedido
+  lookback_days: 30
   # equipment_id do inversor vem do .env (APSYSTEMS_EQUIPMENT_ID)
   login_url: "https://apsystemsema.com/ema/index.action"
   report_url: "https://apsystemsema.com/ema/ajax/getReportApiAjax/getHourlyEnergyOnCurrentDayAjax"
