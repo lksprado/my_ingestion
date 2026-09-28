@@ -17,7 +17,7 @@ uv run pre-commit install        # ruff, gitleaks e bloqueio de commit na main
 ```
 
 ```bash
-uv run task test                 # pytest (sem os de integração)
+uv run task test                 # pytest (sem os de integração; exige DB__DEV__* preenchido)
 uv run task lint                 # ruff check + format --check
 uv run task format               # ruff format + fix
 ```
@@ -114,8 +114,14 @@ estão em [`src/core/README.md`](src/core/README.md); como aplicá-los num pipel
 
 ### Ao abrir o PR
 
-Não há check no GitHub. A validação é o pre-commit (ruff e gitleaks), o `task test` e rodar o
-pipeline em dev, de preferência pela DAG no Airflow local, que já lê o seu disco.
+O workflow `CI` (`.github/workflows/ci.yml`) roda em todo PR: `task lint`, o
+`scripts/validar_configs.py` e o `task test`. Os testes de integração ficam de fora; rode-os
+localmente (`uv run pytest -m integration`) e o pipeline em dev, de preferência pela DAG no
+Airflow local, que já lê o seu disco.
+
+Os testes unitários não conectam no banco, mas o `settings.py` valida o perfil `DB__DEV__*` na
+importação: sem ele preenchido no `.env` (qualquer valor serve, o banco tem de ser
+`ingestion_sandbox`), nem os testes de parser são coletados.
 
 ### Ao fazer o merge
 

@@ -1,0 +1,38 @@
+name: CI
+
+# A main é produção e cada merge nela vira deploy (deploy-prod.yml): este job é o
+# que barra lint quebrado, config de pipeline inválida e teste vermelho antes do
+# merge. Os testes de integração (Postgres) ficam de fora, como no `task test`.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    # O settings.py valida o perfil de banco na importação, e os pipelines o
+    # importam no topo: sem estes valores nem os testes de parser são coletados.
+    # Nenhum teste daqui conecta; os valores só precisam passar no validator.
+    env:
+      ENV: dev
+      LAKE_ROOT: /tmp/lake
+      SEEDS_ROOT: /tmp/seeds
+      DB__DEV__HOST: localhost
+      DB__DEV__NAME: ingestion_sandbox
+      DB__DEV__USER: ci
+      DB__DEV__PASSWORD: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: uv sync
+        run: uv sync --locked
+      - name: lint
+        run: uv run task lint
+      - name: configs dos pipelines
+        run: uv run python scripts/validar_configs.py
+      - name: testes
+        run: uv run task test
