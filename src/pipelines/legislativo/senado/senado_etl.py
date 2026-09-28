@@ -135,25 +135,22 @@ def _parse_votacoes(path: Path) -> pd.DataFrame:
 def transform_votacoes(cfg: PipelineConfig) -> None:
     df = sanitize_columns(concat_landing(cfg, _parse_votacoes))
     write_bronze(cfg, df)
-    cfg.write_output_params(df, default_column="codigosessaovotacao")
+    cfg.write_output_params(df)
+
+
+def _parse_votos_senadores(path: Path) -> pd.DataFrame:
+    with open(path, encoding="utf-8") as fp:
+        votacoes = json.load(fp)
+    return pd.DataFrame(
+        flatten_children(votacoes, _VOTOS_SENADORES_PARENT_COLS, "votos")
+    )
 
 
 def transform_votos_senadores(cfg: PipelineConfig) -> None:
     """Sem extract: lê o landing de ``votacoes`` (`options.source_landing_subpath`)."""
     source = cfg.landing_dir.parent / cfg.options["source_landing_subpath"]
-    frames = []
-    for f in sorted(source.glob("*.json")):
-        try:
-            with open(f, encoding="utf-8") as fp:
-                rows = flatten_children(
-                    json.load(fp), _VOTOS_SENADORES_PARENT_COLS, "votos"
-                )
-        except Exception:
-            logger.error(f"❌ Erro ao transformar {f}", exc_info=True)
-            continue
-        if rows:
-            frames.append(pd.DataFrame(rows))
-    write_bronze(cfg, pd.concat(frames, ignore_index=True) if frames else None)
+    df = concat_landing(cfg, _parse_votos_senadores, landing_dir=source)
+    write_bronze(cfg, df)
 
 
 def _parse_votos_orientacao(path: Path) -> pd.DataFrame:

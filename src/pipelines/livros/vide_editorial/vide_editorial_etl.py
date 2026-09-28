@@ -18,6 +18,7 @@ from core import (
     Etl,
     HttpClient,
     PipelineConfig,
+    concat_landing,
     ensure_some_success,
     run_source,
     write_bronze,
@@ -175,13 +176,15 @@ def extract_livros_em_destaque(cfg: PipelineConfig) -> None:
     http.save_json(parse_home_sales(html), cfg.landing_dir, cfg.landing_file)
 
 
+def _parse_destaques(path: Path) -> pd.DataFrame:
+    df = pd.read_json(path)
+    df["source_filename"] = path.name
+    return df
+
+
 def transform_livros_em_destaque(cfg: PipelineConfig) -> None:
-    frames = []
-    for f in sorted(cfg.landing_dir.glob(cfg.options["file_pattern"])):
-        df = pd.read_json(f)
-        df["source_filename"] = f.name
-        frames.append(df)
-    write_bronze(cfg, pd.concat(frames, ignore_index=True) if frames else None)
+    pattern = cfg.options["file_pattern"]
+    write_bronze(cfg, concat_landing(cfg, _parse_destaques, pattern))
 
 
 # ------------------------------ categorias ------------------------------

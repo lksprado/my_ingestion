@@ -20,47 +20,21 @@ def normalize_string(s: str) -> str:
     return s.strip("_")
 
 
-def _sanitize_name(col, case: str, space: str, alfanum: str) -> str:
-    new_col = unidecode(str(col)).strip()
-    if case == "upper":
-        new_col = new_col.upper()
-    elif case == "lower":
-        new_col = new_col.lower()
-    if space == "replace":
-        new_col = new_col.replace(" ", "_")
-    if alfanum == "remove":
-        new_col = "".join(c for c in new_col if c.isalnum() or c in "_ ")
-    elif alfanum == "replace":
-        new_col = "".join(c if c.isalnum() or c in "_ " else "_" for c in new_col)
-    return new_col
+def _sanitize_name(col) -> str:
+    name = unidecode(str(col)).strip().lower().replace(" ", "_")
+    return "".join(c if c.isalnum() or c == "_" else "_" for c in name)
 
 
-def sanitize_columns(
-    df: pd.DataFrame,
-    cols: Sequence[str] | None = None,
-    *,
-    case: str = "lower",
-    space: str = "replace",
-    alfanum: str = "replace",
-) -> pd.DataFrame:
+def sanitize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Devolve uma cópia com nomes de coluna sem acento, minúsculos e só ``[a-z0-9_]``.
 
     É o que define os nomes das colunas em ``raw_<fonte>.*`` (o dbt depende
     deles); ``write_bronze`` já aplica isto.
     """
-    cols = list(cols) if cols else list(df.columns)
-    mapping = {c: _sanitize_name(c, case, space, alfanum) for c in cols}
-    return df.rename(columns=mapping)
+    return df.rename(columns={c: _sanitize_name(c) for c in df.columns})
 
 
-def sanitize_values(
-    df: pd.DataFrame,
-    *,
-    exclude: Sequence[str] = (),
-    case: str = "upper",
-    space: str = "keep",
-    alfanum: str = "remove",
-) -> pd.DataFrame:
+def sanitize_values(df: pd.DataFrame, *, exclude: Sequence[str] = ()) -> pd.DataFrame:
     """Devolve uma cópia com os valores texto sem acento/pontuação e em maiúsculas.
 
     Colunas numéricas e as listadas em ``exclude`` (URLs, e-mails, datas) são
@@ -71,16 +45,8 @@ def sanitize_values(
         if col in exclude or pd.api.types.is_numeric_dtype(df[col]):
             continue
         s = df[col].map(lambda v: unidecode(str(v)).strip(), na_action="ignore")
-        s = s.astype("object")
-        if case == "upper":
-            s = s.str.upper()
-        elif case == "lower":
-            s = s.str.lower()
-        if space == "replace":
-            s = s.str.replace(" ", "_", regex=False)
-        if alfanum == "remove":
-            s = s.str.replace(r"[^\w\s]", "", regex=True)
-        df[col] = s
+        s = s.astype("object").str.upper()
+        df[col] = s.str.replace(r"[^\w\s]", "", regex=True)
     return df
 
 

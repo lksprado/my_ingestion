@@ -17,6 +17,7 @@ from core import (
     Etl,
     HttpClient,
     PipelineConfig,
+    concat_landing,
     ensure_some_success,
     missing_dates_from_landing,
     run_source,
@@ -90,15 +91,14 @@ def extract(cfg: PipelineConfig) -> None:
     ensure_some_success(len(dates), falhas, "dia(s)", log=logger)
 
 
+def _parse_file(path: Path) -> pd.DataFrame:
+    with open(path, encoding="utf-8") as fp:
+        return parse_day_summary(json.load(fp))
+
+
 def transform(cfg: PipelineConfig) -> None:
-    frames = []
-    for f in sorted(cfg.landing_dir.glob(cfg.landing_file.format(day="*"))):
-        try:
-            with open(f, encoding="utf-8") as fp:
-                frames.append(parse_day_summary(json.load(fp)))
-        except Exception as e:
-            logger.warning(f"JSON vazio ou inválido {f} -- {e}")
-    write_bronze(cfg, pd.concat(frames, ignore_index=True) if frames else None)
+    pattern = cfg.landing_file.format(day="*")
+    write_bronze(cfg, concat_landing(cfg, _parse_file, pattern))
 
 
 ETLS = {"daily": Etl(extract=extract, transform=transform)}

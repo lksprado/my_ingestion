@@ -23,7 +23,6 @@ from core import (
     run_source,
     write_bronze,
 )
-from core.parsers.html import make_bs_object
 
 logger = logging.getLogger(__name__)
 CONFIG_FILE = Path(__file__).parent / "ecidadania_config.yml"
@@ -145,7 +144,7 @@ def fetch_to_csv(
     if html is None:
         logger.warning(f"⚠️ Sem resposta de {url}")
         return None
-    df = parser(make_bs_object(response=html))
+    df = parser(BeautifulSoup(html, "html.parser"))
     if df.empty:
         return 0
     df.to_csv(cfg.landing_dir / filename, sep=";", index=False)

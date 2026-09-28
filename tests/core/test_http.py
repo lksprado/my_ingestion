@@ -49,13 +49,13 @@ def test_get_json_and_get_text(monkeypatch):
     assert calls[-1]["headers"]["User-Agent"] == DEFAULT_USER_AGENT
 
 
-def test_request_auto_mode_follows_content_type(monkeypatch):
+def test_request_post_json_and_text(monkeypatch):
     calls = []
-    http = _client(monkeypatch, FakeResponse("oi", "text/plain"), calls)
-    assert http.request("http://x") == "oi"
     http = _client(monkeypatch, FakeResponse('{"a": 1}'), calls)
     assert http.request("http://x", method="POST", data={"k": "v"}) == {"a": 1}
     assert calls[-1]["data"] == {"k": "v"}
+    http = _client(monkeypatch, FakeResponse("oi", "text/plain"), calls)
+    assert http.request("http://x", mode="text") == "oi"
 
 
 def test_errors_return_none(monkeypatch):

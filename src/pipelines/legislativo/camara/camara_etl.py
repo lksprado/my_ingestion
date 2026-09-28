@@ -155,7 +155,7 @@ def transform_legislaturas(cfg: PipelineConfig) -> None:
     df = concat_landing(cfg, partial(parse_dados_abertos, url_col="url_link"))
     write_bronze(cfg, df)
     if not df.empty:
-        cfg.write_output_params(df, default_column="id")
+        cfg.write_output_params(df)
 
 
 # ------------------------------ deputados ------------------------------
@@ -281,7 +281,7 @@ def transform_votacoes(cfg: PipelineConfig) -> None:
             r"/(\d+)/?$", expand=False
         )
     write_bronze(cfg, df)
-    cfg.write_output_params(df, default_column="id")
+    cfg.write_output_params(df)
 
 
 # ------------------------------ arquivos anuais ------------------------------

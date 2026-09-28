@@ -23,6 +23,7 @@ from core import (
     Etl,
     HttpClient,
     PipelineConfig,
+    concat_landing,
     ensure_some_success,
     missing_dates_from_landing,
     run_source,
@@ -166,13 +167,7 @@ def parse_hourly_json(path: Path) -> pd.DataFrame:
 
 def load_landing(cfg: PipelineConfig) -> pd.DataFrame:
     """Concatena todos os JSONs do landing (arquivo inválido é pulado)."""
-    frames = []
-    for f in sorted(cfg.landing_dir.glob(cfg.landing_file.format(day="*"))):
-        try:
-            frames.append(parse_hourly_json(f))
-        except Exception as e:
-            logger.warning(f"JSON vazio ou inválido {f} -- {e}")
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return concat_landing(cfg, parse_hourly_json, cfg.landing_file.format(day="*"))
 
 
 def daily_summary(df: pd.DataFrame) -> pd.DataFrame:

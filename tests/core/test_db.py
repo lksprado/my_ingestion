@@ -99,7 +99,8 @@ def test_read_sql_wraps_engine_queries_in_text(monkeypatch):
         return pd.DataFrame()
 
     monkeypatch.setattr(pd, "read_sql", fake_read_sql)
-    PostgresClient(engine=_Sentinel()).read_sql("select 1 where x like 'a%'")
+    target = DbTarget(host="h", name="ingestion_sandbox", user="u", password="p")
+    PostgresClient(target=target).read_sql("select 1 where x like 'a%'")
     assert str(seen["sql"]) == "select 1 where x like 'a%'"
     assert not isinstance(seen["sql"], str)  # sqlalchemy.text
 
