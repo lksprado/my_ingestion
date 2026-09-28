@@ -105,3 +105,64 @@ def test_ingestion_control_exige_schema_raw():
 
     with pytest.raises(ValueError, match="raw_<fonte>"):
         IngestionControl(object(), schema="staging")
+
+
+class _ControleFalso:
+    """Controle sem Postgres: todos os arquivos pendentes; guarda o que registrar."""
+
+    def __init__(self):
+        self.registrados: list[str] = []
+
+    def pending(self, arquivos, table):
+        return list(arquivos)
+
+    def mark_ingested(self, arquivos, table):
+        self.registrados.extend(f.name for f in arquivos)
+
+
+def _landing(tmp_path, nomes):
+    landing = tmp_path / "landing"
+    for nome in nomes:
+        (landing / f"{nome}.json").write_text("{}", encoding="utf-8")
+    return sorted(landing.glob("*.json"))
+
+
+def test_bronze_incremental_arquivo_com_erro_fica_fora_do_manifesto(
+    tmp_path, monkeypatch
+):
+    cfg = _cfg(tmp_path, options={"control_table": "ingestion_control"})
+    controle = _ControleFalso()
+    monkeypatch.setattr("core.control.control_for", lambda cfg, log=None: controle)
+
+    def parse(f):
+        if f.stem == "b":
+            raise ValueError("JSON truncado")
+        return None if f.stem == "c" else pd.DataFrame({"x": [f.stem]})
+
+    path = write_bronze_incremental(cfg, _landing(tmp_path, "abc"), parse)
+    assert path.read_text().splitlines() == ["x", "a"]
+    # 'b' volta na próxima execução; 'c' (lido, sem linha) entra e é registrado
+    # pelo load junto com o COPY.
+    assert read_manifest(cfg) == ["a.json", "c.json"]
+    assert controle.registrados == []
+
+
+def test_bronze_incremental_sem_linhas_nao_recarrega_bronze_velho(
+    tmp_path, monkeypatch
+):
+    cfg = _cfg(tmp_path, options={"control_table": "ingestion_control"})
+    cfg.bronze_filepath.parent.mkdir(parents=True, exist_ok=True)
+    cfg.bronze_filepath.write_text("x\ndelta_anterior\n", encoding="utf-8")
+    controle = _ControleFalso()
+    monkeypatch.setattr("core.control.control_for", lambda cfg, log=None: controle)
+
+    def parse(f):
+        if f.stem == "b":
+            raise ValueError("JSON truncado")
+        return None
+
+    assert write_bronze_incremental(cfg, _landing(tmp_path, "ab"), parse) is None
+    # O delta anterior já foi carregado: se ficasse, o load o copiaria de novo.
+    assert not cfg.bronze_filepath.exists()
+    assert read_manifest(cfg) == []
+    assert controle.registrados == ["a.json"]

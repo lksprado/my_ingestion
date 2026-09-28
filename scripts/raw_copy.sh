@@ -37,9 +37,11 @@
 # só cresce. Se o destino tiver carga mais nova que a origem, ele diz "em dia"
 # sem estar: use --full.
 #
-# A lista de colunas vem da ORIGEM e é usada nos dois lados, então os bancos
-# precisam estar no mesmo nome de coluna: divergência dá erro de \copy, não
-# cópia parcial silenciosa.
+# A lista de colunas vem da ORIGEM e é usada nos dois lados. Coluna que só a
+# origem tem (ADD COLUMN da carga, quando chega coluna nova) é acrescentada no
+# destino antes da cópia, com o mesmo tipo; coluna que só o destino tem fica NULL
+# nas linhas copiadas. Tipo divergente dá erro de \copy, não cópia parcial
+# silenciosa.
 #
 # --dry-run mostra a decisão de cada tabela sem mover dado.
 # --full    ignora o delta e copia tudo, tabela a tabela.
@@ -232,6 +234,22 @@ for schema in "$@"; do
                 continue
             fi
             origem_dump -s -t "$schema.$tabela" --no-owner | destino -q -1 >/dev/null
+        else
+            # Coluna que a origem ganhou depois (ADD COLUMN da carga, quando o
+            # bronze traz coluna nova) ainda não existe no destino: sem ela o
+            # \copy com a lista da origem falha. Entra vazia, como entrou lá.
+            no_destino=$(destino -Atc "SELECT column_name FROM information_schema.columns
+                                       WHERE table_schema='$schema' AND table_name='$tabela'")
+            while IFS='|' read -r coluna definicao; do
+                [[ -n $coluna ]] || continue
+                grep -qxF -- "$coluna" <<<"$no_destino" && continue
+                echo "  $schema.$tabela: coluna nova no destino: $definicao"
+                [[ $DRY_RUN == 1 ]] || destino -q -c "ALTER TABLE $schema.$tabela ADD COLUMN IF NOT EXISTS $definicao"
+            done < <(origem -Atc "SELECT a.attname, format('%I %s', a.attname, format_type(a.atttypid, a.atttypmod))
+                                  FROM pg_attribute a
+                                  WHERE a.attrelid = '$schema.$tabela'::regclass
+                                    AND a.attnum > 0 AND NOT a.attisdropped
+                                  ORDER BY a.attnum")
         fi
 
         cols=$(origem -Atc "SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position)

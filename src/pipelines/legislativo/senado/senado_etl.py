@@ -261,7 +261,8 @@ def _parse_processos(path: Path) -> pd.DataFrame | None:
 
 
 def transform_processos(cfg: PipelineConfig) -> None:
-    # Ano mais recente primeiro: o streaming fixa o cabeçalho pelo 1º arquivo.
+    # Ano mais recente primeiro: o esquema novo é o mais completo, então o
+    # cabeçalho do streaming quase nunca cresce e o bronze não é regravado.
     arquivos = sorted(cfg.landing_dir.glob("*.json"), reverse=True)
     write_bronze_streaming(cfg, arquivos, _parse_processos)
 

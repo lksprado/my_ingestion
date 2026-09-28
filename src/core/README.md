@@ -202,7 +202,9 @@ Rejeita chave desconhecida no topo, nos ambientes e nas sources (`_source_dict`
 ignoraria em silêncio), `load`/`write`/`bronze_sep` inválidos, ambientes que não
 sejam exatamente `dev` e `prod`, `base_raw` ausente, path de `dev` fora de
 `${LAKE_ROOT}`/`${SEEDS_ROOT}`, `db_schema` sem `raw_` quando `load` é
-`table|files|jsonb` e `db_table` ausente com `table|jsonb`. `options` é livre.
+`table|files|jsonb`, `db_table` ausente com `table|jsonb` e `write: append` com
+`load: table` sem `options.control_table` (sem o controle, o bronze é o landing
+inteiro e cada carga duplicaria a tabela). Fora isso, `options` é livre.
 Roda no pre-commit por `scripts/validar_configs.py`, que também confere as
 sources contra as chaves de `ETLS`. Chave nova de YAML entra em
 `TOP_KEYS`/`ENV_KEYS`/`SOURCE_KEYS` ou vai em `options:`.
@@ -331,10 +333,13 @@ pandas promoveu a float sai `123`, não `123.0`), cria o diretório e grava
 write_bronze_streaming(cfg, files, parse_fn, workers=None) -> Path | None
 ```
 Mesma coisa, um arquivo por vez (memória limitada): `parse_fn(file)` devolve o
-DataFrame daquele arquivo (ou `None` para pular); cabeçalho fixado no primeiro,
-demais alinhados (colunas extras descartadas com warning); exceção num arquivo é
-logada e pulada; escrita em temporário + `os.replace`. É um **rebuild** completo:
-quem quiser incrementalidade filtra `files` antes.
+DataFrame daquele arquivo (ou `None` para pular). O cabeçalho começa com as
+colunas do primeiro e **cresce** quando um arquivo seguinte traz coluna nova: ela
+entra no fim e fica vazia (NULL) nas linhas anteriores, e o arquivo só é regravado
+nesse caso — nenhuma coluna é descartada. Exceção num arquivo é logada e pulada;
+escrita em temporário + `os.replace`. É um **rebuild** completo: quem quiser
+incrementalidade filtra `files` antes. `stream_bronze` é a mesma função devolvendo
+também quais arquivos foram lidos e quais deram erro (`StreamResult`).
 
 `workers` (default `options.transform_workers` do YAML, senão 1) > 1 faz o parse
 e o preparo em paralelo num pool de processos (`forkserver`), com no máximo
@@ -423,7 +428,11 @@ O ciclo passa a ser:
 
 1. **transform** — pergunta ao controle quais arquivos faltam, gera o bronze só
    com eles e grava um **manifesto** ao lado (`<bronze>.manifesto.csv`) dizendo
-   quais foram. Sem pendências, o manifesto sai vazio e não há bronze;
+   quais foram. Sem pendências, o manifesto sai vazio e não há bronze. Arquivo
+   cujo parse levanta exceção fica **fora** do manifesto (ERROR no log) e volta na
+   execução seguinte. Se os pendentes lidos não têm nenhuma linha, eles são
+   registrados ali mesmo, o bronze velho (o delta anterior, já carregado) é
+   apagado e o manifesto sai vazio — senão o load o copiaria de novo;
 2. **load** — lê o manifesto, faz o `COPY` do bronze-delta e registra aqueles
    arquivos no controle **na mesma transação**. Manifesto vazio: pula a carga.
 
@@ -446,9 +455,18 @@ primeiro delta traz todo o landing e o `append` duplica a tabela:
 uv run python scripts/controle_semear.py <fonte>_config.yml <entidade>
 ```
 
+**Quando o que já entrou está errado** (ex.: colunas que o bronze-delta
+descartava antes de o cabeçalho crescer), reconstrua a tabela a partir do landing
+inteiro. Sem `--confirmar` só simula e mostra as colunas que a tabela ganharia;
+com ele, `TRUNCATE` + `COPY` + controle refeito numa transação só:
+
+```bash
+uv run python scripts/controle_reconstruir.py <fonte>_config.yml <entidade> [--confirmar]
+```
+
 | Peça | Para quê |
 |---|---|
-| `IngestionControl(db, *, schema, table)` | `ensure`/`ingested`/`register`/`clear`/`pending` sobre a tabela de controle |
+| `IngestionControl(db, *, schema, table)` | `ensure`/`ingested`/`register`/`clear`/`pending`/`mark_ingested` sobre a tabela de controle |
 | `write_bronze_incremental(cfg, files, parse_fn, log=None)` | Fim do transform incremental: bronze-delta + manifesto |
 | `write_manifest(cfg, files)` / `read_manifest(cfg)` | O manifesto, se você precisar mexer nele |
 | `control_for(cfg)` | `IngestionControl` da entidade, ou `None` se o YAML não pediu |

@@ -90,7 +90,8 @@ nominal.
   porque o arquivo traz o status **atual** das proposições; o `proposicao` por
   ID congela o status do primeiro download. Volume: ~1 M de proposições,
   1,5 GB no landing, ~3,5 min. O transform vai do ano mais recente para o mais
-  antigo (o cabeçalho do bronze é o do 1º arquivo), com o parse em 4 processos
+  antigo (o esquema novo é o mais completo, então o bronze não precisa ser
+  regravado para acomodar coluna nova), com o parse em 4 processos
   (`options.transform_workers`), ~25 s. `ano = 0` é proposição sem
   numeração.
 - **Extração por ID** (`votos_*`, `proposicao*`): `base_url` e `landing_file` usam o

@@ -350,3 +350,134 @@ def test_load_sem_manifesto_avisa_e_nao_carrega(pg, tmp_path, monkeypatch):
         "SELECT count(*) FROM information_schema.tables "
         f"WHERE table_schema = '{SCHEMA}' AND table_name = 'semmanifesto'",
     ) == [(0,)]
+
+
+def test_delta_com_erro_e_sem_linhas_nao_duplica_nem_perde(pg, tmp_path, monkeypatch):
+    """Arquivo com erro volta depois; delta só com arquivos vazios não recarrega."""
+    import json
+
+    from core.control import write_bronze_incremental
+    from core.etl import GenericETL
+
+    monkeypatch.setattr("core.control.PostgresClient", lambda log=None: pg)
+    monkeypatch.setattr("core.etl.PostgresClient", lambda log=None: pg)
+
+    cfg = _cfg_incremental(tmp_path, "delta_ruim")
+
+    def parse(f):
+        dados = json.loads(f.read_text(encoding="utf-8"))  # truncado levanta
+        return pd.DataFrame(dados) if dados else None
+
+    def escreve(nome, conteudo):
+        (cfg.landing_dir / f"{nome}.json").write_text(conteudo, encoding="utf-8")
+
+    def rodada():
+        arquivos = sorted(cfg.landing_dir.glob("*.json"))
+        write_bronze_incremental(cfg, arquivos, parse)
+        GenericETL(cfg).load()
+
+    def carregado():
+        return query(pg, f"SELECT x FROM {SCHEMA}.delta_ruim ORDER BY x")
+
+    def registrados():
+        return query(
+            pg,
+            f"SELECT filename FROM {SCHEMA}.ctl "
+            "WHERE table_name = 'delta_ruim' ORDER BY 1",
+        )
+
+    escreve("a", '{"x": ["a"]}')
+    escreve("b", '{"x": ["b"')  # truncado
+    rodada()
+    assert carregado() == [("a",)]
+    assert registrados() == [("a.json",)]  # 'b' não foi registrado
+
+    # Só chega um arquivo sem linhas: nada a copiar, e o delta anterior (já
+    # carregado) não pode entrar de novo. O 'b' continua com erro.
+    escreve("c", "{}")
+    rodada()
+    assert carregado() == [("a",)]
+    assert registrados() == [("a.json",), ("c.json",)]
+
+    # O 'b' é rebaixado inteiro: entra na execução seguinte.
+    escreve("b", '{"x": ["b"]}')
+    rodada()
+    assert carregado() == [("a",), ("b",)]
+    assert registrados() == [("a.json",), ("b.json",), ("c.json",)]
+
+
+def _script_reconstruir():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "controle_reconstruir.py"
+    spec = importlib.util.spec_from_file_location("controle_reconstruir", path)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+def test_reconstruir_recupera_coluna_e_repoe_o_controle(pg, tmp_path, monkeypatch):
+    import json
+    import logging
+
+    from core.control import IngestionControl, read_manifest, write_bronze_incremental
+
+    script = _script_reconstruir()
+    monkeypatch.setattr("core.control.PostgresClient", lambda log=None: pg)
+    monkeypatch.setattr(script, "PostgresClient", lambda log=None: pg)
+    log = logging.getLogger("teste")
+
+    cfg = _cfg_incremental(tmp_path, "reconstruida")
+    for nome, dados in [("a", {"x": ["a"]}), ("b", {"x": ["b"], "y": ["novo"]})]:
+        (cfg.landing_dir / f"{nome}.json").write_text(json.dumps(dados))
+
+    def parse(f):
+        return pd.DataFrame(json.loads(f.read_text()))
+
+    def transform(c):
+        write_bronze_incremental(c, sorted(c.landing_dir.glob("*.json")), parse)
+
+    # Como o código antigo deixou: 'y' descartada, os dois arquivos registrados.
+    antigo = tmp_path / "antigo.csv"
+    antigo.write_text("x\na\nb\n", encoding="utf-8")
+    controle = IngestionControl(pg, schema=SCHEMA, table="ctl")
+    pg.copy_csv(
+        antigo,
+        "reconstruida",
+        schema=SCHEMA,
+        write="append",
+        after_copy=lambda cur: (
+            controle.ensure(cur),
+            controle.register(cur, "reconstruida", ["a.json", "b.json"]),
+        ),
+    )
+
+    def tabela():
+        return query(pg, f"SELECT x, y FROM {SCHEMA}.reconstruida ORDER BY x")
+
+    # Simulação: não grava nada.
+    assert script.reconstruir(cfg, transform, log=log) == 0
+    colunas = query(
+        pg,
+        "SELECT column_name FROM information_schema.columns "
+        f"WHERE table_schema = '{SCHEMA}' AND table_name = 'reconstruida'",
+    )
+    assert ("y",) not in colunas
+
+    # Um delta antigo em disco: depois da reconstrução não pode ser recarregado.
+    cfg.bronze_filepath.write_text("x\nb\n", encoding="utf-8")
+    assert script.reconstruir(cfg, transform, confirmar=True, log=log) == 0
+    assert tabela() == [("a", None), ("b", "novo")]
+    assert query(
+        pg,
+        f"SELECT filename FROM {SCHEMA}.ctl WHERE table_name = 'reconstruida'"
+        " ORDER BY 1",
+    ) == [("a.json",), ("b.json",)]
+    assert not cfg.bronze_filepath.exists() and read_manifest(cfg) == []
+    assert not list(cfg.bronze_dir.glob(".reconstruir_*"))
+
+    # Landing com menos linhas que a tabela: recusa sem --forcar.
+    (cfg.landing_dir / "b.json").unlink()
+    assert script.reconstruir(cfg, transform, confirmar=True, log=log) == 1
+    assert tabela() == [("a", None), ("b", "novo")]

@@ -84,6 +84,11 @@ def test_config_minimo_valido():
         ),
         ({"options": ["a"]}, "options: deve ser um mapeamento"),
         ({"sources": {}}, "sources: obrigatório"),
+        ({"write": "append"}, "sources.itens.write: append exige"),
+        (
+            {"write": "append", "options": {"control_tabel": "c"}},
+            "sources.itens.write: append exige",
+        ),
     ],
 )
 def test_erros_de_estrutura(changes, esperado):
@@ -92,8 +97,22 @@ def test_erros_de_estrutura(changes, esperado):
 
 
 def test_source_sobrescreve_o_topo():
-    cfg = _cfg(write="upsert", sources__itens__write="append")
+    cfg = _cfg(
+        write="upsert",
+        sources__itens__write="append",
+        sources__itens__options={"control_table": "controle"},
+    )
     assert validate_config(cfg) == []
+
+
+def test_append_aceita_control_table_do_topo():
+    cfg = _cfg(write="append", options={"control_table": "controle"})
+    assert validate_config(cfg) == []
+
+
+def test_append_sem_controle_so_importa_no_load_table():
+    # jsonb tem controle próprio (JsonbLoader) e não lê o write.
+    assert validate_config(_cfg(write="append", load="jsonb")) == []
 
 
 def test_load_none_dispensa_schema_e_tabela():

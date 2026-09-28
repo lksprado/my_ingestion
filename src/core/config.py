@@ -231,6 +231,10 @@ ENVIRONMENTS: tuple[str, ...] = ("dev", "prod")
 _DEV_ROOTS = ("${LAKE_ROOT}", "${SEEDS_ROOT}")
 
 
+def _as_dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def validate_config(data: dict) -> list[str]:
     """Valida a estrutura de um ``<fonte>_config.yml`` já carregado.
 
@@ -319,6 +323,13 @@ def validate_config(data: dict) -> list[str]:
 
         if "options" in src and not isinstance(src["options"], dict):
             errors.append(f"{where}options: deve ser um mapeamento")
+        elif write == "append" and load == "table":
+            opcoes = {**_as_dict(data.get("options")), **_as_dict(src.get("options"))}
+            if not opcoes.get("control_table"):
+                errors.append(
+                    f"{where}write: append exige options.control_table — sem o "
+                    "controle o bronze é o landing inteiro e cada carga o duplica"
+                )
 
         out = src.get("output_param_file")
         if out is not None and not (

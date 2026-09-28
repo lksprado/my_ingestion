@@ -9,6 +9,7 @@ from core.io import (
     concat_landing,
     integral_floats_to_int,
     reset_bronze,
+    stream_bronze,
     write_bronze,
     write_bronze_streaming,
 )
@@ -54,7 +55,7 @@ def _files(tmp_path: Path, n: int) -> list[Path]:
     return files
 
 
-def test_streaming_fixes_header_on_first_and_reindexes(cfg, tmp_path):
+def test_streaming_grows_header_instead_of_dropping_columns(cfg, tmp_path):
     files = _files(tmp_path, 3)
     frames = {
         "f0": pd.DataFrame({"A": [1], "B": ["x\ny"]}),
@@ -62,11 +63,23 @@ def test_streaming_fixes_header_on_first_and_reindexes(cfg, tmp_path):
         "f2": pd.DataFrame({"A": [3]}),
     }
     path = write_bronze_streaming(cfg, files, lambda f: frames[f.stem])
-    out = pd.read_csv(path, sep=";")
-    assert list(out.columns) == ["a", "b"]
-    assert out["a"].tolist() == [1, 2, 3]
-    assert out["b"].tolist() == ["x y", "z", None] or out["b"].isna().iloc[2]
+    # Coluna nova entra no fim; as linhas de antes dela ficam vazias (NULL).
+    assert path.read_text().splitlines() == ["a;b;extra", "1;x y;", "2;z;9", "3;;"]
     assert not list(tmp_path.glob("brz/.b_*.tmp"))
+
+
+def test_streaming_padding_keeps_quoting(cfg, tmp_path):
+    files = _files(tmp_path, 2)
+    frames = {
+        "f0": pd.DataFrame({"a": ['tem;ponto e "aspas"'], "b": [""]}),
+        "f1": pd.DataFrame({"a": ["x"], "c": ["y" * 200_000]}),
+    }
+    path = write_bronze_streaming(cfg, files, lambda f: frames[f.stem])
+    out = pd.read_csv(path, sep=";", keep_default_na=False)
+    assert list(out.columns) == ["a", "b", "c"]
+    assert out["a"].tolist() == ['tem;ponto e "aspas"', "x"]
+    assert out["c"].tolist() == ["", "y" * 200_000]
+    assert path.read_text().splitlines()[1] == '"tem;ponto e ""aspas""";;'
 
 
 def test_streaming_skips_none_and_errors(cfg, tmp_path):
@@ -81,6 +94,20 @@ def test_streaming_skips_none_and_errors(cfg, tmp_path):
 
     path = write_bronze_streaming(cfg, files, parse)
     assert pd.read_csv(path, sep=";")["a"].tolist() == [1]
+
+
+def test_stream_bronze_reports_parsed_and_failed(cfg, tmp_path):
+    files = _files(tmp_path, 3)
+
+    def parse(f):
+        if f.stem == "f1":
+            raise RuntimeError("boom")
+        return None if f.stem == "f0" else pd.DataFrame({"a": [1]})
+
+    result = stream_bronze(cfg, files, parse)
+    assert result.path == cfg.bronze_filepath
+    assert [f.stem for f in result.parsed] == ["f0", "f2"]
+    assert [f.stem for f in result.failed] == ["f1"]
 
 
 def test_streaming_without_data_preserves_previous(cfg, tmp_path):
@@ -122,7 +149,7 @@ def test_streaming_with_workers_matches_sequential(tmp_path):
         write_bronze_streaming(cfg, files, _parse_json_frame, workers=workers)
         saidas.append(cfg.bronze_filepath.read_text())
     assert saidas[0] == saidas[1]
-    assert saidas[0].splitlines()[:3] == ["a;b", "1;x y", "2;"]
+    assert saidas[0].splitlines()[:4] == ["a;b;extra", "1;x y;", "2;;", "3;z;9"]
 
 
 def test_streaming_workers_from_options(tmp_path, monkeypatch):
