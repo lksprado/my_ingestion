@@ -1,7 +1,9 @@
-"""Extração incremental: por data (high-water mark no banco) e por ID.
+"""Extração incremental: por data e por ID, sempre a partir do próprio landing.
 
-Por data (energia/solar, clima/openweather): descobre no Postgres até onde os
-dados vão e devolve as datas faltantes, gravando-as num CSV de controle.
+Por data (energia/solar, clima/openweather): o landing guarda um JSON por dia
+(``{day}`` em ``landing_file``), e as datas faltantes são os dias sem arquivo —
+inclusive buracos no meio, que um high-water mark (``MAX(data)``) pularia para
+sempre. O resultado vai para um CSV de controle.
 
 Por ID (legislativo): compara três conjuntos — todos os IDs, os já baixados e
 os que a API disse não ter (CSV "sem dados") — e devolve só os pendentes.
@@ -14,7 +16,8 @@ requisições em threads).
 
 import csv
 import logging
-from collections.abc import Callable, Iterable, Sequence
+import re
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -23,7 +26,6 @@ from typing import Literal
 import pandas as pd
 
 from core.config import PipelineConfig
-from core.db import PostgresClient
 from core.http import HttpClient, ensure_some_success
 
 logger = logging.getLogger(__name__)
@@ -32,57 +34,49 @@ logger = logging.getLogger(__name__)
 # ------------------------------ por data ------------------------------
 
 
-def max_date(db: PostgresClient, sql: str) -> date | None:
-    """Executa ``sql`` (1ª coluna da 1ª linha = data) e devolve ``date`` ou None."""
-    df = db.read_sql(sql)
-    if df.empty or df.iloc[0, 0] is None:
-        return None
-    value = df.iloc[0, 0]
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def missing_dates(
-    since: date, cutoff_hour: int = 20, now: datetime | None = None
-) -> list[str]:
-    """Datas (``YYYY-MM-DD``) de ``since + 1`` até a última data completa.
+def landing_dates(landing_dir: Path, pattern: str) -> set[date]:
+    """Dias (``YYYY-MM-DD`` no nome) dos arquivos de ``landing_dir`` em ``pattern``.
 
-    A última data é ontem, ou hoje se já passou de ``cutoff_hour`` (fontes com
-    resumo diário só fecham o dia à noite). Lista vazia se nada falta.
+    Arquivo vazio não conta: é resto de escrita interrompida, e contá-lo
+    esconderia o buraco para sempre.
     """
+    dias = set()
+    for f in landing_dir.glob(pattern):
+        if (m := _DATE_RE.search(f.name)) and f.stat().st_size > 0:
+            dias.add(date.fromisoformat(m.group(0)))
+    return dias
+
+
+def last_complete_date(cutoff_hour: int = 20, now: datetime | None = None) -> date:
+    """Ontem, ou hoje depois de ``cutoff_hour`` (o resumo diário fecha à noite)."""
     now = now or datetime.now()
-    last = now.date() if now.hour >= cutoff_hour else (now - timedelta(days=1)).date()
-    delta = (last - since).days
-    if delta <= 0:
-        return []
-    return [
-        (since + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, delta + 1)
-    ]
+    return now.date() if now.hour >= cutoff_hour else now.date() - timedelta(days=1)
 
 
-def missing_dates_from_db(
-    db: PostgresClient,
-    sqls: Sequence[str],
-    control_path: Path | str,
-    cutoff_hour: int = 20,
+def missing_dates_from_landing(
+    cfg: PipelineConfig, now: datetime | None = None
 ) -> list[str]:
-    """Datas faltantes a partir do menor high-water mark de ``sqls``.
+    """Dias completos sem JSON no landing; grava a lista em ``options.control_file``.
 
-    Cada SQL devolve a data máxima de uma tabela; o menor deles é o ponto de
-    partida (todas as tabelas precisam alcançá-lo). Levanta ``ValueError`` se
-    alguma tabela estiver vazia. Grava o resultado em ``control_path``.
+    Olha os últimos ``options.lookback_days`` (default 30) dias — o que também
+    refaz um dia que falhou no meio — e, sempre, tudo o que vem depois do último
+    dia baixado, para uma parada longa não virar buraco. Não volta para antes do
+    primeiro dia do landing. Landing vazio: só a janela. ``options.cutoff_hour``
+    (default 20) decide se hoje já conta como dia completo.
     """
-    marks = []
-    for sql in sqls:
-        mark = max_date(db, sql)
-        if mark is None:
-            raise ValueError(f"High-water mark vazio para: {sql}")
-        marks.append(mark)
-    dates = missing_dates(min(marks), cutoff_hour=cutoff_hour)
-    write_dates_csv(dates, control_path)
+    opts = cfg.options
+    last = last_complete_date(int(opts.get("cutoff_hour", 20)), now)
+    have = landing_dates(cfg.landing_dir, cfg.landing_file.format(day="*"))
+    start = last - timedelta(days=int(opts.get("lookback_days", 30)) - 1)
+    if have:
+        start = max(start, min(have))
+        start = min(start, max(have) + timedelta(days=1))
+    dias = (start + timedelta(days=i) for i in range((last - start).days + 1))
+    dates = [d.isoformat() for d in dias if d not in have]
+    write_dates_csv(dates, cfg.landing_dir / opts["control_file"])
     return dates
 
 

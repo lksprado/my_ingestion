@@ -92,8 +92,8 @@ estão em [`src/core/README.md`](src/core/README.md); como aplicá-los num pipel
 - **Pipes and filters entre entidades:** o produtor grava `output_param_file` e o consumidor lê
   `parameter_file`. A dependência entre entidades é um arquivo, e ela define a ordem no `ETLS`.
 - **Incremental por diferença de conjuntos:** `pending_ids`, `mark_no_data` e
-  `missing_dates_from_db` ([`core/incremental.py`](src/core/incremental.py)) calculam
-  *todos − já no landing/banco − marcados sem dados*. Reexecutar não refaz trabalho.
+  `missing_dates_from_landing` ([`core/incremental.py`](src/core/incremental.py))
+  calculam *todos − já no landing − marcados sem dados*. Reexecutar não refaz trabalho.
 - **Schema-on-read:** a raw é sempre `TEXT` (o JSON bruto da NHL vai como `JSONB`, pelo
   `JsonbLoader`). A tipagem fica no dbt, e mudança de tipo na origem não quebra a carga.
 

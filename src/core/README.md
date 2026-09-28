@@ -36,8 +36,7 @@ from core import (
     concat_landing,
     integral_floats_to_int,
     write_csv,  # io.py
-    missing_dates,
-    missing_dates_from_db,  # incremental.py (por data)
+    missing_dates_from_landing,  # incremental.py (por data)
     pending_ids,
     mark_no_data,
     read_ids,
@@ -375,14 +374,19 @@ integral_floats_to_int(df) -> DataFrame   # use antes de write_csv num bronze de
 Por data (solar, openweather):
 
 ```python
-max_date(db: PostgresClient, sql) -> date | None
-missing_dates(since, cutoff_hour=20, now=None) -> list[str]      # since+1 .. ontem (hoje se >= 20h)
-missing_dates_from_db(db, sqls, control_path, cutoff_hour=20) -> list[str]
+missing_dates_from_landing(cfg, now=None) -> list[str]
+last_complete_date(cutoff_hour=20, now=None) -> date   # ontem (hoje se >= 20h)
+landing_dates(landing_dir, pattern) -> set[date]      # YYYY-MM-DD no nome do arquivo
 write_dates_csv(dates, path) / read_dates_csv(path)
 ```
-`missing_dates_from_db` parte do **menor** high-water mark entre os `sqls` (cada um
-devolve `MAX(data)` de uma tabela), levanta `ValueError` se algum for nulo e grava o
-CSV de controle.
+`missing_dates_from_landing` devolve os dias completos sem JSON no landing
+(`landing_file` com `{day}`) e grava a lista em `options.control_file` (a DAG do
+openweather lê com `read_dates_csv`). Olha os últimos `options.lookback_days`
+(default 30) dias — refaz um dia que falhou no meio, que um `MAX(data)` pularia
+para sempre — e, sempre, tudo depois do último dia baixado, para uma parada longa
+não virar buraco. Não volta para antes do primeiro dia do landing; landing vazio
+usa só a janela. Não depende do banco. Para recuperar buraco mais antigo que a
+janela, rode o extract uma vez com `lookback_days` maior.
 
 Por ID (legislativo):
 

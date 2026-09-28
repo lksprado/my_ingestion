@@ -21,10 +21,10 @@ o default): cada tabela é função do landing.
 
 ## Fluxo
 
-1. **extract** (`extract`) — `core.missing_dates_from_db` consulta o maior
-   `date`/`datetime` das duas tabelas (`options.watermarks`), gera as datas
-   faltantes até ontem (ou hoje, após as 20h) e grava `missing_dates.csv`; depois
-   faz login com Selenium (`setup_driver`/`login`/`navigate_to_report`), navega até o relatório e requisita o
+1. **extract** (`extract`) — `core.missing_dates_from_landing` lista os dias sem
+   JSON no landing até ontem (ou hoje, após as 20h): os buracos dos últimos
+   `options.lookback_days` (30) dias e tudo depois do último dia baixado. Grava
+   `missing_dates.csv`; depois faz login com Selenium (`setup_driver`/`login`/`navigate_to_report`), navega até o relatório e requisita o
    JSON de cada data com o `HttpClient` usando os cookies da sessão.
 2. **transform** (`load_landing` + `daily_summary`/`hourly`) — concatena os JSONs (data extraída do nome do
    arquivo) e produz o agregado diário ou o horário; `core.write_bronze` grava o CSV
@@ -42,16 +42,17 @@ Sem datas faltantes, o extract encerra com `Nenhuma data faltando.`
 
 ## Configuração
 
-No `.env` da raiz: `APSYSTEMS_USER=` e `APSYSTEMS_PASSWORD=`; banco pelo perfil
-`DB__<ENV>__*` (`raw_apsystem.*` precisa existir lá). ID do equipamento, URLs do
-portal, `headless` e arquivo de controle ficam em `options` no YAML. Landing em
+No `.env` da raiz: `APSYSTEMS_USER=`, `APSYSTEMS_PASSWORD=` e
+`APSYSTEMS_EQUIPMENT_ID=`; banco pelo perfil `DB__<ENV>__*` (só para o load). URLs
+do portal, `headless`, `lookback_days` e arquivo de controle ficam em `options`
+no YAML. Landing em
 `${LAKE_ROOT}/raw/solar_project/` (acumula os JSONs e o `missing_dates.csv`),
 bronze em `${LAKE_ROOT}/bronze/solar_project/`.
 
 ## Notas
 
 - **A carga é full refresh a partir do landing**, e o que evita rebaixar o
-  histórico é o extract (high-water mark nas próprias tabelas). O landing é a
+  histórico é o extract (dias sem JSON no landing). O landing é a
   fonte de verdade: os 1.821 JSONs reconstroem as 1.819 linhas de
   `solar_daily_energy` e as 43.656 de `solar_hourly_energy` em ~16 s.
 - Os índices únicos `solar_daily_energy_date_pk` e

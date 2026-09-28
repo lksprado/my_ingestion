@@ -2,17 +2,17 @@
 
 Resumo meteorológico diário de um ponto fixo (Atibaia/SP) via API
 [One Call 3.0 — day_summary](https://openweathermap.org/api/one-call-3#history_daily_aggregation).
-Mesmo desenho do [`energia/solar`](../../energia/solar/README.md): high-water mark no
-Postgres → extração só das datas faltantes → landing que acumula os JSONs → bronze
+Mesmo desenho do [`energia/solar`](../../energia/solar/README.md): dias sem JSON no
+landing → extração só dessas datas → landing que acumula os JSONs → bronze
 reconstruído a partir dele → full refresh da tabela.
 
 Migrado do repo `openweather` (submódulo `include/openweather` do airflow3).
 
 ## Fluxo (`openweather_etl.py`, entidade `daily`)
 
-1. **extract** — `core.missing_dates_from_db` lê `MAX(date)` de
-   `raw_openweather.openweather_daily` (schema/tabela/coluna vêm do YAML), gera as
-   datas faltantes até ontem (ou até hoje se já passou das 20h), grava
+1. **extract** — `core.missing_dates_from_landing` lista os dias sem JSON no
+   landing até ontem (ou até hoje se já passou das 20h) — os buracos dos últimos
+   `options.lookback_days` (30) dias e tudo depois do último dia baixado —, grava
    `missing_dates.csv` e requisita o `day_summary` de cada data
    (`day_summary_YYYY-MM-DD.json`).
 2. **transform** — `parse_day_summary` achata **cada JSON do landing**, converte
@@ -32,12 +32,10 @@ Sem datas faltantes, o extract encerra com `Nenhuma data faltando.`
 
 ## Configuração
 
-No `.env` da raiz: `OPENWEATHER_API_KEY=`. O banco é o do ambiente
-(`DB__<ENV>__*`, `ingestion_sandbox` em dev); a tabela
-`raw_openweather.openweather_daily` precisa existir lá para o high-water mark
-(em dev: `scripts/raw_copy.sh seed raw_openweather`).
-Latitude/longitude, arquivo de controle e coluna de data ficam em `options` no
-YAML; `bronze_sep: ","` é só o formato histórico do CSV. Landing em
+No `.env` da raiz: `OPENWEATHER_API_KEY=`, `OPENWEATHER_LAT=` e
+`OPENWEATHER_LON=`. O banco é o do ambiente (`DB__<ENV>__*`, `ingestion_sandbox`
+em dev) e só entra no load. Arquivo de controle e `lookback_days` ficam em
+`options` no YAML; `bronze_sep: ","` é só o formato histórico do CSV. Landing em
 `${LAKE_ROOT}/raw/weather_project/` (acumula os JSONs e o `missing_dates.csv`),
 bronze em `${LAKE_ROOT}/bronze/weather_project/`.
 

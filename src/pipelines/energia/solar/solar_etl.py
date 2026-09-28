@@ -1,8 +1,8 @@
 """ETL da energia solar (portal APsystems) -> raw_apsystem (schema preservado do
 my_analytics).
 
-extract: high-water mark no Postgres -> datas faltantes -> login Selenium -> um
-JSON horário por dia no landing, que acumula o histórico. ``daily_energy`` e
+extract: dias sem JSON no landing -> login Selenium -> um JSON horário por dia
+no landing, que acumula o histórico. ``daily_energy`` e
 ``hourly_energy`` leem o mesmo landing; só o primeiro extrai. load: full refresh
 (``write: truncate``) — cada tabela é função do landing, e é o extract que evita
 rebaixar o que já está lá.
@@ -23,9 +23,8 @@ from core import (
     Etl,
     HttpClient,
     PipelineConfig,
-    PostgresClient,
     ensure_some_success,
-    missing_dates_from_db,
+    missing_dates_from_landing,
     run_source,
     write_bronze,
 )
@@ -106,13 +105,7 @@ def session_headers(driver: webdriver.Chrome) -> tuple[dict, str]:
 
 def extract(cfg: PipelineConfig) -> None:
     opts = cfg.options
-    sqls = [
-        f"SELECT MAX({col})::date FROM {cfg.db_schema}.{table}"
-        for table, col in opts["watermarks"].items()
-    ]
-    dates = missing_dates_from_db(
-        PostgresClient(log=logger), sqls, cfg.landing_dir / opts["control_file"]
-    )
+    dates = missing_dates_from_landing(cfg)
     if not dates:
         logger.info("Nenhuma data faltando.")
         return

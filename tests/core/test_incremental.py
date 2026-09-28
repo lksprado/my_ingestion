@@ -2,17 +2,15 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 from core.config import PipelineConfig
 from core.incremental import (
     extract_by_ids,
     landing_ids,
+    last_complete_date,
     mark_no_data,
-    max_date,
-    missing_dates,
-    missing_dates_from_db,
+    missing_dates_from_landing,
     pending_ids,
     read_dates_csv,
     read_ids,
@@ -20,31 +18,68 @@ from core.incremental import (
 )
 
 
-class FakeDb:
-    def __init__(self, results: dict[str, object]):
-        self.results = results
-
-    def read_sql(self, sql):
-        return pd.DataFrame({"max": [self.results[sql]]})
+def test_last_complete_date_respects_cutoff():
+    assert last_complete_date(now=datetime(2026, 9, 13, 10, 0)) == date(2026, 9, 12)
+    assert last_complete_date(now=datetime(2026, 9, 13, 20, 0)) == date(2026, 9, 13)
 
 
-def test_no_gap_returns_empty():
-    now = datetime(2026, 9, 13, 10, 0)
-    assert missing_dates(date(2026, 9, 12), now=now) == []
+def _dates_cfg(tmp_path, dias, **options) -> PipelineConfig:
+    cfg = PipelineConfig(
+        landing_dir=tmp_path / "landing",
+        landing_file="day_summary_{day}.json",
+        options={"control_file": "missing_dates.csv", **options},
+    )
+    for dia in dias:
+        (cfg.landing_dir / f"day_summary_{dia}.json").write_text("{}")
+    (cfg.landing_dir / "outro_2026-09-01.json").write_text("{}")  # fora do padrão
+    return cfg
 
 
-def test_gap_until_yesterday_before_cutoff():
-    now = datetime(2026, 9, 13, 10, 0)
-    assert missing_dates(date(2026, 9, 9), now=now) == [
+NOW = datetime(2026, 9, 13, 10, 0)  # último dia completo: 12/09
+
+
+def test_missing_dates_fills_holes_and_the_tail(tmp_path):
+    cfg = _dates_cfg(tmp_path, ["2026-09-05", "2026-09-06", "2026-09-08"])
+    got = missing_dates_from_landing(cfg, now=NOW)
+    # 07 é buraco no meio (o MAX(data) pularia); 09..12 é a cauda.
+    assert got == ["2026-09-07", "2026-09-09", "2026-09-10", "2026-09-11", "2026-09-12"]
+    assert read_dates_csv(cfg.landing_dir / "missing_dates.csv") == got
+
+
+def test_missing_dates_empty_file_counts_as_missing(tmp_path):
+    cfg = _dates_cfg(tmp_path, ["2026-09-10", "2026-09-11", "2026-09-12"])
+    (cfg.landing_dir / "day_summary_2026-09-11.json").write_text("")
+    assert missing_dates_from_landing(cfg, now=NOW) == ["2026-09-11"]
+
+
+def test_missing_dates_old_holes_outside_lookback_are_left(tmp_path):
+    cfg = _dates_cfg(
+        tmp_path,
+        ["2026-08-01", "2026-08-03", "2026-09-11", "2026-09-12"],
+        lookback_days=5,
+    )
+    assert missing_dates_from_landing(cfg, now=NOW) == [
+        "2026-09-08",
+        "2026-09-09",
         "2026-09-10",
-        "2026-09-11",
-        "2026-09-12",
     ]
 
 
-def test_includes_today_after_cutoff():
-    now = datetime(2026, 9, 13, 20, 0)
-    assert missing_dates(date(2026, 9, 12), now=now) == ["2026-09-13"]
+def test_missing_dates_long_stop_is_filled_entirely(tmp_path):
+    cfg = _dates_cfg(tmp_path, ["2026-08-01"], lookback_days=3)
+    got = missing_dates_from_landing(cfg, now=NOW)
+    assert got[0] == "2026-08-02" and got[-1] == "2026-09-12" and len(got) == 42
+
+
+def test_missing_dates_empty_landing_uses_the_window(tmp_path):
+    cfg = _dates_cfg(tmp_path, [], lookback_days=2)
+    assert missing_dates_from_landing(cfg, now=NOW) == ["2026-09-11", "2026-09-12"]
+
+
+def test_missing_dates_up_to_date_writes_empty_control(tmp_path):
+    cfg = _dates_cfg(tmp_path, ["2026-09-11", "2026-09-12"])
+    assert missing_dates_from_landing(cfg, now=NOW) == []
+    assert read_dates_csv(cfg.landing_dir / "missing_dates.csv") == []
 
 
 def test_write_and_read_roundtrip(tmp_path):
@@ -55,35 +90,6 @@ def test_write_and_read_roundtrip(tmp_path):
     write_dates_csv([], path)
     assert read_dates_csv(path) == []
     assert read_dates_csv(tmp_path / "missing.csv") == []
-
-
-@pytest.mark.parametrize(
-    "value", [date(2026, 1, 2), datetime(2026, 1, 2, 5), "2026-01-02 00:00:00"]
-)
-def test_max_date_accepts_date_datetime_and_str(value):
-    assert max_date(FakeDb({"q": value}), "q") == date(2026, 1, 2)
-
-
-def test_max_date_none_when_empty():
-    assert max_date(FakeDb({"q": None}), "q") is None
-
-
-def test_missing_dates_from_db_uses_min_mark_and_writes_control(tmp_path, monkeypatch):
-    import core.incremental as mod
-
-    monkeypatch.setattr(
-        mod, "missing_dates", lambda since, cutoff_hour: [f"since={since}"]
-    )
-    db = FakeDb({"a": date(2026, 1, 5), "b": date(2026, 1, 3)})
-    control = tmp_path / "ctl.csv"
-    assert missing_dates_from_db(db, ["a", "b"], control) == ["since=2026-01-03"]
-    assert read_dates_csv(control) == ["since=2026-01-03"]
-
-
-def test_missing_dates_from_db_raises_on_empty_table(tmp_path):
-    db = FakeDb({"a": date(2026, 1, 5), "b": None})
-    with pytest.raises(ValueError, match="High-water mark"):
-        missing_dates_from_db(db, ["a", "b"], tmp_path / "ctl.csv")
 
 
 def test_pending_ids_preserves_order_and_skips(tmp_path):

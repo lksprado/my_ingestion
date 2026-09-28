@@ -1,7 +1,7 @@
 """ETL do resumo diário do clima (OpenWeather day_summary), incremental por data.
 
-extract: high-water mark em raw_openweather.openweather_daily -> datas faltantes
-(CSV de controle) -> um JSON por dia no landing, que acumula o histórico.
+extract: dias sem JSON no landing (CSV de controle) -> um JSON por dia no
+landing, que acumula o histórico.
 transform: todos os JSONs do landing -> all_dfs.csv. load: full refresh
 (``write: truncate``) — a tabela é função do landing, e é o extract que evita
 rebaixar o que já está lá.
@@ -17,9 +17,8 @@ from core import (
     Etl,
     HttpClient,
     PipelineConfig,
-    PostgresClient,
     ensure_some_success,
-    missing_dates_from_db,
+    missing_dates_from_landing,
     run_source,
     write_bronze,
 )
@@ -60,11 +59,7 @@ def parse_day_summary(content: dict) -> pd.DataFrame:
 
 
 def extract(cfg: PipelineConfig) -> None:
-    opts = cfg.options
-    sql = f"SELECT MAX({opts['date_column']})::date FROM {cfg.db_schema}.{cfg.db_table}"
-    dates = missing_dates_from_db(
-        PostgresClient(log=logger), [sql], cfg.landing_dir / opts["control_file"]
-    )
+    dates = missing_dates_from_landing(cfg)
     if not dates:
         logger.info("Nenhuma data faltando.")
         return
