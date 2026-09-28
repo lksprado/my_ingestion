@@ -51,28 +51,20 @@ uv run python -m pipelines.legislativo.camara.camara_etl                        
 uv run python -m pipelines.legislativo.camara.camara_etl votacoes votos_deputados  # só essas
 uv run python -m pipelines.legislativo.camara.camara_etl proposicao --steps transform,load   # sem bater na API
 
-uv run python scripts/camara_votacoes_backfill.py --desde 2001   # uma vez: preenche as lacunas de votacoes
 ```
 
-### Backfill de `votacoes` (uma vez)
+### Lacunas em `votacoes`
 
-Até setembro de 2026 o extract pegava só o trimestre corrente e terminava a
-janela no último dia dele. Isso gerava duas perdas. A `dataFim` da API é
-**exclusiva**, então o último dia de todo trimestre ficava de fora. Além disso,
-a DAG é semanal, e o que era registrado depois da última execução do trimestre
-nunca entrava. Uma auditoria contra os arquivos anuais achou 2.978 votações
-faltando, 89 delas nominais e sem votos.
+A rotina só olha os últimos `options.trimestres` trimestres. Se aparecer buraco
+mais antigo (uma página que falhou, uma parada longa),
+`scripts/camara_votacoes_backfill.py --desde <ano>` rebaixa todos os trimestres
+desde aquele ano. Rode **onde está o landing que alimenta a raw** (em prod, o
+container do Airflow) e depois a DAG da Câmara: `votacoes` reconstrói o bronze e
+as entidades por ID buscam só os IDs novos.
 
-O backfill tem de rodar **onde está o landing que alimenta a raw** (em prod, o
-container do Airflow). Depois, dispare a DAG da Câmara: `votacoes` reconstrói o
-bronze, e `votos_deputados`/`votos_orientacao`/`proposicao*` buscam só os IDs
-novos. No teste de 2025, as lacunas caíram de 1.012 para 80 e as nominais sem
-votos de 40 para 0.
-
-O resto (~900 em 2001–2026) são votações **sem evento** (`idEvento` nulo). A
-listagem `/votacoes` não as devolve com nenhum filtro; só aparecem em
-`/votacoes/{id}` e nos arquivos anuais (`arquivos/votacoes`). Nenhuma delas é
-nominal.
+Limite conhecido: votações **sem evento** (`idEvento` nulo) não saem na listagem
+`/votacoes` com nenhum filtro; só em `/votacoes/{id}` e nos arquivos anuais.
+Nenhuma delas é nominal.
 
 ## Notas
 
@@ -88,11 +80,11 @@ nominal.
   tabelas próprias porque o formato difere da API por ID (`ultimoStatus.*` em
   vez de `statusProposicao.*`). Todos os anos são rebaixados a cada execução,
   porque o arquivo traz o status **atual** das proposições; o `proposicao` por
-  ID congela o status do primeiro download. Volume: ~1 M de proposições,
-  1,5 GB no landing, ~3,5 min. O transform vai do ano mais recente para o mais
-  antigo (o esquema novo é o mais completo, então o bronze não precisa ser
-  regravado para acomodar coluna nova), com o parse em 4 processos
-  (`options.transform_workers`), ~25 s. `ano = 0` é proposição sem
+  ID congela o status do primeiro download. Volume: da ordem de 1 milhão de
+  proposições e mais de 1 GB no landing; o extract leva minutos. O transform vai do ano
+  mais recente para o mais antigo (o esquema novo é o mais completo, então o
+  bronze não precisa ser regravado para acomodar coluna nova), com o parse em
+  processos paralelos (`options.transform_workers`). `ano = 0` é proposição sem
   numeração.
 - **Extração por ID** (`votos_*`, `proposicao*`): `base_url` e `landing_file` usam o
   placeholder `{id}`; `core.extract_by_ids` requisita só os IDs que não estão no
@@ -115,8 +107,8 @@ nominal.
   arquivo** (`write: append` + `options.control_table`): o JSON de cada ID é
   imutável, então o transform só põe no bronze o que ainda não entrou e o load
   registra o manifesto junto com o COPY. Refazer não duplica. O ganho é no
-  transform: reconstruir `votos_deputados` inteiro custa ~93 s (5.961 arquivos,
-  1,9 M linhas) contra ~1 s no caminho incremental.
+  transform: reconstruir `votos_deputados` inteiro (milhões de linhas) leva
+  minutos; o delta, segundos.
 - Ao ligar o incremental numa tabela que já tem histórico, rode uma vez
   `uv run python scripts/controle_semear.py src/pipelines/legislativo/camara/camara_config.yml <entidade>`
   — sem isso o primeiro delta traz todo o landing e o `append` duplica a tabela.

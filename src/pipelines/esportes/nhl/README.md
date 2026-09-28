@@ -26,7 +26,8 @@ ETL em `nhl_etl.py` (todas as entidades); configuração em `nhl_config.yml`.
 
 Os nomes de tabela e de pasta (`raw/nhl/single`, `raw/nhl/raw_all_games_details`…)
 **fogem do padrão** `raw_<fonte>.<entidade>` do monorepo de propósito: o dbt os
-referencia em `_sources.yml` e o lake já tem ~170 mil JSONs nesses diretórios. Só
+referencia em `_sources.yml` e o lake já tem centenas de milhares de JSONs nesses
+diretórios. Só
 o schema segue o padrão (`raw_nhl`, chave `db_schema` do YAML).
 
 ## Como funciona
@@ -134,6 +135,6 @@ Como os `params_*` leem esse mesmo controle, extract e load enxergam o mesmo del
 - Na entressafra, `players` e `player_game_log` devolvem zero parâmetros: a agenda já
   tem a temporada seguinte, mas `club_stats` ainda é da anterior. Volta ao normal no
   primeiro jogo realizado.
-- Volumes: `games_details` e `summary_details` têm ~70 mil arquivos cada; a primeira
+- Volumes: `games_details` e `summary_details` têm dezenas de milhares de arquivos cada; a primeira
   carga completa leva horas. Depois disso é só o delta — e `skip_existing` evita
   rebaixar o que já está no landing.

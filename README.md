@@ -8,12 +8,44 @@ e no Postgres (`raw_<fonte>.<entidade>` no banco do ambiente). Quem agenda é o
 > Visão geral do deploy dos quatro repos (runners, tokens, troubleshooting):
 > [`homelab/docs/como_funciona_o_deploy.md`](https://github.com/lksprado/homelab/blob/main/docs/como_funciona_o_deploy.md).
 
+## Conceitos
+
+| Termo | O que é |
+|---|---|
+| **fonte** | Um sistema de origem (`camara`, `nhl`, `solar`). Uma pasta em `src/pipelines/<domínio>/<fonte>/`, com um `<fonte>_config.yml` e um `<fonte>_etl.py` (as poucas exceções estão marcadas em [Fontes](#fontes)). |
+| **entidade** | Uma tabela de uma fonte (`votacoes`, `deputados`). É a mesma palavra no YAML (`sources:`), no dicionário `ETLS` e na linha de comando. |
+| **landing** | Arquivos brutos como a origem entregou (JSON, HTML, CSV, PDF), em `${LAKE_ROOT}/raw/...`. É a fonte de verdade: bronze e raw são refeitos a partir dele sem bater na API. |
+| **bronze** | O CSV tabular que o transform gera a partir do landing, em `${LAKE_ROOT}/bronze/...`. |
+| **raw** | A tabela no Postgres, `raw_<fonte>.<tabela>`, carregada do bronze. Toda coluna é texto (a NHL guarda o JSON em `JSONB`); quem tipa é o dbt. |
+| **extract / transform / load** | As três etapas de toda entidade: API → landing → bronze → raw. Cada uma lê e grava disco, e roda sozinha com `--steps`. |
+| **ambiente** | `ENV=dev` (sua máquina, banco `ingestion_sandbox`) ou `ENV=prod` (Airflow). Escolhe os caminhos do YAML e o perfil de banco. |
+
+## Fontes
+
+| Domínio | Fonte | O que traz | Destino |
+|---|---|---|---|
+| clima | [`openweather`](src/pipelines/clima/openweather/README.md) | Resumo meteorológico diário de um ponto | `raw_openweather` |
+| energia | [`solar`](src/pipelines/energia/solar/README.md) | Produção do sistema solar de casa (portal APsystems, via Selenium) | `raw_apsystem` |
+| esportes | [`nhl`](src/pipelines/esportes/nhl/README.md) | Estatísticas da NHL, JSON bruto em colunas `JSONB` | `raw_nhl` |
+| finanças | [`investimentos`](src/pipelines/financas/investimentos/README.md) | Posições da B3 (Excel), Avenue (PDF) e planilhas Google | `raw_b3`, `raw_avenue`, `raw_google_sheets` |
+| finanças | [`fundos_imobiliarios`](src/pipelines/financas/fundos_imobiliarios/README.md) | Histórico mensal de FIIs e relatório de dividendos | CSV no lake (exceção: CLI própria, sem banco) |
+| legislativo | [`camara`](src/pipelines/legislativo/camara/README.md) | API de Dados Abertos da Câmara | `raw_camara` |
+| legislativo | [`senado`](src/pipelines/legislativo/senado/README.md) | API de Dados Abertos do Senado | `raw_senado` |
+| legislativo | [`ecidadania`](src/pipelines/legislativo/ecidadania/README.md) | Scraping do e-Cidadania do Senado | `raw_ecidadania` |
+| legislativo | [`radar_congresso`](src/pipelines/legislativo/radar_congresso/README.md) | Índice de governismo do Radar Congresso em Foco | `raw_radar_congresso` |
+| legislativo | [`ranking_politicos`](src/pipelines/legislativo/ranking_politicos/README.md) | Ranking dos Políticos | `raw_ranking_politicos` |
+| legislativo | [`_params`](src/pipelines/legislativo/_params/README.md) | Scripts auxiliares: CSV de deputados atuais e seeds do Senado | parâmetros e seeds do dbt |
+| livros | [`vide_editorial`](src/pipelines/livros/vide_editorial/README.md) | Scraping de livros e promoções da Vide Editorial | `raw_vide_editora` |
+| preços | [`atacadao`](src/pipelines/precos/atacadao/README.md) | Preços de uma cesta de produtos, para uma inflação pessoal | seed do dbt (exceção: CLI própria, sem banco) |
+
+Nomes de tabela, ordem de execução e armadilhas ficam no README de cada fonte.
+
 ## Uso em dev
 
 ```bash
 uv sync                          # .venv único (Python 3.12)
 cp .env.example .env             # preencha; em dev o banco é ingestion_sandbox
-uv run pre-commit install        # ruff, gitleaks e bloqueio de commit na main
+uv run pre-commit install        # ruff, gitleaks, validação dos YAMLs e bloqueio de commit na main
 ```
 
 ```bash
@@ -46,9 +78,12 @@ A cópia é `TRUNCATE` + `COPY` tabela a tabela, nunca `DROP`: as views do dbt s
 sobrevivem. Por tabela ele decide sozinho entre completa e só o delta; `--dry-run` mostra a
 decisão e `--full` força a completa.
 
+### Onde está cada coisa
+
 - **Pipeline novo:** siga [`src/pipelines/README.md`](src/pipelines/README.md) (onde colocar, YAML, esqueleto, checklist).
 - **Biblioteca compartilhada** (`core`): [`src/core/README.md`](src/core/README.md).
-- **Tabelas, ordem de execução e armadilhas de uma fonte:** o README da pasta dela.
+- **Tabelas, ordem de execução e armadilhas de uma fonte:** o README da pasta dela (tabela [Fontes](#fontes)).
+- **Scripts de manutenção** (cópia de raw, tabela de controle, backfill): [`scripts/README.md`](scripts/README.md).
 
 ## Design patterns
 
@@ -144,3 +179,15 @@ importação: sem ele preenchido no `.env` (qualquer valor serve, o banco tem de
 - **Biblioteca Python nova:** o contrário.
   1. Ela entra primeiro no `requirements.txt` do `my_orchestrator`, que reconstrói a imagem.
   2. Depois vem o merge do código daqui que a usa.
+
+## Problemas comuns
+
+| Sintoma | Causa e saída |
+|---|---|
+| `ENV=dev: faltam DB__DEV__... no .env` ao importar qualquer coisa, inclusive nos testes | O `settings.py` valida o perfil de banco na importação. Preencha o `.env` (qualquer valor passa nos testes unitários, que não conectam). |
+| `ENV=dev exige DB__DEV__NAME=ingestion_sandbox` | Em dev a carga só vai para o sandbox, de propósito. Para levar a raw ao `analytics_dev`, use `scripts/raw_copy.sh promote`. |
+| `Schema de escrita inválido` | Falta `db_schema` no YAML, ou ele não começa com `raw_`. Toda escrita exige `raw_<fonte>`. |
+| `canceling statement due to lock timeout` na carga | Outro processo (quase sempre um `dbt build`) está lendo a tabela. A carga desiste em 30 s em vez de enfileirar; rode de novo quando ele terminar. |
+| O commit é barrado pelo `validar-configs-pipeline` | Chave de YAML fora do contrato, ou source sem entrada em `ETLS` (ou o contrário). A mensagem mostra o caminho da chave; ver `validate_config` em [`src/core/README.md`](src/core/README.md). |
+| Tabela incremental (`write: append`) com linhas duplicadas | O controle foi ligado numa tabela que já tinha histórico sem o bootstrap. Ver `controle_semear.py` e `controle_reconstruir.py` em [`scripts/README.md`](scripts/README.md). |
+| Extract verde, mas a tabela não mudou | O extract de muitas requisições só falha quando **nenhuma** deu certo; falha parcial é WARNING no log. Procure `falharam` no log da etapa. |

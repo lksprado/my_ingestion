@@ -9,46 +9,8 @@ só fica no próprio `pipelines/<domínio>/<fonte>/<fonte>_etl.py`.
 `create_engine(...)`, `yaml.safe_load(...)`, `to_csv(...)` de bronze ou
 `logging.basicConfig(...)` dentro de um pipeline, já existe aqui.
 
-Tudo que um pipeline usa é reexportado no pacote:
-
-```python
-from core import (
-    Etl,
-    GenericETL,
-    build_etl,
-    run_source,  # etl.py
-    PipelineConfig,
-    load_yaml,  # config.py
-    HttpClient,  # http.py
-    PostgresClient,
-    validate_raw_schema,
-    validate_write_mode,  # db.py
-    JsonbLoader,  # jsonb.py
-    IngestionControl,
-    write_bronze_incremental,
-    write_manifest,
-    read_manifest,  # control.py
-    write_bronze,
-    write_bronze_streaming,
-    reset_bronze,
-    list_files,
-    concat_files_to_df,
-    concat_landing,
-    integral_floats_to_int,
-    write_csv,  # io.py
-    missing_dates_from_landing,  # incremental.py (por data)
-    pending_ids,
-    mark_no_data,
-    read_ids,
-    landing_ids,
-    extract_by_ids,  # incremental.py (por ID)
-    sanitize_columns,
-    sanitize_values,
-    normalize_string,  # text.py
-    setup_logger,  # logging.py
-    flatten_children,  # parsers/json.py
-)
-```
+Tudo que um pipeline usa sai de `from core import ...` (a lista é o `__all__` de
+[`__init__.py`](__init__.py)); as seções abaixo descrevem cada módulo.
 
 Parser de JSON vem do submódulo: `from core.parsers.json import normalize_json_object`.
 HTML é `BeautifulSoup(html, "html.parser")` direto.
@@ -76,22 +38,22 @@ from pathlib import Path
 from core import Etl, PipelineConfig, run_source, write_bronze
 
 logger = logging.getLogger(__name__)
-CONFIG_FILE = Path(__file__).parent / "camara_config.yml"
+CONFIG_FILE = Path(__file__).parent / "<fonte>_config.yml"
 
 
-def extract_deputados(cfg: PipelineConfig) -> None: ...  # arquivos em cfg.landing_dir
-def transform_deputados(cfg: PipelineConfig) -> None:  # termina em write_bronze
+def extract_itens(cfg: PipelineConfig) -> None: ...  # arquivos em cfg.landing_dir
+def transform_itens(cfg: PipelineConfig) -> None:  # termina em write_bronze
     write_bronze(cfg, df)
 
 
 ETLS = {  # ordem = ordem de execução
-    "legislaturas": Etl(transform=transform_legislaturas),  # extract padrão
-    "deputados": Etl(extract=extract_deputados, transform=transform_deputados),
+    "resumo": Etl(transform=transform_resumo),  # extract padrão: baixa url_base
+    "itens": Etl(extract=extract_itens, transform=transform_itens),
 }
 
 if __name__ == "__main__":
     run_source(CONFIG_FILE, ETLS)
-    # uv run python -m pipelines.legislativo.camara.camara_etl [entidade ...] [--steps transform,load]
+    # uv run python -m pipelines.<domínio>.<fonte>.<fonte>_etl [entidade ...] [--steps transform,load]
 ```
 
 ---
@@ -156,13 +118,31 @@ source, *, env=None, **overrides)` é a forma de construir (o `env` default vem 
 | `load` | de onde carregar: `table` (default) \| `files` \| `jsonb` \| `none` |
 | `write` | como escrever na tabela: `truncate` (default) \| `append` |
 | `bronze_sep` | separador do bronze (default `;`) |
-| `options` | dict livre do bloco `options:`; a core lê `control_table` (`control.py`), `no_data_file`/`parameter_column`/`dias_para_desistir`/`workers` (`incremental.py`) e as de load listadas em `etl.py` |
+| `options` | dict livre do bloco `options:` (as chaves que a core lê estão na tabela abaixo) |
 | `criar_dirs` | cria os diretórios no `__init__` (default `True`; em testes use `False`) |
 
 Propriedades `landing_filepath`, `bronze_filepath`, `parameter_filepath` levantam
 `ValueError` com mensagem clara se o campo não foi configurado.
 `write_output_params(df)` exporta, para cada `{arquivo: coluna}` de
 `output_param_file`, os valores únicos da coluna em `parameter_dir`.
+
+**Chaves de `options` que a `core` lê.** As demais são da fonte e ficam
+documentadas no cabeçalho do `<fonte>_config.yml` dela.
+
+| Chave | Quem lê | Default | Para quê |
+|---|---|---|---|
+| `control_table` | load `table`/`jsonb`, `control.py` | — (`jsonb`: `ingestion_control`) | Tabela de controle da carga incremental por arquivo |
+| `file_pattern` | load `files`/`jsonb` | `*.csv` / `landing_file` | Quais arquivos carregar |
+| `array_key` | load `jsonb` | — | Chave do JSON com a lista de registros (uma linha por item) |
+| `overwrite` | load `jsonb` | `false` | `true`: `TRUNCATE` e recarrega tudo |
+| `transform_workers` | `write_bronze_streaming` | `1` | Processos no parse do bronze |
+| `workers` | `extract_by_ids` | `1` | Threads HTTP do extract |
+| `no_data_file` | `extract_by_ids` | — | CSV dos IDs sem dado (404/410) |
+| `parameter_column` | `extract_by_ids` | `id` | Coluna de IDs no `parameter_file` |
+| `dias_para_desistir` | `extract_by_ids` | `7` | Dias de erro transitório antes de desistir de um ID |
+| `control_file` | `missing_dates_from_landing` | — (obrigatória) | CSV com os dias que faltam |
+| `lookback_days` | `missing_dates_from_landing` | `30` | Janela em que um dia sem arquivo é pedido de novo |
+| `cutoff_hour` | `missing_dates_from_landing` | `20` | A partir dessa hora, hoje conta como dia completo |
 
 Formato do YAML (`db_schema`, `load`, `write`, `bronze_sep` e `options` valem no
 topo como default do arquivo e podem ser sobrescritos por source; `options` faz
@@ -385,8 +365,8 @@ landing_dates(landing_dir, pattern) -> set[date]      # YYYY-MM-DD no nome do ar
 write_dates_csv(dates, path) / read_dates_csv(path)
 ```
 `missing_dates_from_landing` devolve os dias completos sem JSON no landing
-(`landing_file` com `{day}`) e grava a lista em `options.control_file` (a DAG do
-openweather lê com `read_dates_csv`). Olha os últimos `options.lookback_days`
+(`landing_file` com `{day}`) e grava a lista em `options.control_file`. "Completo"
+é até ontem, ou até hoje depois de `options.cutoff_hour` (20h). Olha os últimos `options.lookback_days`
 (default 30) dias — refaz um dia que falhou no meio, que um `MAX(data)` pularia
 para sempre — e, sempre, tudo depois do último dia baixado, para uma parada longa
 não virar buraco. Não volta para antes do primeiro dia do landing; landing vazio

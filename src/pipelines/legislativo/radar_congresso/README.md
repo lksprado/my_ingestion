@@ -21,10 +21,3 @@ Os três usam o extract padrão da `core` (uma requisição a `base_url`).
 uv run python -m pipelines.legislativo.radar_congresso.radar_congresso_etl                 # as três
 uv run python -m pipelines.legislativo.radar_congresso.radar_congresso_etl parlamentares   # só uma
 ```
-
-## Notas
-
-- ⚠️ A camada staging deste pipeline está **desabilitada no dbt**: o
-  `dbt_project.yml` do `demodadosdw` traz `staging.radar_congresso.+enabled: false`.
-  A ingestão popula as tabelas `raw_radar_congresso.*` normalmente, mas nada é modelado a jusante
-  enquanto essa flag não mudar.

@@ -68,7 +68,8 @@ CSV + HTML em `${LAKE_ROOT}/reports/fii/`.
 
 ## Notas
 
-- **Selenium com Chrome** é necessário para os indicadores (`--headless=new`); há
+- **Selenium com Chrome** é necessário para os indicadores (`--headless=new`;
+  com `SELENIUM_REMOTE_URL` no `.env`, usa o container do Selenium); há
   um `sleep(3)` por ticker, então a etapa é lenta e proporcional ao número de FIIs.
   O driver é encerrado no `finally`, e falhas por ticker são contabilizadas sem
   abortar a execução.
@@ -82,6 +83,6 @@ CSV + HTML em `${LAKE_ROOT}/reports/fii/`.
 
 ## Limitações conhecidas
 
-- `get_fii_history` é chamada sem `start` (`run.py:266`), então cai no default
+- `get_fii_history` é chamada sem `start` no `__main__` do `run.py`, então cai no default
   `"2020-01-01"` e **rebaixa a série inteira do yfinance a cada execução**, em vez
   de buscar só o incremento desde o último mês consolidado.

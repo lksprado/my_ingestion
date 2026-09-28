@@ -53,13 +53,11 @@ bronze em `${LAKE_ROOT}/bronze/solar_project/`.
 
 - **A carga é full refresh a partir do landing**, e o que evita rebaixar o
   histórico é o extract (dias sem JSON no landing). O landing é a
-  fonte de verdade: os 1.821 JSONs reconstroem as 1.819 linhas de
-  `solar_daily_energy` e as 43.656 de `solar_hourly_energy` em ~16 s.
+  fonte de verdade: um JSON por dia reconstrói as duas tabelas em segundos.
 - Os índices únicos `solar_daily_energy_date_pk` e
   `solar_hourly_energy_datetime_pk` existem no banco e não atrapalham; a carga
   não depende deles.
 - O Selenium roda **com janela** por padrão (`headless: false` no YAML), porque o
-  portal se comporta mal em headless.
-- Sobrou um `all_dfs.csv` em `bronze/solar_project/` que nenhuma etapa lê nem
-  regrava; pode ser apagado à mão.
+  portal se comporta mal em headless. Com `SELENIUM_REMOTE_URL` no ambiente (é o
+  caso do Airflow), usa o container do Selenium em vez do Chrome local.
 - Testes dos parsers em `tests/energia/test_solar_parsers.py`.
