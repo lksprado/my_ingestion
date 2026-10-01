@@ -35,6 +35,7 @@ e no Postgres (`raw_<fonte>.<entidade>` no banco do ambiente). Quem agenda é o
 | legislativo | [`radar_congresso`](src/pipelines/legislativo/radar_congresso/README.md) | Índice de governismo do Radar Congresso em Foco | `raw_radar_congresso` |
 | legislativo | [`ranking_politicos`](src/pipelines/legislativo/ranking_politicos/README.md) | Ranking dos Políticos | `raw_ranking_politicos` |
 | legislativo | [`_params`](src/pipelines/legislativo/_params/README.md) | Scripts auxiliares: CSV de deputados atuais e seeds do Senado | parâmetros e seeds do dbt |
+| livros | [`google_books`](src/pipelines/livros/google_books/README.md) | Dados da Google Books para os livros da seed `seed_biblioteca` | `raw_google_books` |
 | livros | [`vide_editorial`](src/pipelines/livros/vide_editorial/README.md) | Scraping de livros e promoções da Vide Editorial | `raw_vide_editora` |
 | preços | [`atacadao`](src/pipelines/precos/atacadao/README.md) | Preços de uma cesta de produtos, para uma inflação pessoal | seed do dbt (exceção: CLI própria, sem banco) |
 
