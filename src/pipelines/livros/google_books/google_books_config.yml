@@ -1,0 +1,34 @@
+# Fonte: Google Books API (/books/v1/volumes), busca por título + autor.
+# Os livros vêm da seed do dbt (options.seed_table, lida de settings.models_target:
+# analytics_dev em dev). A busca é em cascata — intitle+inauthor completo,
+# intitle+sobrenome, só intitle — e só aceita item cujo autor confere com a seed
+# (sobrenome, fuzzy). O landing acumula um JSON por livro ({slug} = título__autor
+# normalizados, resolvido pelo pipeline): o extract só busca o que não tem JSON, e
+# mudar título ou autor na seed gera outra chave, logo nova busca. Sem item
+# conferido não grava (fica pendente). O extract grava options.chaves_file com as
+# chaves da seed atual, e o transform só lê os JSONs delas.
+# A chave da API vem do .env (GOOGLE_BOOKS_API_KEY).
+db_schema: "raw_google_books"
+
+environments:
+  dev:
+    base_raw: "${LAKE_ROOT}/raw/google_books"
+    base_bronze: "${LAKE_ROOT}/bronze/google_books"
+    base_parameters: "${LAKE_ROOT}/raw/google_books/parameters"
+  prod:
+    base_raw: "/usr/local/airflow/mylake/raw/google_books"
+    base_bronze: "/usr/local/airflow/mylake/bronze/google_books"
+    base_parameters: "/usr/local/airflow/mylake/raw/google_books/parameters"
+
+sources:
+  livros:
+    base_url: "https://www.googleapis.com/books/v1/volumes"
+    subpath: "livros"
+    landing_file: "{slug}.json"
+    bronze_file: "google_books_livros.csv"
+    db_table: "livros"
+    options:
+      seed_table: "seeds.seed_biblioteca"   # schema.tabela com os livros
+      seed_column: "livros"                 # coluna do título
+      author_column: "autor"                # coluna do autor (vários: separados por vírgula)
+      chaves_file: "chaves_seed.csv"        # chaves da seed atual (em base_parameters)

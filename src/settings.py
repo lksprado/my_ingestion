@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     openweather_lat: float | None = None
     openweather_lon: float | None = None
 
+    # Pipeline livros/google_books — chave da Google Books API
+    google_books_api_key: str | None = None
+
     # Selenium remoto (container selenium/standalone-chrome). Sem valor, os
     # pipelines com navegador (solar, fundos_imobiliarios) abrem Chrome local.
     selenium_remote_url: str | None = None
