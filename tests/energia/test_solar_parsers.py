@@ -54,3 +54,13 @@ def test_load_landing_daily_and_hourly(tmp_path):
 def test_empty_landing():
     assert daily_summary(pd.DataFrame()).empty
     assert hourly(pd.DataFrame()).empty
+
+
+def test_settings_da_fonte(monkeypatch):
+    from pipelines.energia.solar.solar_etl import ApsystemsSettings
+
+    monkeypatch.setenv("APSYSTEMS_USER", "u")
+    monkeypatch.setenv("APSYSTEMS_PASSWORD", "p")
+    monkeypatch.setenv("APSYSTEMS_EQUIPMENT_ID", "e")
+    conf = ApsystemsSettings.carregar(_env_file=None)
+    assert (conf.user, conf.password, conf.equipment_id) == ("u", "p", "e")

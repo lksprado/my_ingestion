@@ -527,7 +527,8 @@ flatten_children(records, parent_cols, child_key) -> list[dict]  # uma linha por
 
 ## Convenções ao evoluir esta pasta
 
-- Nada de credencial ou caminho absoluto: use `settings` e `${LAKE_ROOT}` no YAML.
+- Nada de credencial ou caminho absoluto: use `settings` (ou a `SourceSettings` da
+  fonte) e `${LAKE_ROOT}` no YAML.
 - Um jeito por coisa. Antes de adicionar uma função, veja se é variação de uma que
   existe (parâmetro) ou se serve a uma fonte só (fica no `<fonte>_etl.py`).
 - Toda função pública com docstring — é o que aparece nesta referência.

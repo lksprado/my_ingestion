@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
+from pydantic_settings import SettingsConfigDict
 from rapidfuzz import fuzz
 
 from core import (
@@ -28,7 +29,7 @@ from core import (
     write_bronze_streaming,
     write_csv,
 )
-from settings import settings
+from settings import SourceSettings, settings
 
 logger = logging.getLogger(__name__)
 CONFIG_FILE = Path(__file__).parent / "google_books_config.yml"
@@ -130,8 +131,20 @@ def escolher_item(items: list[dict], autor: str | None) -> int | None:
     )
 
 
+class GoogleBooksSettings(SourceSettings):
+    """Chave da Google Books API (Books API liberada no projeto GCP)."""
+
+    model_config = SettingsConfigDict(env_prefix="GOOGLE_BOOKS_")
+
+    api_key: str
+
+
 def buscar_livro(
-    http: HttpClient, url: str, titulo: str, autor: str | None
+    http: HttpClient,
+    url: str,
+    titulo: str,
+    autor: str | None,
+    api_key: str | None = None,
 ) -> Resultado | None:
     """Busca em cascata; ``None`` se nenhum item conferiu. Erro HTTP levanta.
 
@@ -148,7 +161,7 @@ def buscar_livro(
                 "q": q,
                 "maxResults": MAX_RESULTS,
                 "printType": "books",
-                "key": settings.google_books_api_key,
+                "key": api_key,
             },
         )
         if data is None:
@@ -236,15 +249,14 @@ def extract(cfg: PipelineConfig) -> None:
     if not pendentes:
         logger.info("Nenhum livro novo na seed.")
         return
-    if not settings.google_books_api_key:
-        raise ValueError("Chave da Google Books ausente (GOOGLE_BOOKS_API_KEY).")
+    conf = GoogleBooksSettings.carregar()
 
     http = HttpClient(logger, retries=3, backoff_factor=1.0, timeout=15)
     falhas = sem_resultado = 0
     for titulo, autor in pendentes:
         logger.info(f"GET volumes {titulo!r} / {autor!r}")
         try:
-            resultado = buscar_livro(http, cfg.url_base, titulo, autor)
+            resultado = buscar_livro(http, cfg.url_base, titulo, autor, conf.api_key)
         except BuscaError:
             falhas += 1
             continue

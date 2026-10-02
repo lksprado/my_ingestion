@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 
 import pandas as pd
+from pydantic_settings import SettingsConfigDict
 
 from core import (
     Etl,
@@ -23,10 +24,21 @@ from core import (
     run_source,
     write_bronze,
 )
-from settings import settings
+from settings import SourceSettings
 
 logger = logging.getLogger(__name__)
 CONFIG_FILE = Path(__file__).parent / "openweather_config.yml"
+
+
+class OpenweatherSettings(SourceSettings):
+    """Chave da API One Call 3.0 e ponto do day_summary (graus decimais)."""
+
+    model_config = SettingsConfigDict(env_prefix="OPENWEATHER_")
+
+    api_key: str
+    lat: float
+    lon: float
+
 
 _TEMPERATURE_COLS = [
     "temperature_min",
@@ -64,10 +76,7 @@ def extract(cfg: PipelineConfig) -> None:
     if not dates:
         logger.info("Nenhuma data faltando.")
         return
-    if not settings.openweather_api_key:
-        raise ValueError("Token da OpenWeather ausente (OPENWEATHER_API_KEY).")
-    if settings.openweather_lat is None or settings.openweather_lon is None:
-        raise ValueError("Ponto ausente (OPENWEATHER_LAT / OPENWEATHER_LON).")
+    conf = OpenweatherSettings.carregar()
 
     http = HttpClient(logger, retries=3, backoff_factor=1.0, timeout=15)
     falhas = 0
@@ -78,10 +87,10 @@ def extract(cfg: PipelineConfig) -> None:
         data = http.get_json(
             cfg.url_base,
             params={
-                "lat": settings.openweather_lat,
-                "lon": settings.openweather_lon,
+                "lat": conf.lat,
+                "lon": conf.lon,
                 "date": day,
-                "appid": settings.openweather_api_key,
+                "appid": conf.api_key,
             },
         )
         if data is None:

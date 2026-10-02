@@ -44,7 +44,7 @@ uv run python -m pipelines.livros.google_books.google_books_etl
 uv run python -m pipelines.livros.google_books.google_books_etl --steps transform,load
 ```
 
-A chave vem de `GOOGLE_BOOKS_API_KEY` no `.env` (`settings.google_books_api_key`).
+A chave vem de `GOOGLE_BOOKS_API_KEY` no `.env` (`GoogleBooksSettings`, carregada no extract).
 
 ## Armadilhas
 

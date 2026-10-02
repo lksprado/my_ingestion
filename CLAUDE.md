@@ -47,8 +47,9 @@ uv run python -m pipelines.<domínio>.<fonte>.<fonte>_etl [entidade ...] [--step
 
 ## Convenções
 
-- Credencial nova: `.env` + `.env.example` (vazio) + campo em `settings.py` (obrigatório sem default)
-  + `.env.example` do `my_orchestrator` + `gh secret set <NOME> --env prod -R lksprado/my_orchestrator`
+- Credencial nova: subclasse de `SourceSettings` no `<fonte>_etl.py` (prefixo da fonte, campos sem
+  default, `.carregar()` no extract; `settings.py` só para o que é da plataforma) + `.env` +
+  `.env.example` (vazio) + `.env.example` do `my_orchestrator` + `gh secret set <NOME> --env prod -R lksprado/my_orchestrator`
   (o `.env` de prod é gerado no deploy; arquivo vai como secret `ARQUIVO__<NOME>_<EXT>`).
   Nunca `os.getenv`. Arquivos de credencial em `~/.secrets/`, `.env` guarda o caminho.
 - Nunca caminho absoluto em código (`settings.lake_root`/`seeds_root`) nem no bloco `dev` do YAML.

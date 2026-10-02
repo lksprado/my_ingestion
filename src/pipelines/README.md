@@ -270,12 +270,28 @@ inclusive a fonte sem transform (NHL, `load: jsonb`) e as entidades sem carga
 
 ## 6. Configuração e segredos
 
-- Credencial nova vai para o `.env` **e** para o `.env.example` (com valor vazio), e
-  vira campo em `src/settings.py`. Nunca leia `os.getenv` espalhado pelo código.
-  Grupos de valores usam o delimitador duplo (`URL_FINANCE__<CHAVE>` →
-  `settings.url_finance[<chave>]`).
-- Campo obrigatório em `Settings` não leva default: é melhor falhar na importação do
-  que criar diretórios errados com valor vazio.
+- Credencial de uma fonte é declarada na própria fonte, numa subclasse de
+  `SourceSettings` (de `settings`) com o prefixo da fonte, e carregada no extract.
+  Campo sem default é obrigatório; a falta só derruba esta fonte, com o nome da
+  variável na mensagem:
+  ```python
+  class OpenweatherSettings(SourceSettings):
+      model_config = SettingsConfigDict(env_prefix="OPENWEATHER_")
+      api_key: str
+
+
+  def extract(cfg):
+      ...  # retorno antecipado quando não há nada a buscar
+      conf = OpenweatherSettings.carregar()
+  ```
+  Carregue depois do retorno antecipado, nunca no import. Grupos de valores usam o
+  delimitador duplo (`URL_FINANCE__<CHAVE>` → `url_finance[<chave>]`).
+- `src/settings.py` fica com o que é da plataforma ou de mais de uma fonte
+  (ambiente, lake, banco, Selenium); lá, campo obrigatório não leva default.
+- A variável vai para o `.env` **e** para o `.env.example` (valor vazio) daqui e do
+  `my_orchestrator`, e vira secret de prod:
+  `gh secret set <NOME> --env prod -R lksprado/my_orchestrator`. Nunca leia
+  `os.getenv` espalhado pelo código.
 - Arquivo de credencial (chave de service account, por exemplo) mora **fora do
   repo**, em `~/.secrets/`, e o `.env` guarda só o caminho.
 - Banco: nunca escolha o destino no código. `PostgresClient()` usa o perfil

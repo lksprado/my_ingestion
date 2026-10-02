@@ -223,3 +223,13 @@ def test_parse_landing_usa_item_aceito():
         "sobrenome",
     )
     assert row["id"] == "abc123"
+
+
+def test_settings_da_fonte(monkeypatch):
+    from pipelines.livros.google_books.google_books_etl import GoogleBooksSettings
+
+    monkeypatch.setenv("GOOGLE_BOOKS_API_KEY", "k")
+    assert GoogleBooksSettings.carregar(_env_file=None).api_key == "k"
+    monkeypatch.delenv("GOOGLE_BOOKS_API_KEY")
+    with pytest.raises(ValueError, match="GOOGLE_BOOKS_API_KEY"):
+        GoogleBooksSettings.carregar(_env_file=None)
