@@ -56,3 +56,13 @@ def test_transform_consolidates_and_skips_invalid(tmp_path):
     transform(cfg)
     df = pd.read_csv(tmp_path / "all_dfs.csv")
     assert list(df["date"]) == ["2021-09-16", "2021-09-17"]
+
+
+def test_settings_da_fonte(monkeypatch):
+    from pipelines.clima.openweather.openweather_etl import OpenweatherSettings
+
+    monkeypatch.setenv("OPENWEATHER_API_KEY", "k")
+    monkeypatch.setenv("OPENWEATHER_LAT", "-23.5")
+    monkeypatch.setenv("OPENWEATHER_LON", "-46.6")
+    conf = OpenweatherSettings.carregar(_env_file=None)
+    assert (conf.api_key, conf.lat, conf.lon) == ("k", -23.5, -46.6)

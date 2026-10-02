@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 import pandas as pd
+from pydantic_settings import SettingsConfigDict
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -29,7 +30,7 @@ from core import (
     run_source,
     write_bronze,
 )
-from settings import settings
+from settings import SourceSettings, settings
 
 logger = logging.getLogger(__name__)
 CONFIG_FILE = Path(__file__).parent / "solar_config.yml"
@@ -39,6 +40,16 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/128.0.0.0 Safari/537.36"
 )
+
+
+class ApsystemsSettings(SourceSettings):
+    """Login do portal apsystemsema.com e id do inversor."""
+
+    model_config = SettingsConfigDict(env_prefix="APSYSTEMS_")
+
+    user: str
+    password: str
+    equipment_id: str
 
 
 def setup_driver(
@@ -110,8 +121,7 @@ def extract(cfg: PipelineConfig) -> None:
     if not dates:
         logger.info("Nenhuma data faltando.")
         return
-    if not settings.apsystems_equipment_id:
-        raise ValueError("Inversor ausente (APSYSTEMS_EQUIPMENT_ID).")
+    conf = ApsystemsSettings.carregar()
 
     driver = setup_driver(
         headless=bool(opts.get("headless", True)),
@@ -121,8 +131,8 @@ def extract(cfg: PipelineConfig) -> None:
         login(
             driver,
             opts["login_url"],
-            settings.apsystems_user,
-            settings.apsystems_password,
+            conf.user,
+            conf.password,
         )
         navigate_to_report(driver)
         headers, user_id = session_headers(driver)
@@ -130,7 +140,7 @@ def extract(cfg: PipelineConfig) -> None:
         falhas = 0
         for day in dates:
             payload = {
-                "selectedValue": settings.apsystems_equipment_id,
+                "selectedValue": conf.equipment_id,
                 "queryDate": day.replace("-", ""),
                 "systemId": user_id,
                 "userId": user_id,

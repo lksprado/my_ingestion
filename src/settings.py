@@ -17,12 +17,20 @@ Em dev, cargas e objetos do dbt vivem em bancos diferentes: a carga vai para o
 sandbox, e o que o dbt constrói (``intermediate``, marts) fica no
 ``analytics_dev``. Leituras desses objetos usam ``settings.models_target`` — hoje
 só o ``investimentos_fgc``. Em prod os dois são o mesmo banco.
+
+Configuração de fonte
+---------------------
+Aqui fica só o que é da plataforma ou serve a mais de uma fonte (ambiente, lake,
+banco, Selenium). Credencial de uma fonte é declarada no ``<fonte>_etl.py`` numa
+subclasse de ``SourceSettings`` com o prefixo da fonte e carregada no extract com
+``.carregar()``: os campos podem ser obrigatórios sem quebrar a importação das
+outras fontes, e a falta aparece só no pipeline que precisa deles.
 """
 
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -73,16 +81,54 @@ class DbProfiles(BaseModel):
     prod: DbTarget = DbTarget()
 
 
+# Comum ao Settings e às SourceSettings das fontes.
+_MODEL_CONFIG = SettingsConfigDict(
+    env_file=ENV_FILE,
+    env_file_encoding="utf-8",
+    extra="ignore",
+    # DB__DEV__HOST -> db.dev.host; URL_FINANCE__X -> url_finance["x"]
+    env_nested_delimiter="__",
+    # Chave em branco no .env (ex.: DB__PROD__HOST=) conta como ausente.
+    env_ignore_empty=True,
+)
+
+
+class SourceSettings(BaseSettings):
+    """Base da configuração de uma fonte, lida do mesmo .env (ou do ambiente).
+
+    A subclasse fica no ``<fonte>_etl.py``, só acrescenta o prefixo e declara os
+    campos (obrigatórios sem default)::
+
+        class OpenweatherSettings(SourceSettings):
+            model_config = SettingsConfigDict(env_prefix="OPENWEATHER_")
+            api_key: str
+
+        cfg = OpenweatherSettings.carregar()  # no extract, não no import
+    """
+
+    model_config = _MODEL_CONFIG
+
+    @classmethod
+    def carregar(cls, **valores):
+        """Instancia; variável faltando vira ``ValueError`` com o nome dela."""
+        try:
+            return cls(**valores)
+        except ValidationError as e:
+            prefixo = cls.model_config.get("env_prefix", "")
+            nomes = sorted(
+                {
+                    f"{prefixo}{err['loc'][0]}".upper()
+                    for err in e.errors()
+                    if err["loc"]
+                }
+            )
+            raise ValueError(
+                f"{cls.__name__}: ausente(s) ou inválida(s) no .env: {', '.join(nomes)}"
+            ) from None
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=ENV_FILE,
-        env_file_encoding="utf-8",
-        extra="ignore",
-        # DB__DEV__HOST -> db.dev.host
-        env_nested_delimiter="__",
-        # Chave em branco no .env (ex.: DB__PROD__HOST=) conta como ausente.
-        env_ignore_empty=True,
-    )
+    model_config = _MODEL_CONFIG
 
     # dev = execução local; prod = Airflow
     env: Literal["dev", "prod"] = "dev"
@@ -93,24 +139,6 @@ class Settings(BaseSettings):
 
     # Postgres (destino raw_<fonte>.*), um perfil por ambiente
     db: DbProfiles = DbProfiles()
-
-    # Pipeline energia/solar
-    apsystems_user: str | None = None
-    apsystems_password: str | None = None
-    apsystems_equipment_id: str | None = None
-
-    # Pipeline financas/investimentos (google): service account e URLs das
-    # planilhas, uma por chave do YAML (URL_FINANCE__<CHAVE>=...)
-    google_credentials_file: Path | None = None
-    url_finance: dict[str, str] = {}
-
-    # Pipeline clima/openweather — chave da API One Call 3.0 e ponto consultado
-    openweather_api_key: str | None = None
-    openweather_lat: float | None = None
-    openweather_lon: float | None = None
-
-    # Pipeline livros/google_books — chave da Google Books API
-    google_books_api_key: str | None = None
 
     # Selenium remoto (container selenium/standalone-chrome). Sem valor, os
     # pipelines com navegador (solar, fundos_imobiliarios) abrem Chrome local.

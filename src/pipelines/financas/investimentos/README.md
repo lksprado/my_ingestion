@@ -44,7 +44,8 @@ O `fgc` fica fora porque depende da camada `intermediate` já materializada no D
   (o arquivo fica fora do repo, em `~/.secrets/`).
 - **`URL_FINANCE__<CHAVE>`** no `.env` (delimitador duplo), uma por workbook de
   `options.sheets` (`URL_FINANCE__LUCAS_JESSICA`, `URL_FINANCE__DEUSA`); chega em
-  `settings.url_finance`. Workbook sem URL é pulado com log.
+  `GoogleSheetsSettings.url_finance` (`investimentos_google.py`). Workbook sem URL é
+  pulado com log.
 
 ## Entradas esperadas no lake
 

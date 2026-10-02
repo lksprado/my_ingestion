@@ -9,9 +9,11 @@ primária). load: files -> ``raw_google_sheets.<aba>``. Registrado em
 
 import json
 import logging
+from pathlib import Path
 
 import gspread as gp
 import pandas as pd
+from pydantic import field_validator
 
 from core import (
     PipelineConfig,
@@ -20,9 +22,28 @@ from core import (
     reset_bronze,
     write_csv,
 )
-from settings import settings
+from settings import SourceSettings
 
 logger = logging.getLogger(__name__)
+
+
+class GoogleSheetsSettings(SourceSettings):
+    """Service account e URLs das planilhas, uma por chave de ``options.sheets``.
+
+    ``URL_FINANCE__<CHAVE>=...`` vira ``url_finance["<chave>"]``. Sem prefixo: os
+    nomes no .env já são esses.
+    """
+
+    google_credentials_file: Path
+    url_finance: dict[str, str] = {}
+
+    @field_validator("google_credentials_file")
+    @classmethod
+    def _arquivo_existe(cls, v: Path) -> Path:
+        v = v.expanduser()
+        if not v.is_file():
+            raise ValueError(f"service account não encontrada: {v}")
+        return v
 
 
 def _workbooks(cfg: PipelineConfig) -> list[dict]:
@@ -47,12 +68,13 @@ def _workbooks(cfg: PipelineConfig) -> list[dict]:
 
 
 def extract(cfg: PipelineConfig) -> None:
-    gc = gp.service_account(filename=str(settings.google_credentials_file))
+    conf = GoogleSheetsSettings.carregar()
+    gc = gp.service_account(filename=str(conf.google_credentials_file))
     workbooks = _workbooks(cfg)
     total = sum(len(wb["sheets"]) for wb in workbooks)
     falhas = 0
     for wb in workbooks:
-        url = settings.url_finance.get(wb["key"])
+        url = conf.url_finance.get(wb["key"])
         if not url:
             logger.error(
                 f"URL_FINANCE__{wb['key'].upper()} nao definida; planilha ignorada"

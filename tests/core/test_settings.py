@@ -97,3 +97,44 @@ def test_prod_profile_resolves(monkeypatch):
 def test_unknown_env_fails(monkeypatch):
     with pytest.raises(ValidationError):
         _settings(monkeypatch, ENV="prod")
+
+
+def _fonte():
+    from pydantic_settings import SettingsConfigDict
+
+    from settings import SourceSettings
+
+    class FooSettings(SourceSettings):
+        model_config = SettingsConfigDict(env_prefix="FOO_")
+        api_key: str
+        lat: float
+        grupo: dict[str, str] = {}
+
+    return FooSettings
+
+
+def test_source_settings_le_com_prefixo(monkeypatch):
+    monkeypatch.setenv("FOO_API_KEY", "k")
+    monkeypatch.setenv("FOO_LAT", "-23.5")
+    monkeypatch.setenv("FOO_GRUPO__A_B", "x")
+    conf = _fonte().carregar(_env_file=None)
+    assert conf.api_key == "k"
+    assert conf.lat == -23.5
+    # Delimitador duplo herdado: FOO_GRUPO__A_B -> grupo["a_b"]
+    assert conf.grupo == {"a_b": "x"}
+
+
+def test_source_settings_falta_cita_variaveis(monkeypatch):
+    for key in ("FOO_API_KEY", "FOO_LAT"):
+        monkeypatch.delenv(key, raising=False)
+    # Em branco conta como ausente, como no Settings.
+    monkeypatch.setenv("FOO_API_KEY", "")
+    with pytest.raises(ValueError, match="FOO_API_KEY, FOO_LAT$"):
+        _fonte().carregar(_env_file=None)
+
+
+def test_source_settings_tipo_invalido_cita_variavel(monkeypatch):
+    monkeypatch.setenv("FOO_API_KEY", "k")
+    monkeypatch.setenv("FOO_LAT", "norte")
+    with pytest.raises(ValueError, match="FOO_LAT$"):
+        _fonte().carregar(_env_file=None)
