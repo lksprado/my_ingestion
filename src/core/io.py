@@ -9,11 +9,13 @@ import csv
 import logging
 import multiprocessing
 import os
+import sys
 import tempfile
 import traceback
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -167,6 +169,34 @@ def _parse_prepared(
     return _prepare(df), None
 
 
+@contextmanager
+def _main_fora_dos_filhos(parse_fn: ParseFn) -> Iterator[None]:
+    """Impede o pool de reexecutar o ``__main__`` quando ``parse_fn`` não mora nele.
+
+    ``forkserver`` (como ``spawn``) importa de novo o script principal em cada
+    processo novo. Numa task do Airflow esse script é o ``airflow``, cujo import
+    tenta abrir o banco de metadados, bloqueado ali (``airflow-db-not-allowed``),
+    e o filho morre. O filho só precisa do módulo de ``parse_fn``; quando ele é o
+    próprio ``__main__`` (``python -m pipelines...``), nada muda.
+    """
+    main = sys.modules["__main__"]
+    modulo = getattr(getattr(parse_fn, "func", parse_fn), "__module__", None)
+    if modulo == "__main__":
+        yield
+        return
+    sem = object()
+    originais = {a: getattr(main, a, sem) for a in ("__file__", "__spec__")}
+    main.__spec__ = None
+    if originais["__file__"] is not sem:
+        del main.__file__
+    try:
+        yield
+    finally:
+        for attr, valor in originais.items():
+            if valor is not sem:
+                setattr(main, attr, valor)
+
+
 def _prepared_frames(
     files: Iterable[Path], parse_fn: ParseFn, workers: int
 ) -> Iterator[tuple[Path, pd.DataFrame | None, str | None]]:
@@ -183,7 +213,10 @@ def _prepared_frames(
             yield file, *_parse_prepared(parse_fn, file)
         return
     contexto = multiprocessing.get_context("forkserver")
-    with ProcessPoolExecutor(workers, mp_context=contexto) as pool:
+    with (
+        _main_fora_dos_filhos(parse_fn),
+        ProcessPoolExecutor(workers, mp_context=contexto) as pool,
+    ):
         pendentes = deque()
         for file in files:
             pendentes.append((file, pool.submit(_parse_prepared, parse_fn, file)))

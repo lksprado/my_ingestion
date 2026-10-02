@@ -1,9 +1,11 @@
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
+import core.io as cio
 from core.config import PipelineConfig
 from core.io import (
     concat_landing,
@@ -217,3 +219,23 @@ def test_integral_floats_to_int_keeps_real_floats():
 def test_write_bronze_writes_integers_without_decimal(cfg):
     write_bronze(cfg, pd.DataFrame({"id": [123.0, None], "v": [1.5, 2.0]}))
     assert cfg.bronze_filepath.read_text().splitlines() == ["id;v", "123;1.5", ";2.0"]
+
+
+def test_streaming_workers_nao_reexecuta_main_alheio(tmp_path, monkeypatch):
+    # Numa task do Airflow o __main__ é o script `airflow`, que quebra ao ser
+    # importado (banco bloqueado); o pool não pode reexecutá-lo nos filhos.
+    script = tmp_path / "main_quebrado.py"
+    script.write_text("raise SystemExit('reexecutou o __main__')\n")
+    main = sys.modules["__main__"]
+    monkeypatch.setattr(main, "__file__", str(script), raising=False)
+    monkeypatch.setattr(main, "__spec__", None, raising=False)
+
+    files = []
+    for i in range(4):
+        f = tmp_path / f"f{i}.json"
+        f.write_text(json.dumps({"A": [i]}))
+        files.append(f)
+
+    saida = list(cio._prepared_frames(files, _parse_json_frame, 2))
+    assert [erro for _, _, erro in saida] == [None] * 4
+    assert main.__file__ == str(script)
