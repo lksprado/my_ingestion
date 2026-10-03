@@ -78,6 +78,7 @@ def test_config_minimo_valido():
         ({"db_schema": "public"}, "sources.itens.db_schema: load=table exige"),
         ({"sources__itens__db_table": None}, "sources.itens.db_table: obrigatório"),
         ({"bronze_sep": ";;"}, "sources.itens.bronze_sep"),
+        ({"db_target": "sandbox"}, "sources.itens.db_target: 'sandbox' inválido"),
         (
             {"sources__itens__output_param_file": ["a"]},
             "sources.itens.output_param_file",

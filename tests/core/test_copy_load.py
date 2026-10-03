@@ -281,8 +281,8 @@ def test_ciclo_incremental_carrega_so_o_delta(pg, tmp_path, monkeypatch):
     from core.control import write_bronze_incremental
     from core.etl import GenericETL
 
-    monkeypatch.setattr("core.control.PostgresClient", lambda log=None: pg)
-    monkeypatch.setattr("core.etl.PostgresClient", lambda log=None: pg)
+    monkeypatch.setattr("core.control.PostgresClient", lambda target=None, log=None: pg)
+    monkeypatch.setattr("core.etl.PostgresClient", lambda target=None, log=None: pg)
 
     cfg = _cfg_incremental(tmp_path, "incremental")
     parse = lambda f: pd.DataFrame({"x": [f.stem]})  # noqa: E731
@@ -314,8 +314,8 @@ def test_falha_no_load_nao_registra_no_controle(pg, tmp_path, monkeypatch):
     from core.control import write_bronze_incremental
     from core.etl import GenericETL
 
-    monkeypatch.setattr("core.control.PostgresClient", lambda log=None: pg)
-    monkeypatch.setattr("core.etl.PostgresClient", lambda log=None: pg)
+    monkeypatch.setattr("core.control.PostgresClient", lambda target=None, log=None: pg)
+    monkeypatch.setattr("core.etl.PostgresClient", lambda target=None, log=None: pg)
 
     cfg = _cfg_incremental(tmp_path, "rollback")
     write_bronze_incremental(
@@ -337,8 +337,8 @@ def test_falha_no_load_nao_registra_no_controle(pg, tmp_path, monkeypatch):
 def test_load_sem_manifesto_avisa_e_nao_carrega(pg, tmp_path, monkeypatch):
     from core.etl import GenericETL
 
-    monkeypatch.setattr("core.control.PostgresClient", lambda log=None: pg)
-    monkeypatch.setattr("core.etl.PostgresClient", lambda log=None: pg)
+    monkeypatch.setattr("core.control.PostgresClient", lambda target=None, log=None: pg)
+    monkeypatch.setattr("core.etl.PostgresClient", lambda target=None, log=None: pg)
 
     cfg = _cfg_incremental(tmp_path, "semmanifesto")
     cfg.bronze_filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -359,8 +359,8 @@ def test_delta_com_erro_e_sem_linhas_nao_duplica_nem_perde(pg, tmp_path, monkeyp
     from core.control import write_bronze_incremental
     from core.etl import GenericETL
 
-    monkeypatch.setattr("core.control.PostgresClient", lambda log=None: pg)
-    monkeypatch.setattr("core.etl.PostgresClient", lambda log=None: pg)
+    monkeypatch.setattr("core.control.PostgresClient", lambda target=None, log=None: pg)
+    monkeypatch.setattr("core.etl.PostgresClient", lambda target=None, log=None: pg)
 
     cfg = _cfg_incremental(tmp_path, "delta_ruim")
 
@@ -424,7 +424,7 @@ def test_reconstruir_recupera_coluna_e_repoe_o_controle(pg, tmp_path, monkeypatc
     from core.control import IngestionControl, read_manifest, write_bronze_incremental
 
     script = _script_reconstruir()
-    monkeypatch.setattr("core.control.PostgresClient", lambda log=None: pg)
+    monkeypatch.setattr("core.control.PostgresClient", lambda target=None, log=None: pg)
     monkeypatch.setattr(script, "PostgresClient", lambda log=None: pg)
     log = logging.getLogger("teste")
 

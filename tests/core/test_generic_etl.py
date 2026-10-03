@@ -94,7 +94,7 @@ class _FakeCopy:
 
     chamadas: list = []
 
-    def __init__(self, log=None): ...
+    def __init__(self, target=None, log=None): ...
 
     def copy_csv(
         self,
@@ -167,7 +167,9 @@ def test_load_table_com_so_cabecalho_cria_tabela_vazia(monkeypatch, tmp_path):
 
 def test_load_requires_raw_schema(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        etl_module, "PostgresClient", lambda **_: pytest.fail("não deveria conectar")
+        etl_module,
+        "PostgresClient",
+        lambda *_, **__: pytest.fail("não deveria conectar"),
     )
     cfg = _cfg(tmp_path, bronze_file="f.csv", db_table="t")
     with pytest.raises(ValueError, match="raw_<fonte>"):
@@ -176,7 +178,9 @@ def test_load_requires_raw_schema(monkeypatch, tmp_path):
 
 def test_load_none_does_not_connect(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        etl_module, "PostgresClient", lambda **_: pytest.fail("não deveria conectar")
+        etl_module,
+        "PostgresClient",
+        lambda *_, **__: pytest.fail("não deveria conectar"),
     )
     GenericETL(_cfg(tmp_path, load="none")).load()
 
@@ -185,7 +189,7 @@ def test_load_files_uses_bronze_dir_and_sep(monkeypatch, tmp_path):
     called = {}
 
     class FakePg:
-        def __init__(self, log=None): ...
+        def __init__(self, target=None, log=None): ...
 
         def load_files_to_table(self, input_dir, *, schema, pattern, write, sep):
             called.update(
@@ -208,11 +212,33 @@ def test_load_files_uses_bronze_dir_and_sep(monkeypatch, tmp_path):
     }
 
 
+@pytest.mark.parametrize(
+    ("db_target", "esperado"), [("ingestion", None), ("models", "alvo-models")]
+)
+def test_load_usa_o_banco_do_db_target(monkeypatch, tmp_path, db_target, esperado):
+    alvos = []
+
+    class FakePg:
+        def __init__(self, target=None, log=None):
+            alvos.append(target)
+
+        def load_files_to_table(self, *args, **kwargs): ...
+
+    def fake_target_for(nome):
+        return {"ingestion": None, "models": "alvo-models"}[nome]
+
+    monkeypatch.setattr(etl_module, "PostgresClient", FakePg)
+    monkeypatch.setattr(etl_module, "target_for", fake_target_for)
+    cfg = _cfg(tmp_path, load="files", db_schema="raw_b3", db_target=db_target)
+    GenericETL(cfg).load()
+    assert alvos == [esperado]
+
+
 def test_load_jsonb_passes_options(monkeypatch, tmp_path):
     called = {}
 
     class FakePg:
-        def __init__(self, log=None): ...
+        def __init__(self, target=None, log=None): ...
 
     class FakeLoader:
         def __init__(self, db, *, schema, control_table, log=None):

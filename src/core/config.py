@@ -5,6 +5,7 @@ Os YAMLs de fonte seguem a estrutura::
     db_schema: raw_<fonte>      # schema destino de todas as tabelas do arquivo
     load: table                 # modo de carga padrão (table | files | jsonb | none)
     write: truncate             # como escrever (truncate | append)
+    db_target: ingestion        # banco da carga (ingestion | models)
     bronze_sep: ";"             # separador do bronze (default ";")
     options: {...}              # opções comuns a todos os sources (opcional)
     environments:
@@ -20,7 +21,7 @@ Os YAMLs de fonte seguem a estrutura::
         db_table: ...
         options: {...}          # sobrescreve as opções do topo
 
-``db_schema``, ``load``, ``write``, ``bronze_sep`` e ``options``
+``db_schema``, ``load``, ``write``, ``db_target``, ``bronze_sep`` e ``options``
 aceitam valor no topo do arquivo (default) e por source (override). Placeholders
 ``${VAR}`` nos paths são resolvidos contra o ambiente e o ``settings``
 (LAKE_ROOT, SEEDS_ROOT). ``validate_config`` confere essa estrutura (roda no
@@ -48,6 +49,11 @@ logger = logging.getLogger(__name__)
 
 LoadMode = Literal["table", "files", "jsonb", "none"]
 LOAD_MODES: tuple[str, ...] = ("table", "files", "jsonb", "none")
+
+# ingestion = settings.db_target (em dev, o ingestion_sandbox); models =
+# settings.models_target (em dev, o analytics_dev). Em prod os dois são o mesmo.
+DbTargetName = Literal["ingestion", "models"]
+DB_TARGETS: tuple[str, ...] = ("ingestion", "models")
 
 
 def _template_vars() -> dict[str, str]:
@@ -90,6 +96,7 @@ class PipelineConfig:
         db_schema: schema destino, obrigatoriamente ``raw_<fonte>``
         load: modo de carga (``table`` | ``files`` | ``jsonb`` | ``none``)
         write: modo de escrita na tabela (``truncate`` | ``append``)
+        db_target: banco da carga (``ingestion`` | ``models``)
         bronze_sep: separador do CSV bronze
         options: dict livre com o bloco ``options:`` do YAML
         criar_dirs: cria os diretórios no ``__init__`` (em testes use ``False``)
@@ -108,6 +115,7 @@ class PipelineConfig:
     db_schema: str | None = None
     load: LoadMode = "table"
     write: WriteMode = "truncate"
+    db_target: DbTargetName = "ingestion"
     bronze_sep: str = ";"
     options: dict = field(default_factory=dict)
     criar_dirs: bool = True
@@ -116,6 +124,10 @@ class PipelineConfig:
         if self.load not in LOAD_MODES:
             raise ValueError(f"load={self.load!r} inválido; use um de {LOAD_MODES}.")
         validate_write_mode(self.write)
+        if self.db_target not in DB_TARGETS:
+            raise ValueError(
+                f"db_target={self.db_target!r} inválido; use um de {DB_TARGETS}."
+            )
 
         self.landing_dir = self._to_path(self.landing_dir, self.subpath)
         if self.bronze_dir:
@@ -204,7 +216,9 @@ class PipelineConfig:
             logger.info(f"📄 IDs exportados para: {path}")
 
 
-_CASCADE_KEYS = frozenset({"db_schema", "load", "write", "bronze_sep", "options"})
+_CASCADE_KEYS = frozenset(
+    {"db_schema", "load", "write", "db_target", "bronze_sep", "options"}
+)
 TOP_KEYS = _CASCADE_KEYS | {"environments", "sources"}
 ENV_KEYS = frozenset({"base_raw", "base_bronze", "base_parameters"})
 SOURCE_KEYS = _CASCADE_KEYS | {
@@ -295,6 +309,11 @@ def validate_config(data: dict) -> list[str]:
         write = effective("write", "truncate")
         if write not in WRITE_MODES:
             errors.append(f"{where}write: {write!r} inválido; use um de {WRITE_MODES}")
+        db_target = effective("db_target", "ingestion")
+        if db_target not in DB_TARGETS:
+            errors.append(
+                f"{where}db_target: {db_target!r} inválido; use um de {DB_TARGETS}"
+            )
         sep = effective("bronze_sep", ";")
         if not (isinstance(sep, str) and len(sep) == 1):
             errors.append(f"{where}bronze_sep: {sep!r} deve ser um caractere")
@@ -359,6 +378,7 @@ def _source_dict(config_file: Path | str, source: str, env: str | None) -> dict:
         "db_schema": src_cfg.get("db_schema", cfg.get("db_schema")),
         "load": src_cfg.get("load", cfg.get("load")),
         "write": src_cfg.get("write", cfg.get("write")),
+        "db_target": src_cfg.get("db_target", cfg.get("db_target")),
         "bronze_sep": src_cfg.get("bronze_sep", cfg.get("bronze_sep")),
         "options": {**(cfg.get("options") or {}), **(src_cfg.get("options") or {})},
     }

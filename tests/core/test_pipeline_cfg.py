@@ -142,3 +142,32 @@ def test_from_yaml_defaults_without_top_level_keys(tmp_path: Path):
     cfg = PipelineConfig.from_yaml(yml, "s", env="dev", criar_dirs=False)
     assert cfg.db_schema is None
     assert (cfg.load, cfg.bronze_sep, cfg.options) == ("table", ";", {})
+
+
+def test_pipeline_cfg_rejects_unknown_db_target(tmp_path: Path):
+    with pytest.raises(ValueError, match="db_target"):
+        PipelineConfig(landing_dir=tmp_path, db_target="sandbox", criar_dirs=False)
+
+
+def test_from_yaml_db_target_default_topo_e_source(tmp_path: Path):
+    yml = _yml(
+        tmp_path,
+        "db_target: models\n"
+        "environments:\n  dev:\n    base_raw: /tmp/x\n"
+        "sources:\n  s:\n    db_table: e\n"
+        "  t:\n    db_table: f\n    db_target: ingestion\n",
+    )
+    assert PipelineConfig.from_yaml(
+        yml, "s", env="dev", criar_dirs=False
+    ).db_target == ("models")
+    assert PipelineConfig.from_yaml(
+        yml, "t", env="dev", criar_dirs=False
+    ).db_target == ("ingestion")
+    sem = _yml(
+        tmp_path,
+        "environments:\n  dev:\n    base_raw: /tmp/x\n"
+        "sources:\n  s:\n    db_table: e\n",
+    )
+    assert PipelineConfig.from_yaml(
+        sem, "s", env="dev", criar_dirs=False
+    ).db_target == ("ingestion")

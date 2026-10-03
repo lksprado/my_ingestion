@@ -14,6 +14,14 @@ A intervenção nos dados é mínima — o suficiente para torná-los tabulares 
 de coluna limpos. Por isso as cargas são **full refresh**: o volume é pequeno e a
 idempotência vem de recarregar tudo, o que também tolera mudança de schema na origem.
 
+## Banco de destino
+
+O YAML tem `db_target: models`: em `ENV=dev` a carga vai direto para o
+`analytics_dev` (onde o dbt de dev lê), não para o `ingestion_sandbox`. Os Excel e
+PDFs de b3/avenue só existem no lake local, então essas duas rodam só em dev (a DAG
+`investments__portfolio__ingestion` existe só no Airflow de dev). O google também
+roda em prod, onde o banco é um só.
+
 ## Fontes
 
 | Módulo | Entidade | Origem | Entrada | Tabelas destino |

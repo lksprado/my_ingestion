@@ -77,6 +77,9 @@ if __name__ == "__main__":
     `options.control_table` (default `ingestion_control`).
   - `none` — só loga (o orquestrador carrega).
 - `db_schema` ausente ou sem prefixo `raw_` levanta `ValueError` antes de conectar.
+- O banco vem de `cfg.db_target`: `ingestion` (default) usa `settings.db_target`;
+  `models` usa `settings.models_target` (em dev, o `analytics_dev`; em prod, o mesmo
+  banco). Vale também para a tabela de controle.
 
 ### `Etl(extract=None, transform=None, load=None)`
 Dataclass com as funções de uma entidade; `None` usa o default do `GenericETL`.
@@ -117,6 +120,7 @@ source, *, env=None, **overrides)` é a forma de construir (o `env` default vem 
 | `db_table` / `db_schema` | tabela e schema destino (`raw_<fonte>`) |
 | `load` | de onde carregar: `table` (default) \| `files` \| `jsonb` \| `none` |
 | `write` | como escrever na tabela: `truncate` (default) \| `append` |
+| `db_target` | banco da carga: `ingestion` (default) \| `models` (em dev, `analytics_dev`) |
 | `bronze_sep` | separador do bronze (default `;`) |
 | `options` | dict livre do bloco `options:` (as chaves que a core lê estão na tabela abaixo) |
 | `criar_dirs` | cria os diretórios no `__init__` (default `True`; em testes use `False`) |
@@ -144,7 +148,7 @@ documentadas no cabeçalho do `<fonte>_config.yml` dela.
 | `lookback_days` | `missing_dates_from_landing` | `30` | Janela em que um dia sem arquivo é pedido de novo |
 | `cutoff_hour` | `missing_dates_from_landing` | `20` | A partir dessa hora, hoje conta como dia completo |
 
-Formato do YAML (`db_schema`, `load`, `write`, `bronze_sep` e `options` valem no
+Formato do YAML (`db_schema`, `load`, `write`, `db_target`, `bronze_sep` e `options` valem no
 topo como default do arquivo e podem ser sobrescritos por source; `options` faz
 merge):
 
@@ -152,6 +156,7 @@ merge):
 db_schema: "raw_camara"
 load: table                       # opcional
 write: truncate                   # opcional (truncate | append)
+db_target: ingestion              # opcional (ingestion | models)
 environments:
   dev:
     base_raw: "${LAKE_ROOT}/raw/demodados/camara"
@@ -178,7 +183,7 @@ sources:
 Valida a estrutura de um `<fonte>_config.yml` já carregado e devolve os erros
 (lista vazia = ok), cada um com o caminho da chave (`sources.votos.load: ...`).
 Rejeita chave desconhecida no topo, nos ambientes e nas sources (`_source_dict`
-ignoraria em silêncio), `load`/`write`/`bronze_sep` inválidos, ambientes que não
+ignoraria em silêncio), `load`/`write`/`db_target`/`bronze_sep` inválidos, ambientes que não
 sejam exatamente `dev` e `prod`, `base_raw` ausente, path de `dev` fora de
 `${LAKE_ROOT}`/`${SEEDS_ROOT}`, `db_schema` sem `raw_` quando `load` é
 `table|files|jsonb`, `db_table` ausente com `table|jsonb` e `write: append` com

@@ -15,8 +15,10 @@ inativos podem ficar em branco no .env.
 
 Em dev, cargas e objetos do dbt vivem em bancos diferentes: a carga vai para o
 sandbox, e o que o dbt constrói (``intermediate``, marts) fica no
-``analytics_dev``. Leituras desses objetos usam ``settings.models_target`` — hoje
-só o ``investimentos_fgc``. Em prod os dois são o mesmo banco.
+``analytics_dev``. Leituras desses objetos usam ``settings.models_target``. A
+exceção é a fonte com ``db_target: models`` no YAML (investimentos, que só roda
+local): a carga dela vai direto para o ``analytics_dev``. Em prod os dois são o
+mesmo banco.
 
 Configuração de fonte
 ---------------------

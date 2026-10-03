@@ -29,7 +29,7 @@ from typing import Literal
 
 from core.config import PipelineConfig
 from core.control import control_for, manifest_path, read_manifest
-from core.db import PostgresClient, validate_raw_schema
+from core.db import PostgresClient, target_for, validate_raw_schema
 from core.http import HttpClient, redact
 from core.jsonb import JsonbLoader
 from core.logging import setup_logger
@@ -108,7 +108,7 @@ class GenericETL:
         after_copy = self._registrar_manifesto()
         if after_copy is False:  # bronze-delta vazio: nada a fazer
             return
-        PostgresClient(log=self.logger).copy_csv(
+        PostgresClient(target_for(cfg.db_target), log=self.logger).copy_csv(
             path,
             cfg.db_table,
             schema=schema,
@@ -150,7 +150,7 @@ class GenericETL:
         cfg = self.cfg
         schema = validate_raw_schema(cfg.db_schema)
         self.logger.info(f"📤 {cfg.bronze_dir}/* -> {schema}.*")
-        PostgresClient(log=self.logger).load_files_to_table(
+        PostgresClient(target_for(cfg.db_target), log=self.logger).load_files_to_table(
             cfg.bronze_dir,
             schema=schema,
             pattern=cfg.options.get("file_pattern", "*.csv"),
@@ -167,7 +167,7 @@ class GenericETL:
             self.logger.warning(f"⚠️ Nenhum arquivo ({pattern}) em {cfg.landing_dir}")
             return
         JsonbLoader(
-            PostgresClient(log=self.logger),
+            PostgresClient(target_for(cfg.db_target), log=self.logger),
             schema=schema,
             control_table=cfg.options.get("control_table", "ingestion_control"),
             log=self.logger,
