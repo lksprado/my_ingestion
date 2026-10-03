@@ -13,6 +13,7 @@ from core.db import (
     PostgresClient,
     plan_columns,
     read_csv_header,
+    target_for,
     validate_raw_schema,
     validate_write_mode,
 )
@@ -167,3 +168,22 @@ def test_load_files_manda_csv_direto_para_o_copy(tmp_path, monkeypatch):
             },
         )
     ]
+
+
+def test_target_for_ingestion_usa_o_default_do_client():
+    assert target_for("ingestion") is None
+
+
+def test_target_for_models_usa_o_models_target(monkeypatch):
+    import settings as settings_module
+
+    alvo = DbTarget(host="h", name="analytics_dev", user="u", password="p")
+    monkeypatch.setattr(
+        type(settings_module.settings), "models_target", property(lambda _: alvo)
+    )
+    assert target_for("models") is alvo
+
+
+def test_target_for_rejeita_nome_desconhecido():
+    with pytest.raises(ValueError, match="db_target"):
+        target_for("sandbox")

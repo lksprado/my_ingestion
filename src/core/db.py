@@ -290,6 +290,20 @@ def _default_target() -> "DbTarget":
     return settings.db_target
 
 
+def target_for(db_target: str) -> "DbTarget | None":
+    """Alvo do ``db_target`` do YAML: ``ingestion`` → ``None`` (o default do
+    ``PostgresClient``, ``settings.db_target``); ``models`` →
+    ``settings.models_target`` (em dev, o ``analytics_dev``; em prod, o mesmo banco).
+    """
+    if db_target == "ingestion":
+        return None
+    if db_target == "models":
+        from settings import settings
+
+        return settings.models_target
+    raise ValueError(f"db_target={db_target!r} inválido; use ingestion ou models.")
+
+
 class PostgresClient:
     def __init__(
         self,

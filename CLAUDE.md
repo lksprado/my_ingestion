@@ -33,6 +33,8 @@ uv run python -m pipelines.<domínio>.<fonte>.<fonte>_etl [entidade ...] [--step
   Raw é sempre `TEXT` (exceção: `JsonbLoader`); tipagem é do dbt. `arquivo_origem`/`loaded_at_utc` são
   `DEFAULT` do catálogo.
 - **Banco**: `ENV` escolhe o perfil `DB__<ENV>__*`; `dev` é obrigatoriamente `ingestion_sandbox`.
+  Exceção: fonte com `db_target: models` no YAML (só investimentos, que roda só local) carrega
+  no `analytics_dev`.
   `PostgresClient()` sem argumentos; nunca `db_name=`. Escrita exige `schema=` explícito `raw_*`.
   Leitura de modelos dbt via `PostgresClient(settings.models_target)`.
 - **`HttpClient` devolve `None` em erro**: trate, logue e siga; extract termina com

@@ -30,7 +30,12 @@ from typing import TypeVar
 import pandas as pd
 
 from core.config import PipelineConfig
-from core.db import LOADED_AT_DEFAULT, PostgresClient, validate_raw_schema
+from core.db import (
+    LOADED_AT_DEFAULT,
+    PostgresClient,
+    target_for,
+    validate_raw_schema,
+)
 from core.io import stream_bronze, write_bronze_streaming
 
 logger = logging.getLogger(__name__)
@@ -177,7 +182,10 @@ def control_for(cfg: PipelineConfig, log: logging.Logger | None = None):
     if not nome:
         return None
     return IngestionControl(
-        PostgresClient(log=log), schema=cfg.db_schema, table=nome, log=log
+        PostgresClient(target_for(cfg.db_target), log=log),
+        schema=cfg.db_schema,
+        table=nome,
+        log=log,
     )
 
 
