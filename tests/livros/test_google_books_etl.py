@@ -78,7 +78,7 @@ def test_autor_confere(autor, resposta, esperado):
 def test_buscar_livro_aceita_na_primeira_tentativa():
     http = FakeHttp(
         {
-            'intitle:"Dom Casmurro" inauthor:"Machado de Assis"': {
+            '"Dom Casmurro" inauthor:assis': {
                 "items": [item("a", "Dom Casmurro", ["Machado de Assis"], "pt-BR")]
             }
         }
@@ -91,7 +91,7 @@ def test_buscar_livro_aceita_na_primeira_tentativa():
 def test_buscar_livro_pula_item_de_outro_autor():
     http = FakeHttp(
         {
-            'intitle:"Cidade de ladrões" inauthor:"David Benioff"': {
+            '"Cidade de ladrões" inauthor:benioff': {
                 "items": [
                     item("x", "Cidade", ["Tim Ferriss"]),
                     item("y", "Cidade de Ladrões", ["David Benioff"]),
@@ -106,7 +106,7 @@ def test_buscar_livro_pula_item_de_outro_autor():
 def test_buscar_livro_cai_para_so_titulo():
     http = FakeHttp(
         {
-            'intitle:"anna karenina"': {
+            '"anna karenina"': {
                 "items": [item("r", "Anna Karenina", ["graf Leo Tolstoy"])]
             }
         }
@@ -114,15 +114,15 @@ def test_buscar_livro_cai_para_so_titulo():
     r = buscar_livro(http, "u", "anna karenina", "Leo Tolstoi")
     assert r.busca == "titulo"
     assert http.queries == [
-        'intitle:"anna karenina" inauthor:"Leo Tolstoi"',
-        'intitle:"anna karenina" inauthor:tolstoi',
-        'intitle:"anna karenina"',
+        '"anna karenina" inauthor:tolstoi',
+        "anna karenina inauthor:tolstoi",
+        '"anna karenina"',
     ]
 
 
 def test_buscar_livro_nenhum_confere():
     http = FakeHttp(
-        {'intitle:"a mente trágica"': {"items": [item("z", "La mentalidad", None)]}}
+        {'"a mente trágica"': {"items": [item("z", "La mentalidad", None)]}}
     )
     assert buscar_livro(http, "u", "a mente trágica", "Robert D. Kaplan") is None
 
@@ -152,10 +152,10 @@ def test_escolher_item_prefere_portugues():
 def test_buscar_livro_procura_portugues_nas_tentativas_seguintes():
     http = FakeHttp(
         {
-            'intitle:"técnicas" inauthor:"curzio malaparte"': {
+            '"técnicas" inauthor:malaparte': {
                 "items": [item("es", "Técnicas", ["Curzio Malaparte"], "es")]
             },
-            'intitle:"técnicas"': {
+            '"técnicas"': {
                 "items": [item("pt", "Técnicas", ["Curzio Malaparte"], "pt-BR")]
             },
         }
@@ -167,7 +167,7 @@ def test_buscar_livro_procura_portugues_nas_tentativas_seguintes():
 def test_buscar_livro_sem_portugues_usa_primeiro_aceito():
     http = FakeHttp(
         {
-            'intitle:"lion rampant" inauthor:"robert woollcombe"': {
+            '"lion rampant" inauthor:woollcombe': {
                 "items": [item("en", "Lion Rampant", ["Robert Woollcombe"], "en")]
             }
         }
@@ -178,7 +178,7 @@ def test_buscar_livro_sem_portugues_usa_primeiro_aceito():
 
 
 def test_buscar_livro_sem_autor_aceita_primeiro():
-    http = FakeHttp({'intitle:"retórica"': {"items": [item("a", "Retórica", [])]}})
+    http = FakeHttp({'"retórica"': {"items": [item("a", "Retórica", [])]}})
     r = buscar_livro(http, "u", "retórica", None)
     assert (r.busca, r.indice) == ("titulo", 0)
 
@@ -233,3 +233,36 @@ def test_settings_da_fonte(monkeypatch):
     monkeypatch.delenv("GOOGLE_BOOKS_API_KEY")
     with pytest.raises(ValueError, match="GOOGLE_BOOKS_API_KEY"):
         GoogleBooksSettings.carregar(_env_file=None)
+
+
+def _extract_sem_resultado(monkeypatch, tmp_path, landing_existente):
+    from types import SimpleNamespace
+
+    import pipelines.livros.google_books.google_books_etl as gb
+
+    livros = [("Dom Casmurro", "Machado de Assis"), ("Antifrágil", "Taleb")]
+    cfg = SimpleNamespace(
+        options={"chaves_file": "chaves.csv"},
+        parameter_dir=tmp_path,
+        landing_dir=tmp_path,
+        landing_file="{slug}.json",
+        url_base="u",
+    )
+    if landing_existente:
+        (tmp_path / f"{gb.chave(*livros[0])}.json").write_text("{}")
+    monkeypatch.setattr(gb, "read_livros", lambda cfg: livros)
+    monkeypatch.setattr(gb, "write_csv", lambda *a, **k: None)
+    monkeypatch.setattr(
+        gb.GoogleBooksSettings, "carregar", lambda: SimpleNamespace(api_key="k")
+    )
+    monkeypatch.setattr(gb, "HttpClient", lambda *a, **k: FakeHttp({}))
+    gb.extract(cfg)
+
+
+def test_extract_sem_nenhum_resultado_e_landing_vazio_falha(monkeypatch, tmp_path):
+    with pytest.raises(RuntimeError, match="Nenhum dos 2"):
+        _extract_sem_resultado(monkeypatch, tmp_path, landing_existente=False)
+
+
+def test_extract_sem_resultado_com_landing_so_avisa(monkeypatch, tmp_path):
+    _extract_sem_resultado(monkeypatch, tmp_path, landing_existente=True)
