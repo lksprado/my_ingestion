@@ -89,15 +89,21 @@ def autor_confere(autor: str | None, autores_resposta: list[str] | None) -> bool
 
 
 def tentativas(titulo: str, autor: str | None) -> list[tuple[str, str]]:
-    """Consultas em ordem, da mais restrita para a mais solta: ``(busca, q)``."""
-    q_titulo = f'intitle:"{titulo}"'
+    """Consultas em ordem, da mais restrita para a mais solta: ``(busca, q)``.
+
+    Desde out/2026 a API devolve vazio para consulta só de operadores
+    (``intitle:"x"``, ``inauthor:y``) e para ``inauthor:"Nome Completo"``: o
+    título vai como termo livre e o autor só pelo sobrenome, sem aspas.
+    ``escolher_item`` confere o autor de qualquer forma.
+    """
+    q_titulo = f'"{titulo}"'
     autores = autores_seed(autor)
     if not autores:
         return [("titulo", q_titulo)]
-    principal = autores[0]
+    q_autor = f"inauthor:{sobrenome(autores[0])}"
     return [
-        ("autor", f'{q_titulo} inauthor:"{principal}"'),
-        ("sobrenome", f"{q_titulo} inauthor:{sobrenome(principal)}"),
+        ("autor", f"{q_titulo} {q_autor}"),
+        ("sobrenome", f"{titulo} {q_autor}"),
         ("titulo", q_titulo),
     ]
 
@@ -284,6 +290,16 @@ def extract(cfg: PipelineConfig) -> None:
     if sem_resultado:
         logger.warning(f"{sem_resultado} livro(s) sem resultado, ficam pendentes.")
     ensure_some_success(len(pendentes), falhas, "livro(s)", log=logger)
+    # Nenhum livro achado e landing vazio: o bronze sairia vazio. Costuma ser
+    # mudança na API (out/2026: consultas só com intitle: passaram a voltar
+    # vazias), não grafia da seed.
+    if sem_resultado == len(pendentes) and not any(
+        _landing_path(cfg, chave(t, a)).exists() for t, a in livros
+    ):
+        raise RuntimeError(
+            f"Nenhum dos {len(pendentes)} livro(s) teve resultado e o landing está "
+            "vazio; conferir as consultas de tentativas() na API."
+        )
 
 
 def _parse_file(path: Path) -> pd.DataFrame:

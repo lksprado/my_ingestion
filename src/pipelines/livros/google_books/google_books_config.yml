@@ -1,7 +1,7 @@
 # Fonte: Google Books API (/books/v1/volumes), busca por título + autor.
 # Os livros vêm da seed do dbt (options.seed_table, lida de settings.models_target:
-# analytics_dev em dev). A busca é em cascata — intitle+inauthor completo,
-# intitle+sobrenome, só intitle — e só aceita item cujo autor confere com a seed
+# analytics_dev em dev). A busca é em cascata — título exato+sobrenome, título
+# solto+sobrenome, só título exato — e só aceita item cujo autor confere com a seed
 # (sobrenome, fuzzy). O landing acumula um JSON por livro ({slug} = título__autor
 # normalizados, resolvido pelo pipeline): o extract só busca o que não tem JSON, e
 # mudar título ou autor na seed gera outra chave, logo nova busca. Sem item
